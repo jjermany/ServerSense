@@ -14,6 +14,7 @@ Last updated: 2026-08-14
 - [x] multi-stage single-container Docker build and Compose
 - [x] persistent `/config` layout
 - [x] guided welcome, administrator, monitoring mode, and optional-AI setup flow
+- [x] live-mode first-launch default with a non-bypassable monitoring selection step
 
 ## Monitoring and intelligence
 

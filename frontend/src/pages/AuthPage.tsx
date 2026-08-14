@@ -17,10 +17,25 @@ export default function AuthPage({
     server_name: "Tower",
     username: "",
     password: "",
-    demo_mode: true,
+    demo_mode: false,
   });
+  const advanceSetup = () => {
+    if (
+      step === 1 &&
+      (setup.username.length < 3 || setup.password.length < 12)
+    ) {
+      setError("Choose a username and a password of at least 12 characters.");
+      return;
+    }
+    setError("");
+    setStep(step + 1);
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (mode === "setup" && step < 2) {
+      advanceSetup();
+      return;
+    }
     setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
@@ -211,19 +226,7 @@ export default function AuthPage({
           <button
             type="button"
             className="primary"
-            onClick={() => {
-              if (
-                step === 1 &&
-                (setup.username.length < 3 || setup.password.length < 12)
-              ) {
-                setError(
-                  "Choose a username and a password of at least 12 characters.",
-                );
-                return;
-              }
-              setError("");
-              setStep(step + 1);
-            }}
+            onClick={advanceSetup}
           >
             {step === 0 ? "Begin setup" : "Continue"}
           </button>

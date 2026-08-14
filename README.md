@@ -16,7 +16,7 @@ docker compose up --build -d
 
 Open `http://YOUR-SERVER-IP:8080`, create the local administrator, and follow first-launch setup. Data, encrypted provider credentials, logs, backups, and the SQLite database live under `./config`, mounted as `/config` in the container.
 
-For a demo on non-Unraid hardware, set `SERVERSENSE_DEMO_MODE=true`. Demo telemetry is labeled and is never mixed into live collection.
+Live monitoring is the first-launch default. For a demo on non-Unraid hardware, explicitly select demo data during setup or set `SERVERSENSE_DEMO_MODE=true`. Demo telemetry is labeled and is never mixed into live collection.
 
 ## Published Docker image
 
