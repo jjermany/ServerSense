@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 
 ## Foundation
 
@@ -54,6 +54,7 @@ Last updated: 2026-08-13
 - [ ] browser end-to-end tests (browser runtime unavailable in the current verification session)
 - [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, webhook integration
 - [x] production Docker build, health, setup, route, stream, and recreation verification
+- [x] GitHub Actions build and GitHub Container Registry publishing on push
 - [x] migration upgrade/downgrade/upgrade round trip
 - [x] Python and npm dependency audits report no known vulnerabilities
 - [ ] browser visual QA and accessibility pass
