@@ -24,14 +24,14 @@ Until the image is published to a registry, build it on a Docker-capable machine
 
 Required mounts:
 
-| Container path | Host path | Mode | Purpose |
-|---|---|---|---|
-| `/config` | `/mnt/user/appdata/serversense` | read/write | All persistent state |
-| `/mnt/user` | `/mnt/user` | read-only | Array capacity |
-| `/var/local/emhttp` | `/var/local/emhttp` | read-only | Unraid disk metadata |
-| `/etc/unraid-version` | `/etc/unraid-version` | read-only | Platform detection |
-| `/dev` | `/dev` | read-only | SMART device queries |
-| `/var/run/docker.sock` | `/var/run/docker.sock` | read-only | Docker inventory |
+| Container path         | Host path                       | Mode       | Purpose              |
+| ---------------------- | ------------------------------- | ---------- | -------------------- |
+| `/config`              | `/mnt/user/appdata/serversense` | read/write | All persistent state |
+| `/mnt/user`            | `/mnt/user`                     | read-only  | Array capacity       |
+| `/var/local/emhttp`    | `/var/local/emhttp`             | read-only  | Unraid disk metadata |
+| `/etc/unraid-version`  | `/etc/unraid-version`           | read-only  | Platform detection   |
+| `/dev`                 | `/dev`                          | read-only  | SMART device queries |
+| `/var/run/docker.sock` | `/var/run/docker.sock`          | read-only  | Docker inventory     |
 
 The Docker API is powerful even through a read-only bind. ServerSense uses it only in a restricted collector and never exposes it to SENSE. Do not publish ServerSense directly to the public internet; put it behind a trusted TLS reverse proxy if remote access is required.
 
