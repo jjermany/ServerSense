@@ -11,7 +11,7 @@
   <Category>Tools:System Status</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/serversense/serversense/main/unraid/icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/jjermany/ServerSense/master/unraid/icon.png</Icon>
   <ExtraParams>--security-opt no-new-privileges:true</ExtraParams>
   <PostArgs/>
   <CPUset/>
@@ -29,4 +29,3 @@
   <Config Name="Installation Secret" Target="SERVERSENSE_SECRET_KEY" Default="" Mode="" Description="Stable random secret, e.g. openssl rand -hex 32" Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Array Path" Target="SERVERSENSE_ARRAY_PATH" Default="/mnt/user" Mode="" Description="Capacity source inside the container" Type="Variable" Display="advanced" Required="true" Mask="false">/mnt/user</Config>
 </Container>
-
