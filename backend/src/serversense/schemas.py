@@ -1,0 +1,90 @@
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SetupRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=12, max_length=256)
+    server_name: str = Field(default="My Server", min_length=1, max_length=120)
+    demo_mode: bool = False
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    username: str
+    is_admin: bool
+
+
+class StoragePoint(BaseModel):
+    timestamp: datetime
+    total_bytes: int
+    used_bytes: int
+    free_bytes: int
+    projected: bool = False
+
+
+class ForecastWindow(BaseModel):
+    window_days: int
+    bytes_per_day: float | None
+    days_remaining: float | None
+    exhaustion_date: datetime | None
+    confidence: str
+    sample_count: int
+
+
+class ForecastResponse(BaseModel):
+    current_total_bytes: int
+    current_used_bytes: int
+    current_free_bytes: int
+    forecasts: list[ForecastWindow]
+    recommended_window_days: int | None
+
+
+class AISettings(BaseModel):
+    provider: str = Field(default="disabled", pattern="^(disabled|ollama|openai_compatible)$")
+    model: str = Field(default="", max_length=200)
+    endpoint: str = Field(default="", max_length=2000)
+    api_key: str | None = Field(default=None, max_length=500)
+    context_window: int = Field(default=8192, ge=1024, le=262144)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+    timeout_seconds: int = Field(default=60, ge=5, le=600)
+    max_tool_calls: int = Field(default=5, ge=1, le=12)
+
+
+class AlertSettings(BaseModel):
+    free_percent_threshold: float = Field(default=10, ge=1, le=50)
+    forecast_days_threshold: int = Field(default=90, ge=1, le=3650)
+    temperature_c_threshold: float = Field(default=50, ge=30, le=90)
+    webhook_enabled: bool = False
+    webhook_url: str | None = Field(default=None, max_length=2000)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+    conversation_id: int | None = None
+
+
+class ChatResponse(BaseModel):
+    conversation_id: int
+    message: str
+    tools_used: list[str]
+    model: str
+
+
+class DashboardResponse(BaseModel):
+    server: dict[str, Any]
+    storage: dict[str, Any]
+    system: dict[str, Any]
+    disks: list[dict[str, Any]]
+    containers: list[dict[str, Any]]
+    alerts: list[dict[str, Any]]
+    insights: list[dict[str, Any]]
+    demo_mode: bool

@@ -1,0 +1,224 @@
+import { useEffect, useState } from "react";
+import {
+  Area,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
+import { api, formatBytes } from "../api";
+import type { StoragePoint } from "../types";
+import { Card, Metric, PageHeader } from "../components/UI";
+
+type Forecast = {
+  current_total_bytes: number;
+  current_used_bytes: number;
+  current_free_bytes: number;
+  forecasts: {
+    window_days: number;
+    bytes_per_day: number | null;
+    days_remaining: number | null;
+    exhaustion_date: string | null;
+    confidence: string;
+    sample_count: number;
+  }[];
+  recommended_window_days: number | null;
+};
+type ChartPoint = {
+  timestamp: string;
+  total_bytes: number;
+  used_bytes?: number;
+  free_bytes?: number;
+  projected: boolean;
+  projected_used_bytes?: number;
+  projected_free_bytes?: number;
+};
+const ranges = ["24h", "7d", "30d", "90d", "1y", "all"];
+export default function StoragePage() {
+  const [range, setRange] = useState("90d");
+  const [history, setHistory] = useState<StoragePoint[]>([]);
+  const [forecast, setForecast] = useState<Forecast>();
+  useEffect(() => {
+    api<StoragePoint[]>(`/api/storage/history?range=${range}`).then(setHistory);
+    api<Forecast>("/api/storage/forecast").then(setForecast);
+  }, [range]);
+  const preferred = forecast?.forecasts.find((x) => x.window_days === 30);
+  const chartData: ChartPoint[] = history.map((point, index) => ({
+    ...point,
+    projected_used_bytes:
+      index === history.length - 1 ? point.used_bytes : undefined,
+    projected_free_bytes:
+      index === history.length - 1 ? point.free_bytes : undefined,
+  }));
+  if (
+    forecast &&
+    preferred?.bytes_per_day &&
+    preferred.days_remaining &&
+    history.length
+  ) {
+    const horizon = Math.min(preferred.days_remaining, 180);
+    const start = new Date(history[history.length - 1].timestamp);
+    for (let index = 1; index <= 12; index += 1) {
+      const days = (horizon / 12) * index;
+      const projectedUsed = Math.min(
+        forecast.current_total_bytes,
+        forecast.current_used_bytes + preferred.bytes_per_day * days,
+      );
+      chartData.push({
+        timestamp: new Date(start.getTime() + days * 86_400_000).toISOString(),
+        total_bytes: forecast.current_total_bytes,
+        projected: true,
+        projected_used_bytes: projectedUsed,
+        projected_free_bytes: forecast.current_total_bytes - projectedUsed,
+      });
+    }
+  }
+  return (
+    <div className="page">
+      <PageHeader eyebrow="STORAGE INTELLIGENCE" title="Array capacity" />
+      <div className="metrics-grid three">
+        <Metric
+          label="Available"
+          value={forecast ? formatBytes(forecast.current_free_bytes, 2) : "—"}
+          detail="Current free capacity"
+        />
+        <Metric
+          label="30-day growth"
+          value={
+            preferred?.bytes_per_day
+              ? `${formatBytes(preferred.bytes_per_day)}/day`
+              : "Learning"
+          }
+          detail={`${preferred?.confidence ?? "Insufficient"} confidence`}
+        />
+        <Metric
+          label="Projected exhaustion"
+          value={
+            preferred?.days_remaining
+              ? `~${Math.round(preferred.days_remaining)} days`
+              : "Not projected"
+          }
+          detail={
+            preferred?.exhaustion_date
+              ? new Date(preferred.exhaustion_date).toLocaleDateString()
+              : "Needs more history"
+          }
+        />
+      </div>
+      <Card className="full-chart">
+        <div className="card-head">
+          <div>
+            <span className="eyebrow">CAPACITY HISTORY</span>
+            <h2>Measured storage use</h2>
+          </div>
+          <div className="range-tabs">
+            {ranges.map((item) => (
+              <button
+                key={item}
+                className={range === item ? "active" : ""}
+                onClick={() => setRange(item)}
+              >
+                {item.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="chart-wrap tall">
+          <ResponsiveContainer>
+            <ComposedChart data={chartData}>
+              <CartesianGrid stroke="#202633" vertical={false} />
+              <XAxis
+                dataKey="timestamp"
+                tickFormatter={(v) =>
+                  new Date(v).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })
+                }
+                stroke="#626d7e"
+              />
+              <YAxis
+                tickFormatter={(v) => `${(v / 1e12).toFixed(0)}T`}
+                stroke="#626d7e"
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#111722",
+                  border: "1px solid #2a3342",
+                }}
+                formatter={(v) => formatBytes(Number(v), 2)}
+              />
+              <Area
+                dataKey="used_bytes"
+                name="Used"
+                stroke="#8090ff"
+                fill="#6c7cff25"
+              />
+              <Line
+                dataKey="free_bytes"
+                name="Free"
+                stroke="#42d6a4"
+                dot={false}
+              />
+              <Line
+                dataKey="projected_used_bytes"
+                name="Projected used"
+                stroke="#a58aff"
+                strokeDasharray="6 5"
+                dot={false}
+              />
+              <Line
+                dataKey="projected_free_bytes"
+                name="Projected free"
+                stroke="#42d6a4"
+                strokeDasharray="6 5"
+                dot={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="chart-foot">
+          <span>
+            <i className="legend measured" />
+            Measured
+          </span>
+          <span>
+            <i className="legend projected" />
+            Deterministic 30-day projection
+          </span>
+        </div>
+      </Card>
+      <div className="forecast-grid">
+        {forecast?.forecasts.map((item) => (
+          <Card key={item.window_days} className="forecast-card">
+            <span className="eyebrow">{item.window_days}-DAY WINDOW</span>
+            <strong>
+              {item.bytes_per_day == null
+                ? "Learning"
+                : `${formatBytes(item.bytes_per_day)}/day`}
+            </strong>
+            <div>
+              <span>Estimated remaining</span>
+              <b>
+                {item.days_remaining
+                  ? `${Math.round(item.days_remaining)} days`
+                  : "—"}
+              </b>
+            </div>
+            <div>
+              <span>Confidence</span>
+              <b>{item.confidence}</b>
+            </div>
+            <div>
+              <span>Samples analyzed</span>
+              <b>{item.sample_count}</b>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}

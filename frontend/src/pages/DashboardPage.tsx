@@ -1,0 +1,280 @@
+import { useEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Bot,
+  HardDrive,
+  Server,
+} from "lucide-react";
+import { api, formatBytes } from "../api";
+import type { Dashboard, StoragePoint } from "../types";
+import { Card, Metric, PageHeader, Status } from "../components/UI";
+
+export default function DashboardPage() {
+  const [data, setData] = useState<Dashboard>();
+  const [history, setHistory] = useState<StoragePoint[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    Promise.all([
+      api<Dashboard>("/api/dashboard"),
+      api<StoragePoint[]>("/api/storage/history?range=90d"),
+    ])
+      .then(([dashboard, points]) => {
+        setData(dashboard);
+        setHistory(points);
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+  if (error)
+    return (
+      <div className="page">
+        <div className="form-error">{error}</div>
+      </div>
+    );
+  if (!data)
+    return (
+      <div className="page loading-grid">
+        <Card />
+        <Card />
+        <Card />
+      </div>
+    );
+  const usedPercent = data.storage.total_bytes
+    ? (data.storage.used_bytes / data.storage.total_bytes) * 100
+    : 0;
+  const hottest = [...data.disks].sort(
+    (a, b) => (b.temperature_c ?? 0) - (a.temperature_c ?? 0),
+  )[0];
+  const online = data.containers.filter((x) => x.status === "running").length;
+  return (
+    <div className="page">
+      <PageHeader
+        eyebrow="OVERVIEW"
+        title={`Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}.`}
+      >
+        <div className="server-pill">
+          <Server size={17} />
+          <span>
+            <b>{data.server.name}</b>
+            <small>
+              Array <Status value={data.server.array_status} />
+            </small>
+          </span>
+        </div>
+      </PageHeader>
+      {data.demo_mode && (
+        <div className="demo-banner">
+          <span>DEMO</span> You’re viewing realistic simulated Unraid telemetry.
+        </div>
+      )}
+      <div className="metrics-grid">
+        <Metric
+          label="Free storage"
+          value={formatBytes(data.storage.free_bytes, 2)}
+          detail={`${usedPercent.toFixed(1)}% array used`}
+        />
+        <Metric
+          label="Estimated remaining"
+          value={
+            data.storage.days_remaining
+              ? `~${Math.round(data.storage.days_remaining)} days`
+              : "Learning"
+          }
+          detail="30-day measured trend"
+          tone={
+            data.storage.days_remaining && data.storage.days_remaining < 180
+              ? "warning"
+              : "neutral"
+          }
+        />
+        <Metric
+          label="Hottest disk"
+          value={hottest?.temperature_c ? `${hottest.temperature_c}°C` : "—"}
+          detail={hottest?.name}
+        />
+        <Metric
+          label="Docker online"
+          value={`${online} / ${data.containers.length}`}
+          detail={
+            online === data.containers.length
+              ? "All containers healthy"
+              : "Attention required"
+          }
+          tone={online < data.containers.length ? "warning" : "neutral"}
+        />
+      </div>
+      <div className="dashboard-grid">
+        <Card className="storage-chart">
+          <div className="card-head">
+            <div>
+              <span className="eyebrow">ARRAY STORAGE</span>
+              <h2>Capacity trend</h2>
+            </div>
+            <div className="big-value">
+              <strong>{formatBytes(data.storage.free_bytes, 2)}</strong>
+              <small>available</small>
+            </div>
+          </div>
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history}>
+                <defs>
+                  <linearGradient id="used" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6c7cff" stopOpacity={0.45} />
+                    <stop
+                      offset="100%"
+                      stopColor="#6c7cff"
+                      stopOpacity={0.02}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#202633" vertical={false} />
+                <XAxis
+                  dataKey="timestamp"
+                  tickFormatter={(v) =>
+                    new Date(v).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })
+                  }
+                  stroke="#626d7e"
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tickFormatter={(v) => `${(v / 1e12).toFixed(0)}T`}
+                  domain={[
+                    "dataMin - 1000000000000",
+                    "dataMax + 1000000000000",
+                  ]}
+                  stroke="#626d7e"
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "#111722",
+                    border: "1px solid #2a3342",
+                    borderRadius: 10,
+                  }}
+                  formatter={(v) => formatBytes(Number(v), 2)}
+                labelFormatter={(v) => new Date(String(v)).toLocaleString()}
+                />
+                <Area
+                  dataKey="used_bytes"
+                  name="Used"
+                  stroke="#8090ff"
+                  strokeWidth={2}
+                  fill="url(#used)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-foot">
+            <span>
+              <i className="legend measured" />
+              Measured usage
+            </span>
+            <span className="growth">
+              +{formatBytes(data.storage.growth_bytes_per_day ?? 0)} / day{" "}
+              <ArrowUpRight size={14} />
+            </span>
+          </div>
+        </Card>
+        <Card className="insight-card">
+          <div className="sense-heading">
+            <span>
+              <Bot size={19} />
+            </span>
+            <div>
+              <small>SENSE</small>
+              <b>Insight</b>
+            </div>
+            <i className="spark" />
+          </div>
+          {data.insights.map((insight, index) => (
+            <article key={index}>
+              <h3>{insight.title}</h3>
+              <p>{insight.message}</p>
+              <small>
+                <i
+                  className={`status-dot ${insight.severity === "warning" ? "warn" : "good"}`}
+                />{" "}
+                Based on measured telemetry
+              </small>
+            </article>
+          ))}
+        </Card>
+      </div>
+      <div className="lower-grid">
+        <Card>
+          <div className="card-head">
+            <div>
+              <span className="eyebrow">PHYSICAL STORAGE</span>
+              <h2>Disk health</h2>
+            </div>
+            <a href="/disks">View all</a>
+          </div>
+          <div className="disk-list">
+            {data.disks.slice(0, 5).map((disk) => (
+              <div className="disk-row" key={disk.id}>
+                <HardDrive size={19} />
+                <div>
+                  <b>{disk.name}</b>
+                  <small>
+                    {disk.role} · {formatBytes(disk.total_bytes, 0)}
+                  </small>
+                </div>
+                <div className="bar">
+                  <i
+                    style={{
+                      width: `${(disk.used_bytes / disk.total_bytes) * 100}%`,
+                    }}
+                  />
+                </div>
+                <span>{disk.temperature_c ?? "—"}°</span>
+                <Status value={disk.smart_status} />
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <div className="card-head">
+            <div>
+              <span className="eyebrow">RECENT ACTIVITY</span>
+              <h2>Alerts</h2>
+            </div>
+            <a href="/alerts">View all</a>
+          </div>
+          {data.alerts.length ? (
+            <div className="alert-list">
+              {data.alerts.map((alert) => (
+                <article key={alert.id}>
+                  <span className={`alert-icon ${alert.severity}`}>
+                    <AlertTriangle size={16} />
+                  </span>
+                  <div>
+                    <b>{alert.title}</b>
+                    <p>{alert.message}</p>
+                    <small>{new Date(alert.created_at).toLocaleString()}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="empty">No active alerts</div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
