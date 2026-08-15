@@ -1,14 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(frontendRoot, "..");
-const configDirectory = mkdtempSync(join(tmpdir(), "serversense-e2e-"));
 const containerName = `serversense-e2e-${process.pid}-${Date.now()}`;
+const configVolume = `${containerName}-config`;
 const imageName = "serversense:e2e";
+let volumeCreated = false;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -43,6 +42,8 @@ try {
   run("docker", ["build", "--build-arg", "VERSION=e2e", "-t", imageName, "."], {
     stdio: "inherit",
   });
+  run("docker", ["volume", "create", configVolume]);
+  volumeCreated = true;
   run("docker", [
     "run",
     "--rm",
@@ -54,7 +55,7 @@ try {
     "-e",
     "SERVERSENSE_SECRET_KEY=e2e-only-secret-key-00000000000000000000000000000000",
     "-v",
-    `${configDirectory}:/config`,
+    `${configVolume}:/config`,
     imageName,
   ]);
 
@@ -78,5 +79,9 @@ try {
   });
 } finally {
   spawnSync("docker", ["stop", containerName], { stdio: "ignore" });
-  rmSync(configDirectory, { recursive: true, force: true });
+  if (volumeCreated) {
+    spawnSync("docker", ["volume", "rm", "-f", configVolume], {
+      stdio: "ignore",
+    });
+  }
 }
