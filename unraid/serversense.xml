@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>ServerSense</Name>
-  <Repository>serversense/serversense:latest</Repository>
-  <Registry>https://hub.docker.com/r/serversense/serversense</Registry>
+  <Repository>ghcr.io/jjermany/serversense:latest</Repository>
+  <Registry>https://github.com/jjermany/ServerSense/pkgs/container/serversense</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
-  <Support>https://github.com/serversense/serversense/issues</Support>
-  <Project>https://github.com/serversense/serversense</Project>
+  <Support>https://github.com/jjermany/ServerSense/issues</Support>
+  <Project>https://github.com/jjermany/ServerSense</Project>
   <Overview>Private Unraid monitoring, deterministic storage forecasting, alerts, and the read-only SENSE assistant.</Overview>
   <Category>Tools:System Status</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>

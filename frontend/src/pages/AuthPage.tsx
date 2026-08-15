@@ -28,7 +28,7 @@ export default function AuthPage({
       return;
     }
     setError("");
-    setStep(step + 1);
+    setStep((currentStep) => currentStep + 1);
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -222,23 +222,17 @@ export default function AuthPage({
           </>
         )}
         {error && <div className="form-error">{error}</div>}
-        {mode === "setup" && step < 2 ? (
-          <button
-            type="button"
-            className="primary"
-            onClick={advanceSetup}
-          >
-            {step === 0 ? "Begin setup" : "Continue"}
-          </button>
-        ) : (
-          <button className="primary" disabled={busy}>
-            {busy
-              ? "Please wait…"
-              : mode === "setup"
-                ? "Finish setup"
-                : "Sign in"}
-          </button>
-        )}
+        <button className="primary" disabled={busy}>
+          {busy
+            ? "Please wait…"
+            : mode === "setup"
+              ? step === 0
+                ? "Begin setup"
+                : step === 1
+                  ? "Continue"
+                  : "Finish setup"
+              : "Sign in"}
+        </button>
         {mode === "setup" && step > 0 && (
           <button
             type="button"

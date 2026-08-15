@@ -1,6 +1,6 @@
 # Unraid installation
 
-ServerSense is designed to run as one Docker container. The Community Applications template is a draft until a public image and support URLs exist.
+ServerSense is designed to run as one Docker container. The Community Applications template is a draft pending submission; it uses the public GitHub Container Registry image.
 
 ## Manual Docker setup
 
@@ -32,7 +32,7 @@ docker run -d \
   -v /etc/unraid-version:/etc/unraid-version:ro \
   -v /dev:/dev:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  serversense:latest
+  ghcr.io/jjermany/serversense:latest
 ```
 
 Save the generated secret in a password manager before running the container. Reuse it on every update; it protects encrypted provider credentials.
@@ -44,4 +44,3 @@ Stop the container, back up `/mnt/user/appdata/serversense`, pull/build the new 
 ## Security notes
 
 The Docker socket grants meaningful host visibility even with a read-only filesystem mount. The ServerSense collector only performs container inventory reads; the API and SENSE tool registry provide no Docker control operation. Avoid public port forwarding. Use a trusted VPN or authenticated HTTPS reverse proxy for remote access.
-

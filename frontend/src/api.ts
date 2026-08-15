@@ -18,3 +18,5 @@ export const formatBytes = (value: number, digits = 1) => {
   return `${(value / 1000 ** unit).toFixed(digits)} ${units[unit]}`
 }
 
+export const formatRate = (value: number | null) =>
+  value == null ? 'Learning' : `${formatBytes(value)}/s`

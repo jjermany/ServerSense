@@ -26,6 +26,9 @@ def test_tool_registry_has_only_read_only_allowlisted_tools() -> None:
         execute_tool(db, "get_server_overview", {"command": "whoami"})
     with SessionLocal() as db, pytest.raises(ValueError, match="too long"):
         execute_tool(db, "get_disk_details", {"disk_id": "x" * 121})
+    with SessionLocal() as db:
+        result = execute_tool(db, "get_pool_status", {})
+        assert isinstance(result["pools"], list)
 
 
 def test_login_rate_limiter_blocks_repeated_attempts() -> None:

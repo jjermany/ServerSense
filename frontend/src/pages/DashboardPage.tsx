@@ -15,7 +15,7 @@ import {
   HardDrive,
   Server,
 } from "lucide-react";
-import { api, formatBytes } from "../api";
+import { api, formatBytes, formatRate } from "../api";
 import type { Dashboard, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
 
@@ -110,6 +110,31 @@ export default function DashboardPage() {
               : "Attention required"
           }
           tone={online < data.containers.length ? "warning" : "neutral"}
+        />
+      </div>
+      <div className="metrics-grid three">
+        <Metric
+          label="System load"
+          value={
+            data.system.cpu_percent == null
+              ? "Learning"
+              : `${data.system.cpu_percent.toFixed(1)}% CPU`
+          }
+          detail={
+            data.system.memory_percent == null
+              ? "Memory sample unavailable"
+              : `${data.system.memory_percent.toFixed(1)}% memory used`
+          }
+        />
+        <Metric
+          label="Network received"
+          value={formatRate(data.system.network_rx_bytes_per_second)}
+          detail="Between the latest samples"
+        />
+        <Metric
+          label="Network sent"
+          value={formatRate(data.system.network_tx_bytes_per_second)}
+          detail="Between the latest samples"
         />
       </div>
       <div className="dashboard-grid">
@@ -209,7 +234,9 @@ export default function DashboardPage() {
                 <i
                   className={`status-dot ${insight.severity === "warning" ? "warn" : "good"}`}
                 />{" "}
-                Based on measured telemetry
+                {insight.source === "sense"
+                  ? `SENSE explanation · ${insight.model ?? "configured model"}`
+                  : "Based on measured telemetry"}
               </small>
             </article>
           ))}

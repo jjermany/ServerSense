@@ -9,33 +9,11 @@ from serversense.db import get_db
 from serversense.models import Alert, Setting
 from serversense.schemas import AISettings, AlertSettings
 from serversense.security import current_user
+from serversense.services.ai_config import read_ai_config
 from serversense.services.notifications import WebhookProvider
 from serversense.services.secrets import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
-
-
-def read_ai_config(db: Session, include_secret: bool = False) -> dict[str, Any]:
-    row = db.get(Setting, "ai")
-    value = (
-        dict(row.value)
-        if row
-        else {
-            "provider": "disabled",
-            "model": "",
-            "endpoint": "",
-            "context_window": 8192,
-            "temperature": 0.2,
-            "timeout_seconds": 60,
-            "max_tool_calls": 5,
-        }
-    )
-    encrypted = str(value.pop("api_key_encrypted", ""))
-    if include_secret:
-        value["api_key"] = decrypt_secret(encrypted) if encrypted else ""
-    else:
-        value["api_key_configured"] = bool(encrypted)
-    return value
 
 
 @router.get("/ai")

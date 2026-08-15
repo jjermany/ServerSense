@@ -33,8 +33,24 @@ export type Alert = {
   created_at: string;
   active?: boolean;
 };
+export type Pool = {
+  name: string;
+  filesystem: string | null;
+  status: string;
+  device_count: number;
+  devices: string[];
+  total_bytes: number;
+  used_bytes: number;
+  free_bytes: number;
+  raw_bytes: number;
+};
 export type Dashboard = {
-  server: { name: string; array_status: string; uptime_seconds: number };
+  server: {
+    name: string;
+    array_status: string;
+    uptime_seconds: number | null;
+    pools: Pool[];
+  };
   storage: {
     total_bytes: number;
     used_bytes: number;
@@ -42,7 +58,14 @@ export type Dashboard = {
     days_remaining: number | null;
     growth_bytes_per_day: number | null;
   };
-  system: { cpu_percent: number; memory_percent: number; load_1m: number };
+  system: {
+    cpu_percent: number | null;
+    memory_percent: number | null;
+    load_1m: number | null;
+    network_rx_bytes_per_second: number | null;
+    network_tx_bytes_per_second: number | null;
+    network_sample_interval_seconds: number | null;
+  };
   disks: Disk[];
   containers: Container[];
   alerts: Alert[];
@@ -51,6 +74,7 @@ export type Dashboard = {
     title: string;
     message: string;
     source: string;
+    model?: string;
   }[];
   demo_mode: boolean;
 };

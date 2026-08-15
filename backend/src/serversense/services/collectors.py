@@ -1,6 +1,7 @@
 import json
 import logging
 import platform
+import re
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -148,8 +149,10 @@ class UnraidCollector(LinuxCollector):
     def collect(self) -> Snapshot:
         snapshot = super().collect()
         snapshot.platform = "unraid"
-        snapshot.disks = self._unraid_disks(snapshot.timestamp)
+        sections = self._unraid_disk_sections()
+        snapshot.disks = self._unraid_disks(snapshot.timestamp, sections)
         snapshot.state = self._unraid_state()
+        snapshot.state["pools"] = self._unraid_pools(sections)
         return snapshot
 
     def _unraid_state(self) -> dict[str, Any]:
@@ -200,35 +203,111 @@ class UnraidCollector(LinuxCollector):
         except (OSError, subprocess.SubprocessError):
             return None
 
-    def _unraid_disks(self, timestamp: datetime) -> list[dict[str, Any]]:
+    def _unraid_disk_sections(self) -> list[dict[str, str]]:
         disk_config = Path("/var/local/emhttp/disks.ini")
         if not disk_config.is_file():
             return []
-        disks: list[dict[str, Any]] = []
+        return self._parse_disk_sections(disk_config.read_text(errors="replace"))
+
+    @staticmethod
+    def _parse_disk_sections(content: str) -> list[dict[str, str]]:
+        sections: list[dict[str, str]] = []
         current: dict[str, str] = {}
-        for raw in disk_config.read_text(errors="replace").splitlines():
+        for raw in content.splitlines():
             line = raw.strip()
             if line.startswith("["):
                 if current:
-                    disks.append(self._normalize_disk(current, timestamp))
+                    sections.append(current)
                 current = {"name": line.strip('[]"')}
             elif "=" in line:
                 key, value = line.split("=", 1)
                 current[key.strip()] = value.strip().strip('"')
         if current:
-            disks.append(self._normalize_disk(current, timestamp))
-        return disks
+            sections.append(current)
+        return sections
+
+    def _unraid_disks(
+        self, timestamp: datetime, sections: list[dict[str, str]] | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            self._normalize_disk(item, timestamp)
+            for item in (sections if sections is not None else self._unraid_disk_sections())
+        ]
+
+    @staticmethod
+    def _number(value: str | None) -> int:
+        try:
+            return max(0, int(value or 0))
+        except ValueError:
+            return 0
+
+    @staticmethod
+    def _disk_role(data: dict[str, str]) -> str:
+        name = data.get("name", "").lower()
+        if name.startswith("parity"):
+            return "parity"
+        if re.fullmatch(r"disk\d+", name):
+            return "data"
+        if name == "flash":
+            return "boot"
+        return "pool"
+
+    @staticmethod
+    def _pool_name(data: dict[str, str]) -> str:
+        explicit = data.get("poolName") or data.get("poolname")
+        if explicit:
+            return explicit[:120]
+        return re.sub(r"\d+$", "", data.get("name", "pool"))[:120] or "pool"
+
+    def _unraid_pools(self, sections: list[dict[str, str]]) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, str]]] = {}
+        for item in sections:
+            if self._disk_role(item) == "pool":
+                grouped.setdefault(self._pool_name(item), []).append(item)
+
+        pools: list[dict[str, Any]] = []
+        for name, devices in grouped.items():
+            filesystem_sizes = [self._number(item.get("fsSize")) * 1024 for item in devices]
+            filesystem_free = [self._number(item.get("fsFree")) * 1024 for item in devices]
+            total = max(filesystem_sizes, default=0)
+            free = min(max(filesystem_free, default=0), total)
+            raw = sum(self._number(item.get("size")) * 1024 for item in devices)
+            reported = [item.get("status", "").lower() for item in devices]
+            warning = any(
+                value and value not in {"disk_ok", "ok", "mounted", "active"} for value in reported
+            )
+            pools.append(
+                {
+                    "name": name,
+                    "filesystem": next(
+                        (
+                            item.get("fsType") or item.get("fstype")
+                            for item in devices
+                            if item.get("fsType") or item.get("fstype")
+                        ),
+                        None,
+                    ),
+                    "status": "warning" if warning else "healthy" if total else "unknown",
+                    "device_count": len(devices),
+                    "devices": [item.get("name", "unknown")[:120] for item in devices],
+                    "total_bytes": total,
+                    "used_bytes": max(0, total - free),
+                    "free_bytes": free,
+                    "raw_bytes": raw,
+                }
+            )
+        return sorted(pools, key=lambda item: str(item["name"]).lower())
 
     def _normalize_disk(self, data: dict[str, str], timestamp: datetime) -> dict[str, Any]:
         device = data.get("device", "")
         smart = self._smart(device) if device else {}
-        total = int(data.get("size", "0") or 0) * 1024
-        free = int(data.get("fsFree", "0") or 0) * 1024
+        total = self._number(data.get("size")) * 1024
+        free = self._number(data.get("fsFree")) * 1024
         return {
             "timestamp": timestamp,
             "disk_id": data.get("id") or data.get("name", device),
             "name": data.get("name", device),
-            "role": "parity" if data.get("name", "").startswith("parity") else "data",
+            "role": self._disk_role(data),
             "manufacturer": smart.get("manufacturer"),
             "model": data.get("model"),
             "serial": data.get("id"),

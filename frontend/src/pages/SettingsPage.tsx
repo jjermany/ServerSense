@@ -20,6 +20,7 @@ type AIConfig = {
   temperature: number;
   timeout_seconds: number;
   max_tool_calls: number;
+  proactive_insights: boolean;
 };
 type AlertConfig = {
   free_percent_threshold: number;
@@ -45,7 +46,8 @@ export default function SettingsPage() {
   if (!config || !alerts) return <div className="page" />;
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const raw = Object.fromEntries(new FormData(e.currentTarget));
+    const form = new FormData(e.currentTarget);
+    const raw = Object.fromEntries(form);
     await api("/api/settings/ai", {
       method: "PUT",
       body: JSON.stringify({
@@ -54,6 +56,7 @@ export default function SettingsPage() {
         temperature: Number(raw.temperature),
         timeout_seconds: Number(raw.timeout_seconds),
         max_tool_calls: Number(raw.max_tool_calls),
+        proactive_insights: form.get("proactive_insights") === "on",
       }),
     });
     setMessage("AI settings saved securely.");
@@ -241,6 +244,21 @@ export default function SettingsPage() {
                   max="600"
                   defaultValue={config.timeout_seconds}
                 />
+              </label>
+              <label className="check">
+                <input
+                  name="proactive_insights"
+                  type="checkbox"
+                  defaultChecked={config.proactive_insights}
+                />
+                <span>
+                  <b>Explain new alerts with SENSE</b>
+                  <small>
+                    Send each new deterministic alert batch to the configured
+                    model once for a concise explanation. Monitoring and alerts
+                    continue normally if the model is unavailable.
+                  </small>
+                </span>
               </label>
               <div className="permission-box">
                 <CheckCircle2 />

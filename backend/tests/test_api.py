@@ -1,4 +1,10 @@
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from serversense.db import SessionLocal
+from serversense.models import Alert, Event
 
 
 def test_health_and_authentication_required(client: TestClient) -> None:
@@ -30,6 +36,10 @@ def test_first_run_setup_and_dashboard(client: TestClient) -> None:
     assert body["demo_mode"] is True
     assert body["storage"]["used_bytes"] > 0
     assert len(body["disks"]) >= 4
+    assert body["system"]["network_rx_bytes_per_second"] == 1_500_000
+    assert body["system"]["network_tx_bytes_per_second"] == 300_000
+    assert body["server"]["pools"][0]["name"] == "cache"
+    assert client.get("/api/storage/pools").json()[0]["device_count"] == 2
 
 
 def test_persistence_and_login_after_client_restart(client: TestClient) -> None:
@@ -105,3 +115,54 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
     backup = authenticated_client.post("/api/system/backup")
     assert backup.status_code == 200
     assert backup.json()["filename"].endswith(".db")
+
+
+def test_proactive_ai_setting_and_dashboard_provenance(
+    authenticated_client: TestClient,
+) -> None:
+    saved = authenticated_client.put(
+        "/api/settings/ai",
+        json={
+            "provider": "openai_compatible",
+            "model": "local-model",
+            "endpoint": "http://local-model.test",
+            "context_window": 8192,
+            "temperature": 0.2,
+            "timeout_seconds": 30,
+            "max_tool_calls": 5,
+            "proactive_insights": True,
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["proactive_insights"] is True
+
+    with SessionLocal() as db:
+        alert = db.scalar(select(Alert).where(Alert.active.is_(True)))
+        assert alert is not None
+        db.add(
+            Event(
+                timestamp=datetime.now(UTC),
+                event_type="sense_alert_explanation",
+                severity="warning",
+                title="SENSE alert explanation",
+                message="The measured SMART alert needs attention; its cause is unknown.",
+                data={
+                    "source": "model",
+                    "provider": "openai_compatible",
+                    "model": "local-model",
+                    "alert_ids": [alert.id],
+                },
+            )
+        )
+        db.commit()
+
+    dashboard = authenticated_client.get("/api/dashboard")
+    assert dashboard.status_code == 200
+    explanation = next(item for item in dashboard.json()["insights"] if item["source"] == "sense")
+    assert explanation["model"] == "local-model"
+    assert "cause is unknown" in explanation["message"]
+    reset = authenticated_client.put(
+        "/api/settings/ai",
+        json={"provider": "disabled", "proactive_insights": False},
+    )
+    assert reset.status_code == 200

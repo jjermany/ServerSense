@@ -22,7 +22,7 @@ describe("first-run wizard", () => {
     expect(screen.getByLabelText("Username")).toBeRequired();
   });
 
-  it("does not let form submission bypass live-mode selection", async () => {
+  it("does not let Continue submit setup before live-mode selection", async () => {
     vi.mocked(api).mockResolvedValue({});
     render(<AuthPage mode="setup" onAuthenticated={vi.fn()} />);
 
@@ -30,11 +30,10 @@ describe("first-run wizard", () => {
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "admin" },
     });
-    const password = screen.getByLabelText(/^Password/);
-    fireEvent.change(password, {
+    fireEvent.change(screen.getByLabelText(/^Password/), {
       target: { value: "a-secure-password" },
     });
-    fireEvent.submit(password.closest("form")!);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByText("Choose monitoring mode")).toBeInTheDocument();
     expect(screen.getByLabelText(/Start with demo data/)).not.toBeChecked();

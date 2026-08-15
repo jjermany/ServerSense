@@ -57,6 +57,7 @@ class AISettings(BaseModel):
     temperature: float = Field(default=0.2, ge=0, le=2)
     timeout_seconds: int = Field(default=60, ge=5, le=600)
     max_tool_calls: int = Field(default=5, ge=1, le=12)
+    proactive_insights: bool = False
 
 
 class AlertSettings(BaseModel):

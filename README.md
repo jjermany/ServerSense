@@ -1,6 +1,6 @@
 # ServerSense
 
-ServerSense is a private, self-hosted monitoring and storage-intelligence application designed for Unraid. It combines deterministic capacity forecasts, disk/SMART and Docker visibility, rule-based alerts, and **SENSE**, a read-only assistant powered by your choice of local or OpenAI-compatible model.
+ServerSense is a private, self-hosted monitoring and storage-intelligence application designed for Unraid. It combines deterministic capacity forecasts, array and pool visibility, disk/SMART and Docker monitoring, measured network transfer rates, rule-based alerts, and **SENSE**, a read-only assistant powered by your choice of local or OpenAI-compatible model.
 
 > Current status: ServerSense v1.0.0. See [docs/COMPLETION_AUDIT.md](docs/COMPLETION_AUDIT.md) for verified completion evidence and known limitations.
 
@@ -17,6 +17,8 @@ docker compose up --build -d
 Open `http://YOUR-SERVER-IP:8080`, create the local administrator, and follow first-launch setup. Data, encrypted provider credentials, logs, backups, and the SQLite database live under `./config`, mounted as `/config` in the container.
 
 Live monitoring is the first-launch default. For a demo on non-Unraid hardware, explicitly select demo data during setup or set `SERVERSENSE_DEMO_MODE=true`. Demo telemetry is labeled and is never mixed into live collection.
+
+Network rates are calculated from consecutive persisted byte counters, so a new live installation shows **Learning** until two valid samples exist. Counter resets are treated as unavailable data rather than traffic spikes. Unraid pool capacity is normalized from the read-only WebGUI metadata mount and appears on the Storage page and in SENSE's read-only pool tool.
 
 ## Published Docker image
 
@@ -55,6 +57,8 @@ Monitoring works when AI is disabled. In **Settings → AI**, select:
 
 Configure the endpoint without `/v1`, model name, optional API key, timeout, temperature, and tool-call limit. API keys are encrypted at rest using a key derived from `SERVERSENSE_SECRET_KEY`. Keep that secret stable across upgrades.
 
+**Explain new alerts with SENSE** is an explicit opt-in. When enabled, each newly detected deterministic alert batch is sent to the configured model once for a concise explanation. These background requests expose no tools, their output is stored with model provenance, and collection/alert delivery continues if the provider is unavailable.
+
 SENSE can call only the read-only functions in `services/tools.py`. It has no shell, file, Docker-control, or Unraid mutation tool.
 
 ## Local development
@@ -82,12 +86,19 @@ Verification:
 ```powershell
 .\.venv\Scripts\python.exe -m pytest backend/tests -q
 .\.venv\Scripts\python.exe -m ruff check backend
+.\.venv\Scripts\python.exe -m ruff format --check backend
 .\.venv\Scripts\python.exe -m mypy backend/src
 cd frontend
+npm.cmd test
 npm.cmd run lint
 npm.cmd run build
+npm.cmd run test:e2e:install  # first run only
+npm.cmd run test:e2e
+cd ..
 docker compose build
 ```
+
+The end-to-end command builds the production image, starts it with an isolated temporary `/config`, verifies setup and the primary application flows in Chromium, and removes the test container afterward.
 
 OpenAPI documentation is available at `/docs` in development and production.
 

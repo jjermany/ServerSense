@@ -11,6 +11,7 @@ from serversense.models import (
     Alert,
     DiskSample,
     DockerSample,
+    Event,
     MetricSample,
     Setting,
     StorageSample,
@@ -21,6 +22,7 @@ from serversense.security import current_user
 from serversense.services.collectors import build_collector
 from serversense.services.forecasting import calculate_all
 from serversense.services.maintenance import create_backup, diagnostic_bundle
+from serversense.services.metrics import calculate_network_rates
 
 router = APIRouter(prefix="/api", tags=["monitoring"], dependencies=[Depends(current_user)])
 
@@ -101,7 +103,9 @@ def get_storage_forecast(db: Session) -> ForecastResponse:
 @router.get("/dashboard", response_model=DashboardResponse)
 def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     storage = db.scalar(select(StorageSample).order_by(desc(StorageSample.timestamp)))
-    metric = db.scalar(select(MetricSample).order_by(desc(MetricSample.timestamp)))
+    metrics = list(db.scalars(select(MetricSample).order_by(desc(MetricSample.timestamp)).limit(2)))
+    metric = metrics[0] if metrics else None
+    network = calculate_network_rates(metrics[1] if len(metrics) > 1 else None, metric)
     disks = latest_per_key(
         list(db.scalars(select(DiskSample).order_by(desc(DiskSample.timestamp)))), "disk_id"
     )
@@ -122,6 +126,30 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
         (item for item in (forecast.forecasts if forecast else []) if item.window_days == 30), None
     )
     insights: list[dict] = []
+    active_alert_ids = {alert.id for alert in alerts}
+    explanation = next(
+        (
+            event
+            for event in db.scalars(
+                select(Event)
+                .where(Event.event_type == "sense_alert_explanation")
+                .order_by(desc(Event.timestamp))
+                .limit(20)
+            )
+            if active_alert_ids.intersection(event.data.get("alert_ids", []))
+        ),
+        None,
+    )
+    if explanation:
+        insights.append(
+            {
+                "severity": explanation.severity,
+                "title": explanation.title,
+                "message": explanation.message,
+                "source": "sense",
+                "model": explanation.data.get("model"),
+            }
+        )
     if selected and selected.days_remaining is not None:
         insights.append(
             {
@@ -159,6 +187,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
                 )
             },
             "ups": monitoring_value.get("ups"),
+            "pools": monitoring_value.get("pools", []),
         },
         storage={
             "total_bytes": storage.total_bytes if storage else 0,
@@ -171,6 +200,9 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
             "cpu_percent": metric.cpu_percent if metric else None,
             "memory_percent": metric.memory_percent if metric else None,
             "load_1m": metric.load_1m if metric else None,
+            "network_rx_bytes_per_second": network["rx_bytes_per_second"],
+            "network_tx_bytes_per_second": network["tx_bytes_per_second"],
+            "network_sample_interval_seconds": network["sample_interval_seconds"],
         },
         disks=[
             {
@@ -250,6 +282,13 @@ def storage_history(
 @router.get("/storage/forecast", response_model=ForecastResponse)
 def storage_forecast(db: Session = Depends(get_db)) -> ForecastResponse:
     return get_storage_forecast(db)
+
+
+@router.get("/storage/pools")
+def storage_pools(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    state = db.get(Setting, "monitoring_state")
+    pools = state.value.get("pools", []) if state else []
+    return pools if isinstance(pools, list) else []
 
 
 @router.get("/disks")

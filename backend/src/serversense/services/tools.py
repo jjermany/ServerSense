@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample, MetricSample, Setting, StorageSample
 from serversense.services.forecasting import calculate_all
+from serversense.services.metrics import calculate_network_rates
 from serversense.services.permissions import ActionRequest, ActionRisk, policy
 
 ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
@@ -28,7 +29,9 @@ def _elapsed_since(value: datetime | None) -> int | None:
 
 def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
     storage = db.scalar(select(StorageSample).order_by(desc(StorageSample.timestamp)))
-    metric = db.scalar(select(MetricSample).order_by(desc(MetricSample.timestamp)))
+    metrics = list(db.scalars(select(MetricSample).order_by(desc(MetricSample.timestamp)).limit(2)))
+    metric = metrics[0] if metrics else None
+    network = calculate_network_rates(metrics[1] if len(metrics) > 1 else None, metric)
     state = db.get(Setting, "monitoring_state")
     return {
         "array_status": state.value.get("array_status")
@@ -48,10 +51,19 @@ def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
             "cpu_percent": metric.cpu_percent,
             "memory_percent": metric.memory_percent,
             "load_1m": metric.load_1m,
+            "network_rx_bytes_per_second": network["rx_bytes_per_second"],
+            "network_tx_bytes_per_second": network["tx_bytes_per_second"],
+            "network_sample_interval_seconds": network["sample_interval_seconds"],
         }
         if metric
         else None,
     }
+
+
+def pools(db: Session, _: dict[str, Any]) -> dict[str, Any]:
+    state = db.get(Setting, "monitoring_state")
+    value = state.value.get("pools", []) if state else []
+    return {"pools": value if isinstance(value, list) else []}
 
 
 def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
@@ -201,6 +213,11 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         {"type": "object", "properties": {}, "additionalProperties": False},
         storage_forecast,
     ),
+    "get_pool_status": (
+        "Get normalized Unraid pool capacity, devices, and status.",
+        {"type": "object", "properties": {}, "additionalProperties": False},
+        pools,
+    ),
     "get_disk_list": (
         "List current physical disks and health.",
         {"type": "object", "properties": {}, "additionalProperties": False},
@@ -241,7 +258,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         recent_alerts,
     ),
     "get_system_resources": (
-        "Get current CPU, memory, and load.",
+        "Get current CPU, memory, load, and measured network transfer rates.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         server_overview,
     ),

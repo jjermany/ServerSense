@@ -26,6 +26,19 @@ def seed_demo_data(db: Session) -> None:
                     "parity_action": "idle",
                     "parity_errors": 0,
                     "ups": {"status": "ONLINE", "bcharge": "100 Percent"},
+                    "pools": [
+                        {
+                            "name": "cache",
+                            "filesystem": "btrfs",
+                            "status": "healthy",
+                            "device_count": 2,
+                            "devices": ["cache", "cache2"],
+                            "total_bytes": 2 * TB,
+                            "used_bytes": int(1.4 * TB),
+                            "free_bytes": int(0.6 * TB),
+                            "raw_bytes": 4 * TB,
+                        }
+                    ],
                     "collected_at": now.isoformat(),
                 },
             )
@@ -52,7 +65,7 @@ def seed_demo_data(db: Session) -> None:
         ("disk1", "Disk 1", "data", 18, 14.8, 39, "healthy"),
         ("disk2", "Disk 2", "data", 18, 16.2, 43, "warning"),
         ("disk3", "Disk 3", "data", 18, 15.9, 38, "healthy"),
-        ("cache", "Cache Pool", "cache", 2, 1.4, 41, "healthy"),
+        ("cache", "Cache Pool", "pool", 2, 1.4, 41, "healthy"),
     ]
     for disk_id, name, role, size, used_tb, temp, health in disks:
         for days_ago in range(30, 0, -1):
@@ -134,13 +147,24 @@ def seed_demo_data(db: Session) -> None:
         )
     db.add(
         MetricSample(
+            timestamp=now - timedelta(minutes=5),
+            cpu_percent=17.9,
+            memory_percent=61.1,
+            load_1m=1.18,
+            uptime_seconds=1_284_180,
+            network_rx_bytes=8_000_000_000,
+            network_tx_bytes=3_000_000_000,
+        )
+    )
+    db.add(
+        MetricSample(
             timestamp=now,
             cpu_percent=18.7,
             memory_percent=61.4,
             load_1m=1.22,
             uptime_seconds=1_284_480,
-            network_rx_bytes=7800000,
-            network_tx_bytes=2400000,
+            network_rx_bytes=8_450_000_000,
+            network_tx_bytes=3_090_000_000,
         )
     )
     db.add(

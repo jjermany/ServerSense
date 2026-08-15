@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 ## Foundation
 
@@ -14,7 +14,7 @@ Last updated: 2026-08-14
 - [x] multi-stage single-container Docker build and Compose
 - [x] persistent `/config` layout
 - [x] guided welcome, administrator, monitoring mode, and optional-AI setup flow
-- [x] live-mode first-launch default with a non-bypassable monitoring selection step
+- [x] live-mode first-launch default with a browser-verified, non-bypassable monitoring selection step
 
 ## Monitoring and intelligence
 
@@ -30,7 +30,7 @@ Last updated: 2026-08-14
 - [x] persisted per-container CPU, memory, health, restarts, and uptime
 - [x] configurable alert thresholds and encrypted generic webhook delivery
 - [x] daily retention cleanup and old storage sample downsampling
-- [ ] richer Unraid pool detail and calculated network transfer rates
+- [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 
 ## SENSE
 
@@ -42,7 +42,7 @@ Last updated: 2026-08-14
 - [x] conversation/message/tool-call persistence
 - [x] prompt-injection boundary and no arbitrary shell/action tools
 - [x] SSE streaming, user-facing activity, and restored conversation selection UI
-- [ ] proactive LLM explanations layered on deterministic events
+- [x] opt-in proactive LLM explanations layered on deterministic events with safe fallback
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 
 ## Production readiness
@@ -52,12 +52,12 @@ Last updated: 2026-08-14
 - [x] frontend lint and production TypeScript build clean
 - [x] README, architecture, agent guidance, Unraid guide/template draft
 - [x] frontend component tests
-- [ ] browser end-to-end tests (browser runtime unavailable in the current verification session)
+- [x] checked-in fresh-container Chromium E2E for setup, routes, SENSE, and mobile navigation
 - [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, webhook integration
 - [x] production Docker build, health, setup, route, stream, and recreation verification
-- [x] GitHub Actions build and GitHub Container Registry publishing on push
+- [x] GitHub Actions verification gate and GitHub Container Registry publishing on push
 - [x] migration upgrade/downgrade/upgrade round trip
 - [x] Python and npm dependency audits report no known vulnerabilities
-- [ ] browser visual QA and accessibility pass
+- [x] browser visual QA at desktop/mobile sizes and axe scans for setup and dashboard
 - [x] security review of secrets, tools, subprocesses, sessions, rate limits, and prompt data
 - [x] final criterion-by-criterion audit

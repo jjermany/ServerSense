@@ -7,12 +7,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from serversense.api.settings import read_ai_config
 from serversense.db import get_db
 from serversense.models import AIConversation, AIMessage, AIToolCall
 from serversense.schemas import ChatRequest, ChatResponse
 from serversense.security import current_user
 from serversense.services.ai import chat
+from serversense.services.ai_config import read_ai_config
 
 router = APIRouter(prefix="/api/ai", tags=["SENSE"], dependencies=[Depends(current_user)])
 

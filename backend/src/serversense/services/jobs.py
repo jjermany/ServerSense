@@ -7,9 +7,11 @@ from sqlalchemy import delete, select
 from serversense.config import get_settings
 from serversense.db import SessionLocal
 from serversense.models import DiskSample, DockerSample, MetricSample, Setting, StorageSample
+from serversense.services.ai_config import read_ai_config
 from serversense.services.alerting import evaluate_alerts
 from serversense.services.collectors import build_collector, persist_snapshot
 from serversense.services.notifications import dispatch_notifications
+from serversense.services.proactive import explain_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,10 @@ def collection_cycle(include_storage: bool = True) -> None:
                 temperature_threshold=float(values.get("temperature_c_threshold", 50)),
                 forecast_days_threshold=int(values.get("forecast_days_threshold", 90)),
             )
+            try:
+                explain_alerts(db, created, read_ai_config(db, include_secret=True))
+            except Exception as exc:
+                logger.warning("Proactive SENSE explanation failed: %s", type(exc).__name__)
             failures = dispatch_notifications(db, created)
             if failures:
                 logger.warning("Notification delivery failed for %d alert(s)", len(failures))

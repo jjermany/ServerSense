@@ -10,8 +10,8 @@ import {
   CartesianGrid,
 } from "recharts";
 import { api, formatBytes } from "../api";
-import type { StoragePoint } from "../types";
-import { Card, Metric, PageHeader } from "../components/UI";
+import type { Pool, StoragePoint } from "../types";
+import { Card, Metric, PageHeader, Status } from "../components/UI";
 
 type Forecast = {
   current_total_bytes: number;
@@ -41,9 +41,11 @@ export default function StoragePage() {
   const [range, setRange] = useState("90d");
   const [history, setHistory] = useState<StoragePoint[]>([]);
   const [forecast, setForecast] = useState<Forecast>();
+  const [pools, setPools] = useState<Pool[]>([]);
   useEffect(() => {
     api<StoragePoint[]>(`/api/storage/history?range=${range}`).then(setHistory);
     api<Forecast>("/api/storage/forecast").then(setForecast);
+    api<Pool[]>("/api/storage/pools").then(setPools);
   }, [range]);
   const preferred = forecast?.forecasts.find((x) => x.window_days === 30);
   const chartData: ChartPoint[] = history.map((point, index) => ({
@@ -191,6 +193,45 @@ export default function StoragePage() {
           </span>
         </div>
       </Card>
+      {pools.length > 0 && (
+        <section aria-labelledby="pool-heading">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">UNRAID POOLS</span>
+              <h2 id="pool-heading">Storage pools</h2>
+            </div>
+          </div>
+          <div className="forecast-grid">
+            {pools.map((pool) => {
+              const usedPercent = pool.total_bytes
+                ? (pool.used_bytes / pool.total_bytes) * 100
+                : 0;
+              return (
+                <Card key={pool.name} className="forecast-card">
+                  <span className="eyebrow">{pool.filesystem ?? "FILESYSTEM UNKNOWN"}</span>
+                  <strong>{pool.name}</strong>
+                  <div>
+                    <span>Status</span>
+                    <Status value={pool.status} />
+                  </div>
+                  <div>
+                    <span>Usable capacity</span>
+                    <b>{formatBytes(pool.total_bytes, 2)}</b>
+                  </div>
+                  <div>
+                    <span>Used</span>
+                    <b>{usedPercent.toFixed(1)}%</b>
+                  </div>
+                  <div>
+                    <span>Devices</span>
+                    <b>{pool.device_count}</b>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
       <div className="forecast-grid">
         {forecast?.forecasts.map((item) => (
           <Card key={item.window_days} className="forecast-card">
