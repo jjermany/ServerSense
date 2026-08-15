@@ -31,7 +31,7 @@ Every completion criterion from the build goal is listed below. `PASS` means the
 | SENSE cannot bypass application permissions | PASS | Central action policy denies all AI state changes even with claimed confirmation. |
 | Dashboard is responsive and visually polished | PASS | Packaged-app visual QA passed at the desktop viewport and 390×844 mobile viewport across Overview and Storage; all seven primary routes rendered with no browser console warnings/errors. Deterministic and model-explained insights show provenance; setup and dashboard axe scans pass. |
 | Demo mode works without Unraid hardware | PASS | Fresh container produced 121 capacity points, 5 disks, 31 thermal samples per disk, 5 containers, alerts, and three forecasts. |
-| Automated tests pass | PASS | Backend 21/21, frontend 8/8, and packaged-app Playwright E2E 1/1. |
+| Automated tests pass | PASS | Backend 23/23, frontend 8/8, and packaged-app Playwright E2E 1/1. |
 | Frontend lint/type checks pass | PASS | ESLint and strict TypeScript/Vite production build pass. |
 | Backend lint/type checks pass | PASS | Ruff and strict mypy pass. |
 | Production Docker image builds | PASS | Final multi-stage x86-64 image build passes with Node and Python production stages; the publication workflow now requires all backend, frontend, and packaged-browser checks first. |
@@ -45,7 +45,7 @@ Every completion criterion from the build goal is listed below. `PASS` means the
 ## Verification results
 
 ```text
-Backend tests:             21 passed
+Backend tests:             23 passed
 Frontend tests:            8 passed
 Ruff:                      passed
 Strict mypy:               passed

@@ -48,9 +48,13 @@ def backup_database() -> dict[str, str]:
 
 
 def latest_per_key(rows: list[Any], key: str) -> list[Any]:
+    if not rows:
+        return []
+    latest_timestamp = rows[0].timestamp
     found: dict[str, Any] = {}
     for row in rows:
-        found.setdefault(str(getattr(row, key)), row)
+        if row.timestamp == latest_timestamp:
+            found.setdefault(str(getattr(row, key)), row)
     return list(found.values())
 
 
@@ -159,7 +163,11 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
                 "source": "deterministic",
             }
         )
-    hot = max(disks, key=lambda item: item.temperature_c or -1, default=None)
+    hot = max(
+        (item for item in disks if item.temperature_c is not None),
+        key=lambda item: item.temperature_c or -1,
+        default=None,
+    )
     if hot:
         insights.append(
             {

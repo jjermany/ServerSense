@@ -1,5 +1,6 @@
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pytest import MonkeyPatch
@@ -49,6 +50,7 @@ def test_unraid_pool_devices_are_grouped_without_double_counting_filesystem() ->
 ["disk1"]
 status="DISK_OK"
 size="1000"
+id="data-one"
 ["fast"]
 poolName="fast"
 status="DISK_OK"
@@ -56,6 +58,7 @@ fsType="btrfs"
 fsSize="800"
 fsFree="300"
 size="1000"
+id="fast-one"
 ["fast2"]
 poolName="fast"
 status="DISK_OK"
@@ -63,11 +66,17 @@ fsType="btrfs"
 fsSize="800"
 fsFree="300"
 size="1000"
+id="fast-two"
+["parity2"]
+status="DISK_NP"
+size="0"
 """
     )
     assert collector._disk_role(sections[0]) == "data"
     assert collector._disk_role(sections[1]) == "pool"
     assert collector._disk_role({"name": "flash"}) == "boot"
+    assert collector._is_assigned_disk(sections[0]) is True
+    assert collector._is_assigned_disk(sections[-1]) is False
     pools = collector._unraid_pools(sections)
     assert pools == [
         {
@@ -82,3 +91,21 @@ size="1000"
             "raw_bytes": 2000 * 1024,
         }
     ]
+
+
+def test_unraid_metadata_is_a_safe_fallback_when_smart_is_unavailable() -> None:
+    collector = UnraidCollector(Settings(secret_key="collector-test-secret-key"))
+    result = collector._normalize_disk(
+        {
+            "name": "disk1",
+            "id": "serial-one",
+            "size": "1000",
+            "fsFree": "250",
+            "status": "DISK_OK",
+            "temp": "37",
+            "model": "Example Disk",
+        },
+        datetime.now(UTC),
+    )
+    assert result["temperature_c"] == 37
+    assert result["smart_status"] == "healthy"

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from serversense.db import SessionLocal
-from serversense.models import Alert, Event
+from serversense.models import Alert, DiskSample, Event
 
 
 def test_health_and_authentication_required(client: TestClient) -> None:
@@ -166,3 +166,23 @@ def test_proactive_ai_setting_and_dashboard_provenance(
         json={"provider": "disabled", "proactive_insights": False},
     )
     assert reset.status_code == 200
+
+
+def test_dashboard_handles_disks_without_temperature(authenticated_client: TestClient) -> None:
+    with SessionLocal() as db:
+        disks = list(db.scalars(select(DiskSample)))
+        previous = {disk.id: disk.temperature_c for disk in disks}
+        for disk in disks:
+            disk.temperature_c = None
+        db.commit()
+
+    response = authenticated_client.get("/api/dashboard")
+    assert response.status_code == 200
+    assert not any(item["title"] == "Disk temperatures" for item in response.json()["insights"])
+
+    with SessionLocal() as db:
+        for disk_id, temperature in previous.items():
+            disk = db.get(DiskSample, disk_id)
+            if disk:
+                disk.temperature_c = temperature
+        db.commit()

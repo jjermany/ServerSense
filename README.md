@@ -20,6 +20,8 @@ Live monitoring is the first-launch default. For a demo on non-Unraid hardware, 
 
 Network rates are calculated from consecutive persisted byte counters, so a new live installation shows **Learning** until two valid samples exist. Counter resets are treated as unavailable data rather than traffic spikes. Unraid pool capacity is normalized from the read-only WebGUI metadata mount and appears on the Storage page and in SENSE's read-only pool tool.
 
+After live setup, ServerSense polls for the first collector run and the Disks page reports that telemetry is being collected instead of showing a misleading zero-device total. Empty Unraid disk slots are ignored. When direct `smartctl` access is unavailable, ServerSense uses Unraid's normalized temperature and device-status metadata as a conservative fallback; unavailable values remain explicitly unknown.
+
 ## Published Docker image
 
 Every push builds and publishes an x86-64 image to GitHub Container Registry. Pull the latest default-branch build with:

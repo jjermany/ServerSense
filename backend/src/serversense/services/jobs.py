@@ -16,14 +16,14 @@ from serversense.services.proactive import explain_alerts
 logger = logging.getLogger(__name__)
 
 
-def collection_cycle(include_storage: bool = True) -> None:
+def collection_cycle(include_storage: bool = True) -> bool:
     settings = get_settings()
     with SessionLocal() as db:
         general = db.get(Setting, "general")
         if not general:
-            return
+            return False
         if settings.demo_mode or general.value.get("demo_mode"):
-            return
+            return True
         try:
             snapshot = build_collector(settings).collect()
             persist_snapshot(db, snapshot, include_storage=include_storage)
@@ -44,6 +44,7 @@ def collection_cycle(include_storage: bool = True) -> None:
                 logger.warning("Notification delivery failed for %d alert(s)", len(failures))
         except Exception:
             logger.exception("Monitoring collection cycle failed")
+        return True
 
 
 def cleanup_cycle() -> None:
@@ -83,7 +84,10 @@ async def monitoring_loop() -> None:
     await asyncio.sleep(2)
     while True:
         include_storage = storage_elapsed >= settings.storage_interval_seconds
-        await asyncio.to_thread(collection_cycle, include_storage)
+        configured = await asyncio.to_thread(collection_cycle, include_storage)
+        if not configured:
+            await asyncio.sleep(2)
+            continue
         storage_elapsed = (
             0 if include_storage else storage_elapsed + settings.metrics_interval_seconds
         )

@@ -7,13 +7,34 @@ import { Card, PageHeader, Status } from "../components/UI";
 
 export default function DisksPage() {
   const [disks, setDisks] = useState<Disk[]>([]);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    api<Disk[]>("/api/disks").then(setDisks);
+    let active = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      api<Disk[]>("/api/disks").then((items) => {
+        if (!active) return;
+        setDisks(items);
+        setLoading(false);
+        if (items.length === 0) retry = setTimeout(load, 3000);
+      });
+    };
+    load();
+    return () => {
+      active = false;
+      if (retry) clearTimeout(retry);
+    };
   }, []);
   return (
     <div className="page">
       <PageHeader eyebrow="DISK INTELLIGENCE" title="Physical disks">
-        <span className="muted">{disks.length} devices observed</span>
+        <span className="muted">
+          {loading
+            ? "Loading disk telemetryâ€¦"
+            : disks.length
+              ? `${disks.length} devices observed`
+              : "Waiting for the first telemetry sampleâ€¦"}
+        </span>
       </PageHeader>
       <div className="disk-cards">
         {disks.map((d) => (

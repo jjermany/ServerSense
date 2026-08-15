@@ -14,9 +14,13 @@ ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
 
 
 def _latest_by(rows: list[Any], attribute: str) -> list[Any]:
+    if not rows:
+        return []
+    latest_timestamp = rows[0].timestamp
     result: dict[str, Any] = {}
     for row in rows:
-        result.setdefault(str(getattr(row, attribute)), row)
+        if row.timestamp == latest_timestamp:
+            result.setdefault(str(getattr(row, attribute)), row)
     return list(result.values())
 
 

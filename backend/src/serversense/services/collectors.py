@@ -232,6 +232,7 @@ class UnraidCollector(LinuxCollector):
         return [
             self._normalize_disk(item, timestamp)
             for item in (sections if sections is not None else self._unraid_disk_sections())
+            if self._is_assigned_disk(item)
         ]
 
     @staticmethod
@@ -252,6 +253,30 @@ class UnraidCollector(LinuxCollector):
             return "boot"
         return "pool"
 
+    def _is_assigned_disk(self, data: dict[str, str]) -> bool:
+        identity = (data.get("device") or data.get("id") or "").strip()
+        return bool(identity) and self._number(data.get("size")) > 0
+
+    @staticmethod
+    def _reported_temperature(data: dict[str, str]) -> float | None:
+        value = data.get("temp") or data.get("temperature")
+        try:
+            temperature = float(value) if value else None
+        except ValueError:
+            return None
+        return temperature if temperature is not None and temperature > 0 else None
+
+    @staticmethod
+    def _reported_health(data: dict[str, str]) -> str:
+        value = (data.get("smartStatus") or data.get("smart_status") or "").lower()
+        if value in {"healthy", "passed", "pass", "ok", "true"}:
+            return "healthy"
+        if value in {"critical", "failed", "fail", "false"}:
+            return "critical"
+        if data.get("status", "").upper() == "DISK_OK":
+            return "healthy"
+        return "unknown"
+
     @staticmethod
     def _pool_name(data: dict[str, str]) -> str:
         explicit = data.get("poolName") or data.get("poolname")
@@ -262,7 +287,7 @@ class UnraidCollector(LinuxCollector):
     def _unraid_pools(self, sections: list[dict[str, str]]) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, str]]] = {}
         for item in sections:
-            if self._disk_role(item) == "pool":
+            if self._disk_role(item) == "pool" and self._is_assigned_disk(item):
                 grouped.setdefault(self._pool_name(item), []).append(item)
 
         pools: list[dict[str, Any]] = []
@@ -314,17 +339,22 @@ class UnraidCollector(LinuxCollector):
             "interface": smart.get("interface"),
             "total_bytes": total,
             "used_bytes": max(0, total - free),
-            "temperature_c": smart.get("temperature"),
-            "smart_status": smart.get("status", "unknown"),
+            "temperature_c": smart.get("temperature") or self._reported_temperature(data),
+            "smart_status": (
+                smart.get("status")
+                if smart.get("status") not in {None, "unknown"}
+                else self._reported_health(data)
+            ),
             "smart_attributes": smart.get("attributes", {}),
         }
 
     def _smart(self, device: str) -> dict[str, Any]:
-        if not device.replace("_", "").replace("-", "").isalnum():
+        device_name = device.removeprefix("/dev/")
+        if not device_name.replace("_", "").replace("-", "").isalnum():
             return {}
         try:
             result = subprocess.run(
-                ["smartctl", "-a", "-j", f"/dev/{device}"],
+                ["smartctl", "-a", "-j", f"/dev/{device_name}"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -336,6 +366,10 @@ class UnraidCollector(LinuxCollector):
                 str(item.get("id")): item.get("raw", {}).get("value")
                 for item in payload.get("ata_smart_attributes", {}).get("table", [])
             }
+            if "9" in attributes:
+                attributes["power_on_hours"] = attributes["9"]
+            if "5" in attributes:
+                attributes["reallocated_sectors"] = attributes["5"]
             return {
                 "temperature": payload.get("temperature", {}).get("current"),
                 "status": "healthy"
