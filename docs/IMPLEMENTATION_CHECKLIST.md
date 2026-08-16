@@ -15,6 +15,7 @@ Last updated: 2026-08-15
 - [x] persistent `/config` layout
 - [x] guided welcome, administrator, monitoring mode, and optional-AI setup flow
 - [x] live-mode first-launch default with a browser-verified, non-bypassable monitoring selection step
+- [x] functional Monitoring and Integrations settings navigation with mode status and webhook controls
 
 ## Monitoring and intelligence
 

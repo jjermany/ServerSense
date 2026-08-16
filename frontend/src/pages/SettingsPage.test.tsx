@@ -25,11 +25,18 @@ const alertConfig = {
   webhook_configured: false,
 };
 
+const generalConfig = { server_name: "Test Tower", demo_mode: false };
+const integrationsConfig = { available_providers: [], configured: [] };
+
 describe("AI settings", () => {
   beforeEach(() => {
-    vi.mocked(api).mockImplementation((path: string) =>
-      Promise.resolve(path.endsWith("/alerts") ? alertConfig : aiConfig),
-    );
+    vi.mocked(api).mockImplementation((path: string) => {
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path.endsWith("/general")) return Promise.resolve(generalConfig);
+      if (path === "/api/integrations")
+        return Promise.resolve(integrationsConfig);
+      return Promise.resolve(aiConfig);
+    });
   });
   afterEach(cleanup);
 
@@ -54,5 +61,20 @@ describe("AI settings", () => {
       expect(payload.max_tool_calls).toBe(5);
       expect(payload.timeout_seconds).toBe(30);
     });
+  });
+
+  it("links monitoring and integrations to working settings sections", async () => {
+    render(<SettingsPage />);
+
+    expect(await screen.findByRole("link", { name: /Monitoring/ })).toHaveAttribute(
+      "href",
+      "#monitoring",
+    );
+    expect(screen.getByRole("link", { name: /Integrations/ })).toHaveAttribute(
+      "href",
+      "#integrations",
+    );
+    expect(screen.getByText("Live monitoring")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save integration/ })).toBeInTheDocument();
   });
 });

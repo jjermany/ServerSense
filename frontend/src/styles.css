@@ -1061,6 +1061,10 @@ button {
 .settings-card {
   padding: 28px;
 }
+.settings-card > span[id] {
+  display: block;
+  scroll-margin-top: 90px;
+}
 .settings-stack {
   display: grid;
   gap: 18px;
@@ -1163,7 +1167,42 @@ button {
 .save-message {
   color: var(--good);
   font-size: 11px;
-  margin-top: 12px;
+  margin: 0 0 12px;
+}
+.settings-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 20px 0;
+}
+.settings-summary > div,
+.integration-provider {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  background: #0c1119;
+  border-radius: 8px;
+  padding: 13px;
+}
+.settings-summary > div {
+  flex-direction: column;
+}
+.settings-summary small,
+.integration-provider small,
+.settings-note {
+  color: var(--muted);
+  font-size: 10px;
+}
+.settings-note {
+  margin: 12px 0 0;
+}
+.integration-provider span {
+  display: grid;
+  gap: 4px;
+}
+.integration-provider + .integration-provider {
+  margin-top: 8px;
 }
 .auth-page {
   min-height: 100vh;

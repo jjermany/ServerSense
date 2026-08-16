@@ -61,6 +61,8 @@ Configure the endpoint without `/v1`, model name, optional API key, timeout, tem
 
 **Explain new alerts with SENSE** is an explicit opt-in. When enabled, each newly detected deterministic alert batch is sent to the configured model once for a concise explanation. These background requests expose no tools, their output is stored with model provenance, and collection/alert delivery continues if the provider is unavailable.
 
+Settings includes dedicated Monitoring and Integrations sections. Monitoring reports the live or demo mode chosen during first-launch setup; that mode remains locked to prevent demo and live telemetry from sharing a database. The Integrations section configures and tests generic alert webhooks. Neither feature requires an AI provider.
+
 SENSE can call only the read-only functions in `services/tools.py`. It has no shell, file, Docker-control, or Unraid mutation tool.
 
 ## Local development

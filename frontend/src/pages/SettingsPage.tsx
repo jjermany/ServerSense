@@ -29,21 +29,47 @@ type AlertConfig = {
   webhook_enabled: boolean;
   webhook_configured: boolean;
 };
+type GeneralConfig = {
+  server_name?: string;
+  demo_mode?: boolean;
+};
+type IntegrationsConfig = {
+  available_providers: Array<{
+    key: string;
+    name: string;
+    description: string;
+    read_only: boolean;
+  }>;
+  configured: Array<{
+    id: number;
+    provider: string;
+    name: string;
+    enabled: boolean;
+    configured: boolean;
+  }>;
+};
 export default function SettingsPage() {
   const [config, setConfig] = useState<AIConfig>();
   const [alerts, setAlerts] = useState<AlertConfig>();
+  const [general, setGeneral] = useState<GeneralConfig>();
+  const [integrations, setIntegrations] = useState<IntegrationsConfig>();
   const [message, setMessage] = useState("");
   const [testing, setTesting] = useState(false);
   useEffect(() => {
     Promise.all([
       api<AIConfig>("/api/settings/ai"),
       api<AlertConfig>("/api/settings/alerts"),
-    ]).then(([ai, alertConfig]) => {
+      api<GeneralConfig>("/api/settings/general"),
+      api<IntegrationsConfig>("/api/integrations"),
+    ]).then(([ai, alertConfig, generalConfig, integrationsConfig]) => {
       setConfig(ai);
       setAlerts(alertConfig);
+      setGeneral(generalConfig);
+      setIntegrations(integrationsConfig);
     });
   }, []);
-  if (!config || !alerts) return <div className="page" />;
+  if (!config || !alerts || !general || !integrations)
+    return <div className="page" />;
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -79,17 +105,34 @@ export default function SettingsPage() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const raw = Object.fromEntries(form);
-    await api("/api/settings/alerts", {
+    const updated = await api<AlertConfig>("/api/settings/alerts", {
       method: "PUT",
       body: JSON.stringify({
-        ...raw,
         free_percent_threshold: Number(raw.free_percent_threshold),
         forecast_days_threshold: Number(raw.forecast_days_threshold),
         temperature_c_threshold: Number(raw.temperature_c_threshold),
-        webhook_enabled: form.get("webhook_enabled") === "on",
+        webhook_enabled: alerts.webhook_enabled,
       }),
     });
+    setAlerts(updated);
     setMessage("Alert settings saved securely.");
+    setTimeout(() => setMessage(""), 3000);
+  };
+  const saveWebhook = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const updated = await api<AlertConfig>("/api/settings/alerts", {
+      method: "PUT",
+      body: JSON.stringify({
+        free_percent_threshold: alerts.free_percent_threshold,
+        forecast_days_threshold: alerts.forecast_days_threshold,
+        temperature_c_threshold: alerts.temperature_c_threshold,
+        webhook_enabled: form.get("webhook_enabled") === "on",
+        webhook_url: form.get("webhook_url"),
+      }),
+    });
+    setAlerts(updated);
+    setMessage("Integration settings saved securely.");
     setTimeout(() => setMessage(""), 3000);
   };
   const testWebhook = async () => {
@@ -117,6 +160,7 @@ export default function SettingsPage() {
   return (
     <div className="page">
       <PageHeader eyebrow="CONFIGURATION" title="Settings" />
+      {message && <div className="save-message">{message}</div>}
       <div className="settings-layout">
         <aside>
           <a className="active" href="#ai">
@@ -127,11 +171,11 @@ export default function SettingsPage() {
             <Bell />
             Alerts
           </a>
-          <a>
+          <a href="#monitoring">
             <SlidersHorizontal />
             Monitoring
           </a>
-          <a>
+          <a href="#integrations">
             <Plug />
             Integrations
           </a>
@@ -271,7 +315,6 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
-              {message && <div className="save-message">{message}</div>}
               <div className="form-actions">
                 <button
                   type="button"
@@ -295,10 +338,9 @@ export default function SettingsPage() {
                 <Bell />
               </span>
               <div>
-                <h2>ALERTS & NOTIFICATIONS</h2>
+                <h2>ALERT THRESHOLDS</h2>
                 <p>
-                  Set deterministic thresholds and optionally send new alerts to
-                  a generic webhook.
+                  Set the deterministic thresholds used to create alerts.
                 </p>
               </div>
             </div>
@@ -335,6 +377,62 @@ export default function SettingsPage() {
                   />
                 </label>
               </div>
+              <div className="form-actions">
+                <button className="primary">
+                  <Save size={16} />
+                  Save thresholds
+                </button>
+              </div>
+            </form>
+          </Card>
+          <Card className="settings-card">
+            <span id="monitoring" />
+            <div className="settings-title">
+              <span>
+                <SlidersHorizontal />
+              </span>
+              <div>
+                <h2>MONITORING</h2>
+                <p>Review the collection mode selected during first-launch setup.</p>
+              </div>
+            </div>
+            <div className="settings-summary">
+              <div>
+                <small>SERVER</small>
+                <b>{general.server_name || "ServerSense Host"}</b>
+              </div>
+              <div>
+                <small>COLLECTION MODE</small>
+                <b>{general.demo_mode ? "Demo data" : "Live monitoring"}</b>
+              </div>
+            </div>
+            <div className="permission-box">
+              <CheckCircle2 />
+              <div>
+                <b>Monitoring is independent of SENSE AI</b>
+                <p>
+                  Collection, forecasts, and deterministic alerts continue when
+                  the AI provider is disabled or unavailable.
+                </p>
+              </div>
+            </div>
+            <p className="settings-note">
+              Monitoring mode is locked after setup so demo and live telemetry
+              cannot be mixed in the same database.
+            </p>
+          </Card>
+          <Card className="settings-card">
+            <span id="integrations" />
+            <div className="settings-title">
+              <span>
+                <Plug />
+              </span>
+              <div>
+                <h2>INTEGRATIONS</h2>
+                <p>Connect alert delivery and installed read-only providers.</p>
+              </div>
+            </div>
+            <form onSubmit={saveWebhook}>
               <label className="check">
                 <input
                   name="webhook_enabled"
@@ -343,9 +441,7 @@ export default function SettingsPage() {
                 />
                 <span>
                   <b>Enable generic webhook</b>
-                  <small>
-                    Send each newly created alert as structured JSON.
-                  </small>
+                  <small>Send each newly created alert as structured JSON.</small>
                 </span>
               </label>
               <label>
@@ -360,6 +456,15 @@ export default function SettingsPage() {
                   }
                 />
               </label>
+              {integrations.available_providers.map((provider) => (
+                <div className="integration-provider" key={provider.key}>
+                  <span>
+                    <b>{provider.name}</b>
+                    <small>{provider.description}</small>
+                  </span>
+                  <small>{provider.read_only ? "Read only" : "Installed"}</small>
+                </div>
+              ))}
               <div className="form-actions">
                 <button
                   type="button"
@@ -371,7 +476,7 @@ export default function SettingsPage() {
                 </button>
                 <button className="primary">
                   <Save size={16} />
-                  Save alerts
+                  Save integration
                 </button>
               </div>
             </form>
