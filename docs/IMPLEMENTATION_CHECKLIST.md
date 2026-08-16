@@ -21,7 +21,7 @@ Last updated: 2026-08-15
 - [x] Linux system and capacity collector abstraction
 - [x] Unraid detection and `disks.ini` adapter
 - [x] fixed-argument JSON `smartctl` collection
-- [x] non-privileged SMART device rules, SAT retry, and model/serial/power-on JSON fallbacks
+- [x] non-privileged SMART device rules/SYS_RAWIO, SAT retry, and JSON field fallbacks
 - [x] restricted Docker inventory collector
 - [x] scheduled collection and retention cleanup
 - [x] deterministic 7/30/90-day robust forecasting

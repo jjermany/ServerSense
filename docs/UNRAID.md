@@ -12,7 +12,7 @@ Build or pull the ServerSense image, then create a container with:
 - `/var/local/emhttp` → `/var/local/emhttp` read-only.
 - `/etc/unraid-version` → `/etc/unraid-version` read-only.
 - `/dev` → `/dev` read-only for SMART access.
-- Extra Parameters: `--device-cgroup-rule='b 8:* r' --device-cgroup-rule='b 259:* r'` for read-only SATA/SAS and NVMe access.
+- Extra Parameters: `--cap-add=SYS_RAWIO --device-cgroup-rule='b 8:* r' --device-cgroup-rule='b 259:* r'` for read-only SATA/SAS and NVMe access, including SAT passthrough.
 - `/var/run/docker.sock` → `/var/run/docker.sock` read-only for container inventory.
 - `SERVERSENSE_SECRET_KEY` → a stable random 64-character hex string.
 - `SERVERSENSE_ARRAY_PATH=/mnt/user`.
@@ -24,6 +24,7 @@ docker run -d \
   --name serversense \
   --restart unless-stopped \
   --security-opt no-new-privileges:true \
+  --cap-add SYS_RAWIO \
   -p 8080:8080 \
   -e SERVERSENSE_SECRET_KEY="$(openssl rand -hex 32)" \
   -e SERVERSENSE_ARRAY_PATH=/mnt/user \
@@ -47,9 +48,10 @@ case-sensitive name and one physical device reported by `disks.ini`:
 docker exec ServerSense smartctl -a -j /dev/sde
 ```
 
-An `Operation not permitted` message means the container was not recreated with the device
-cgroup rules. Do not enable privileged mode. Edit the container, switch to Advanced View,
-confirm the rules are present under Extra Parameters, and apply the update.
+An `Operation not permitted` message or an SAT response containing only the device header
+means the container was not recreated with `SYS_RAWIO` and the device cgroup rules. Do not
+enable privileged mode. Edit the container, switch to Advanced View, confirm all three entries
+are present under Extra Parameters, and apply the update.
 
 ## Updating and backup
 

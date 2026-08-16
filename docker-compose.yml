@@ -19,6 +19,8 @@ services:
     device_cgroup_rules:
       - "b 8:* r"
       - "b 259:* r"
+    cap_add:
+      - SYS_RAWIO
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

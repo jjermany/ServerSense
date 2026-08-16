@@ -12,7 +12,7 @@
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL/>
   <Icon>https://raw.githubusercontent.com/jjermany/ServerSense/master/unraid/icon.png</Icon>
-  <ExtraParams>--security-opt no-new-privileges:true --device-cgroup-rule='b 8:* r' --device-cgroup-rule='b 259:* r'</ExtraParams>
+  <ExtraParams>--security-opt no-new-privileges:true --cap-add=SYS_RAWIO --device-cgroup-rule='b 8:* r' --device-cgroup-rule='b 259:* r'</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled>0</DateInstalled>
@@ -24,7 +24,7 @@
   <Config Name="Unraid Shares" Target="/mnt/user" Default="/mnt/user" Mode="ro" Description="Read-only array capacity source" Type="Path" Display="always" Required="true" Mask="false">/mnt/user</Config>
   <Config Name="Unraid Runtime Data" Target="/var/local/emhttp" Default="/var/local/emhttp" Mode="ro" Description="Read-only array and disk metadata" Type="Path" Display="advanced" Required="true" Mask="false">/var/local/emhttp</Config>
   <Config Name="Unraid Version" Target="/etc/unraid-version" Default="/etc/unraid-version" Mode="ro" Description="Platform detection" Type="Path" Display="advanced" Required="true" Mask="false">/etc/unraid-version</Config>
-  <Config Name="Devices" Target="/dev" Default="/dev" Mode="ro" Description="Read-only SMART nodes; Extra Parameters grant SATA/SAS and NVMe block-device access" Type="Path" Display="advanced" Required="true" Mask="false">/dev</Config>
+  <Config Name="Devices" Target="/dev" Default="/dev" Mode="ro" Description="Read-only SMART nodes; Extra Parameters grant block-device access and the SYS_RAWIO capability required for SAT passthrough" Type="Path" Display="advanced" Required="true" Mask="false">/dev</Config>
   <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="ro" Description="Sensitive: used only for read-only container inventory" Type="Path" Display="advanced" Required="true" Mask="false">/var/run/docker.sock</Config>
   <Config Name="Installation Secret" Target="SERVERSENSE_SECRET_KEY" Default="" Mode="" Description="Stable random secret, e.g. openssl rand -hex 32" Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Array Path" Target="SERVERSENSE_ARRAY_PATH" Default="/mnt/user" Mode="" Description="Capacity source inside the container" Type="Variable" Display="advanced" Required="true" Mask="false">/mnt/user</Config>
