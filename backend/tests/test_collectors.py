@@ -20,8 +20,8 @@ def test_smart_json_is_normalized_without_shell(monkeypatch: MonkeyPatch, tmp_pa
             stdout=json.dumps(
                 {
                     "device": {"protocol": "SATA"},
-                    "model_family": "Example Storage",
-                    "model_name": "Example Disk 1000",
+                    "model_family": "Toshiba Enterprise Capacity HDD",
+                    "model_name": "TOSHIBA Example Disk 1000",
                     "serial_number": "serial-1000",
                     "power_on_time": {"hours": 1234},
                     "temperature": {"current": 39},
@@ -48,8 +48,8 @@ def test_smart_json_is_normalized_without_shell(monkeypatch: MonkeyPatch, tmp_pa
     assert result["attributes"]["5"] == 0
     assert result["attributes"]["power_on_hours"] == 1234
     assert result["attributes"]["reallocated_sectors"] == 0
-    assert result["manufacturer"] == "Example Storage"
-    assert result["model"] == "Example Disk 1000"
+    assert result["manufacturer"] == "Toshiba"
+    assert result["model"] == "TOSHIBA Example Disk 1000"
     assert result["serial"] == "serial-1000"
 
     assert collector._smart("../sda") == {}
@@ -91,12 +91,22 @@ def test_smart_uses_model_vendor_fallback_and_rejects_device_errors(
     collector = UnraidCollector(Settings(secret_key="collector-test-secret-key"))
 
     result = collector._smart("sde")
-    assert result["manufacturer"] == "TOSHIBA"
+    assert result["manufacturer"] == "Toshiba"
     assert result["model"] == "TOSHIBA MD09ACA18TR"
     assert result["serial"] == "4590A001TK2H"
     assert result["interface"] == "ATA"
     assert result["attributes"]["power_on_hours"] == 6542
     assert collector._smart("sde") == {}
+
+
+def test_smart_manufacturer_is_unknown_for_unrecognized_model() -> None:
+    assert (
+        UnraidCollector._smart_manufacturer({"model_family": None, "vendor": None}, "OOS18000G")
+        is None
+    )
+    assert UnraidCollector._smart_manufacturer({}, "PCIe SSD") is None
+    assert UnraidCollector._smart_manufacturer({}, "ST18000NM000J") == "Seagate"
+    assert UnraidCollector._smart_manufacturer({}, "WDC WD181KRYZ") == "Western Digital"
 
 
 def test_smart_retries_incomplete_scsi_detection_as_sat(monkeypatch: MonkeyPatch) -> None:

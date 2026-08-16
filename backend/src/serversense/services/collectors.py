@@ -138,6 +138,21 @@ class LinuxCollector(Collector):
 
 
 class UnraidCollector(LinuxCollector):
+    _manufacturer_patterns: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"^TOSHIBA\b", re.IGNORECASE), "Toshiba"),
+        (re.compile(r"^KIOXIA\b", re.IGNORECASE), "Kioxia"),
+        (re.compile(r"^(?:WDC\b|WESTERN DIGITAL\b|WD[A-Z0-9])", re.IGNORECASE), "Western Digital"),
+        (re.compile(r"^HGST\b", re.IGNORECASE), "HGST"),
+        (re.compile(r"^(?:SEAGATE\b|ST\d)", re.IGNORECASE), "Seagate"),
+        (re.compile(r"^SAMSUNG\b", re.IGNORECASE), "Samsung"),
+        (re.compile(r"^(?:MICRON\b|MTFD)", re.IGNORECASE), "Micron"),
+        (re.compile(r"^(?:CRUCIAL\b|CT\d)", re.IGNORECASE), "Crucial"),
+        (re.compile(r"^INTEL\b", re.IGNORECASE), "Intel"),
+        (re.compile(r"^KINGSTON\b", re.IGNORECASE), "Kingston"),
+        (re.compile(r"^(?:SANDISK\b|SDSS)", re.IGNORECASE), "SanDisk"),
+        (re.compile(r"^(?:SK[ -]?HYNIX\b|HFS)", re.IGNORECASE), "SK hynix"),
+    )
+
     def detect(self) -> dict[str, Any]:
         data = super().detect()
         data["platform"] = "unraid"
@@ -387,9 +402,7 @@ class UnraidCollector(LinuxCollector):
             if "5" in attributes:
                 attributes["reallocated_sectors"] = attributes["5"]
             model = payload.get("model_name") or payload.get("product")
-            manufacturer = payload.get("vendor") or payload.get("model_family")
-            if not manufacturer and isinstance(model, str):
-                manufacturer = model.partition(" ")[0] or None
+            manufacturer = self._smart_manufacturer(payload, model)
             return {
                 "temperature": payload.get("temperature", {}).get("current"),
                 "status": "healthy"
@@ -437,6 +450,18 @@ class UnraidCollector(LinuxCollector):
             "scsi_grown_defect_list",
         }
         return not any(key in payload for key in detail_keys)
+
+    @classmethod
+    def _smart_manufacturer(cls, payload: dict[str, Any], model: object) -> str | None:
+        candidates = (payload.get("vendor"), payload.get("model_family"), model)
+        for candidate in candidates:
+            if not isinstance(candidate, str):
+                continue
+            value = candidate.strip()
+            for pattern, manufacturer in cls._manufacturer_patterns:
+                if pattern.match(value):
+                    return manufacturer
+        return None
 
 
 def build_collector(settings: Settings) -> Collector:

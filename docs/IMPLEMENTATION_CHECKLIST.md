@@ -22,6 +22,7 @@ Last updated: 2026-08-15
 - [x] Unraid detection and `disks.ini` adapter
 - [x] fixed-argument JSON `smartctl` collection
 - [x] non-privileged SMART device rules/SYS_RAWIO, SAT retry, and JSON field fallbacks
+- [x] conservative known-vendor manufacturer normalization with unknown fallback
 - [x] restricted Docker inventory collector
 - [x] scheduled collection and retention cleanup
 - [x] deterministic 7/30/90-day robust forecasting
