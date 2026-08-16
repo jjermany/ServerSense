@@ -99,6 +99,37 @@ def test_smart_uses_model_vendor_fallback_and_rejects_device_errors(
     assert collector._smart("sde") == {}
 
 
+def test_smart_retries_incomplete_scsi_detection_as_sat(monkeypatch: MonkeyPatch) -> None:
+    observed: list[list[str]] = []
+    payloads = iter(
+        [
+            {"device": {"name": "/dev/sde", "type": "scsi", "protocol": "SCSI"}},
+            {
+                "device": {"name": "/dev/sde", "type": "sat", "protocol": "ATA"},
+                "model_name": "TOSHIBA MD09ACA18TR",
+                "smart_status": {"passed": True},
+            },
+        ]
+    )
+
+    def fake_run(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        observed.append(arguments)
+        return subprocess.CompletedProcess(
+            arguments, 0, stdout=json.dumps(next(payloads)), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    collector = UnraidCollector(Settings(secret_key="collector-test-secret-key"))
+
+    result = collector._smart("sde")
+    assert observed == [
+        ["smartctl", "-a", "-j", "/dev/sde"],
+        ["smartctl", "-a", "-j", "-d", "sat", "/dev/sde"],
+    ]
+    assert result["model"] == "TOSHIBA MD09ACA18TR"
+    assert result["interface"] == "ATA"
+
+
 def test_unraid_pool_devices_are_grouped_without_double_counting_filesystem() -> None:
     collector = UnraidCollector(Settings(secret_key="collector-test-secret-key"))
     sections = collector._parse_disk_sections(

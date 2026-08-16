@@ -353,14 +353,13 @@ class UnraidCollector(LinuxCollector):
         if not device_name.replace("_", "").replace("-", "").isalnum():
             return {}
         try:
-            result = subprocess.run(
-                ["smartctl", "-a", "-j", f"/dev/{device_name}"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
-            )
+            arguments = ["smartctl", "-a", "-j", f"/dev/{device_name}"]
+            result = self._run_smartctl(arguments)
             payload = json.loads(result.stdout or "{}")
+            if self._needs_sat_retry(payload):
+                arguments = ["smartctl", "-a", "-j", "-d", "sat", f"/dev/{device_name}"]
+                result = self._run_smartctl(arguments)
+                payload = json.loads(result.stdout or "{}")
             messages = payload.get("smartctl", {}).get("messages", [])
             errors = [
                 str(item.get("string", ""))[:200]
@@ -411,6 +410,33 @@ class UnraidCollector(LinuxCollector):
                 type(exc).__name__,
             )
             return {}
+
+    @staticmethod
+    def _run_smartctl(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            arguments,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
+    @staticmethod
+    def _needs_sat_retry(payload: dict[str, Any]) -> bool:
+        device = payload.get("device", {})
+        if device.get("protocol") != "SCSI":
+            return False
+        detail_keys = {
+            "model_name",
+            "product",
+            "serial_number",
+            "smart_status",
+            "temperature",
+            "power_on_time",
+            "ata_smart_attributes",
+            "scsi_grown_defect_list",
+        }
+        return not any(key in payload for key in detail_keys)
 
 
 def build_collector(settings: Settings) -> Collector:
