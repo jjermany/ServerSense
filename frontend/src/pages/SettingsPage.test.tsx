@@ -93,4 +93,51 @@ describe("AI settings", () => {
     expect(screen.getByText("Pushover")).toBeInTheDocument();
     expect(screen.getByText("Email")).toBeInTheDocument();
   });
+
+  it("shows progress and success next to a save action", async () => {
+    let finishSave: ((value: unknown) => void) | undefined;
+    vi.mocked(api).mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "/api/settings/ai" && options?.method === "PUT") {
+        return new Promise((resolve) => {
+          finishSave = resolve;
+        });
+      }
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path.endsWith("/general")) return Promise.resolve(generalConfig);
+      if (path === "/api/integrations") return Promise.resolve(integrationsConfig);
+      return Promise.resolve(aiConfig);
+    });
+
+    render(<SettingsPage />);
+    const save = await screen.findByRole("button", { name: "Save settings" });
+    fireEvent.click(save);
+
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    finishSave?.(aiConfig);
+
+    expect(
+      await screen.findByRole("status", { name: "" }),
+    ).toHaveTextContent("AI settings saved securely.");
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
+  });
+
+  it("shows notification test progress and errors at the clicked provider", async () => {
+    vi.mocked(api).mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "/api/settings/alerts/test/webhook" && options?.method === "POST") {
+        return Promise.reject(new Error("Webhook delivery failed"));
+      }
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path.endsWith("/general")) return Promise.resolve(generalConfig);
+      if (path === "/api/integrations") return Promise.resolve(integrationsConfig);
+      return Promise.resolve(aiConfig);
+    });
+
+    render(<SettingsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Test Webhook" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Webhook delivery failed",
+    );
+    expect(screen.getByRole("button", { name: "Test Webhook" })).toBeEnabled();
+  });
 });

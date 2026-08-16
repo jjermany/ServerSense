@@ -56,7 +56,7 @@ Last updated: 2026-08-15
 - [x] README, architecture, agent guidance, Unraid guide/template draft
 - [x] frontend component tests
 - [x] checked-in fresh-container Chromium E2E for setup, routes, SENSE, and mobile navigation
-- [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, and individually testable alert integrations
+- [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, and individually testable alert integrations with visible progress and results
 - [x] production Docker build, health, setup, route, stream, and recreation verification
 - [x] GitHub Actions verification gate and GitHub Container Registry publishing on push
 - [x] migration upgrade/downgrade/upgrade round trip

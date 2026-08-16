@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Database,
   Download,
+  LoaderCircle,
   Plug,
   Save,
   SlidersHorizontal,
@@ -75,24 +76,51 @@ const alertProviderValues = (alerts: AlertConfig) => ({
 const secretPlaceholder = (configured: boolean, empty: string) =>
   configured ? "Configured — leave blank to keep" : empty;
 
+type ActionStatus = {
+  phase: "pending" | "success" | "error";
+  message: string;
+};
+
+function ActionFeedback({ status }: { status?: ActionStatus }) {
+  if (!status || status.phase === "pending") return null;
+  return (
+    <div
+      className={`action-feedback ${status.phase}`}
+      role={status.phase === "error" ? "alert" : "status"}
+      aria-live="polite"
+    >
+      {status.message}
+    </div>
+  );
+}
+
 function TestNotificationButton({
   label,
-  testing,
+  status,
   onTest,
 }: {
   label: string;
-  testing: boolean;
+  status?: ActionStatus;
   onTest: (provider: string) => Promise<void>;
 }) {
+  const providerName = label.charAt(0).toUpperCase() + label.slice(1);
   return (
-    <button
-      type="button"
-      className="secondary notification-test"
-      onClick={() => void onTest(label)}
-      disabled={testing}
-    >
-      Test {label.charAt(0).toUpperCase() + label.slice(1)}
-    </button>
+    <div className="notification-test-action">
+      <button
+        type="button"
+        className="secondary notification-test"
+        onClick={() => void onTest(label)}
+        disabled={status?.phase === "pending"}
+      >
+        {status?.phase === "pending" && (
+          <LoaderCircle className="spin" size={16} />
+        )}
+        {status?.phase === "pending"
+          ? `Testing ${providerName}…`
+          : `Test ${providerName}`}
+      </button>
+      <ActionFeedback status={status} />
+    </div>
   );
 }
 export default function SettingsPage() {
@@ -100,8 +128,7 @@ export default function SettingsPage() {
   const [alerts, setAlerts] = useState<AlertConfig>();
   const [general, setGeneral] = useState<GeneralConfig>();
   const [integrations, setIntegrations] = useState<IntegrationsConfig>();
-  const [message, setMessage] = useState("");
-  const [testing, setTesting] = useState(false);
+  const [actions, setActions] = useState<Record<string, ActionStatus>>({});
   useEffect(() => {
     Promise.all([
       api<AIConfig>("/api/settings/ai"),
@@ -117,61 +144,102 @@ export default function SettingsPage() {
   }, []);
   if (!config || !alerts || !general || !integrations)
     return <div className="page" />;
+  const runAction = async <T,>(
+    key: string,
+    pendingMessage: string,
+    request: () => Promise<T>,
+    successMessage: string | ((result: T) => string),
+  ) => {
+    setActions((current) => ({
+      ...current,
+      [key]: { phase: "pending", message: pendingMessage },
+    }));
+    try {
+      const result = await request();
+      setActions((current) => ({
+        ...current,
+        [key]: {
+          phase: "success",
+          message:
+            typeof successMessage === "function"
+              ? successMessage(result)
+              : successMessage,
+        },
+      }));
+    } catch (error) {
+      setActions((current) => ({
+        ...current,
+        [key]: {
+          phase: "error",
+          message: error instanceof Error ? error.message : "Request failed",
+        },
+      }));
+    }
+  };
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const raw = Object.fromEntries(form);
-    await api("/api/settings/ai", {
-      method: "PUT",
-      body: JSON.stringify({
-        ...raw,
-        context_window: Number(raw.context_window),
-        temperature: Number(raw.temperature),
-        timeout_seconds: Number(raw.timeout_seconds),
-        max_tool_calls: Number(raw.max_tool_calls),
-        proactive_insights: form.get("proactive_insights") === "on",
-      }),
-    });
-    setMessage("AI settings saved securely.");
-    setTimeout(() => setMessage(""), 3000);
+    await runAction(
+      "ai-save",
+      "Saving AI settings…",
+      () =>
+        api("/api/settings/ai", {
+          method: "PUT",
+          body: JSON.stringify({
+            ...raw,
+            context_window: Number(raw.context_window),
+            temperature: Number(raw.temperature),
+            timeout_seconds: Number(raw.timeout_seconds),
+            max_tool_calls: Number(raw.max_tool_calls),
+            proactive_insights: form.get("proactive_insights") === "on",
+          }),
+        }),
+      "AI settings saved securely.",
+    );
   };
   const test = async () => {
-    setTesting(true);
-    try {
-      const result = await api<{ detail: string }>("/api/settings/ai/test", {
-        method: "POST",
-      });
-      setMessage(result.detail);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Test failed");
-    } finally {
-      setTesting(false);
-    }
+    await runAction(
+      "ai-test",
+      "Testing model connection…",
+      () => api<{ detail: string }>("/api/settings/ai/test", { method: "POST" }),
+      (result) => result.detail,
+    );
   };
   const saveAlerts = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const raw = Object.fromEntries(form);
-    const updated = await api<AlertConfig>("/api/settings/alerts", {
-      method: "PUT",
-      body: JSON.stringify({
-        ...alertProviderValues(alerts),
-        free_percent_threshold: Number(raw.free_percent_threshold),
-        forecast_days_threshold: Number(raw.forecast_days_threshold),
-        temperature_c_threshold: Number(raw.temperature_c_threshold),
-        webhook_enabled: alerts.webhook_enabled,
-      }),
-    });
-    setAlerts(updated);
-    setMessage("Alert settings saved securely.");
-    setTimeout(() => setMessage(""), 3000);
+    await runAction(
+      "alerts-save",
+      "Saving alert thresholds…",
+      async () => {
+        const updated = await api<AlertConfig>("/api/settings/alerts", {
+          method: "PUT",
+          body: JSON.stringify({
+            ...alertProviderValues(alerts),
+            free_percent_threshold: Number(raw.free_percent_threshold),
+            forecast_days_threshold: Number(raw.forecast_days_threshold),
+            temperature_c_threshold: Number(raw.temperature_c_threshold),
+            webhook_enabled: alerts.webhook_enabled,
+          }),
+        });
+        setAlerts(updated);
+        return updated;
+      },
+      "Alert thresholds saved securely.",
+    );
   };
   const saveWebhook = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const updated = await api<AlertConfig>("/api/settings/alerts", {
-      method: "PUT",
-      body: JSON.stringify({
+    await runAction(
+      "integrations-save",
+      "Saving integrations…",
+      async () => {
+        const updated = await api<AlertConfig>("/api/settings/alerts", {
+          method: "PUT",
+          body: JSON.stringify({
         ...alertProviderValues(alerts),
         free_percent_threshold: alerts.free_percent_threshold,
         forecast_days_threshold: alerts.forecast_days_threshold,
@@ -191,38 +259,36 @@ export default function SettingsPage() {
         smtp_password: form.get("smtp_password"),
         email_from: form.get("email_from"),
         email_to: form.get("email_to"),
-      }),
-    });
-    setAlerts(updated);
-    setMessage("Integration settings saved securely.");
-    setTimeout(() => setMessage(""), 3000);
+          }),
+        });
+        setAlerts(updated);
+        return updated;
+      },
+      "Integration settings saved securely.",
+    );
   };
   const testNotification = async (provider: string) => {
-    setTesting(true);
-    try {
-      const result = await api<{ detail: string }>(
-        `/api/settings/alerts/test/${provider}`,
-        {
+    await runAction(
+      `notification-test-${provider}`,
+      `Testing ${provider}…`,
+      () =>
+        api<{ detail: string }>(`/api/settings/alerts/test/${provider}`, {
           method: "POST",
-        },
-      );
-      setMessage(result.detail);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Test failed");
-    } finally {
-      setTesting(false);
-    }
+        }),
+      (result) => result.detail,
+    );
   };
   const createBackup = async () => {
-    const result = await api<{ filename: string }>("/api/system/backup", {
-      method: "POST",
-    });
-    setMessage(`Backup created: ${result.filename}`);
+    await runAction(
+      "backup",
+      "Creating backup…",
+      () => api<{ filename: string }>("/api/system/backup", { method: "POST" }),
+      (result) => `Backup created: ${result.filename}`,
+    );
   };
   return (
     <div className="page">
       <PageHeader eyebrow="CONFIGURATION" title="Settings" />
-      {message && <div className="save-message">{message}</div>}
       <div className="settings-layout">
         <aside>
           <a className="active" href="#ai">
@@ -377,18 +443,36 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+              <div className="form-feedback">
+                <ActionFeedback status={actions["ai-test"]} />
+                <ActionFeedback status={actions["ai-save"]} />
+              </div>
               <div className="form-actions">
                 <button
                   type="button"
                   className="secondary"
                   onClick={test}
-                  disabled={testing}
+                  disabled={actions["ai-test"]?.phase === "pending"}
                 >
-                  {testing ? "Testing…" : "Test model"}
+                  {actions["ai-test"]?.phase === "pending" && (
+                    <LoaderCircle className="spin" size={16} />
+                  )}
+                  {actions["ai-test"]?.phase === "pending"
+                    ? "Testing model…"
+                    : "Test model"}
                 </button>
-                <button className="primary">
-                  <Save size={16} />
-                  Save settings
+                <button
+                  className="primary"
+                  disabled={actions["ai-save"]?.phase === "pending"}
+                >
+                  {actions["ai-save"]?.phase === "pending" ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Save size={16} />
+                  )}
+                  {actions["ai-save"]?.phase === "pending"
+                    ? "Saving…"
+                    : "Save settings"}
                 </button>
               </div>
             </form>
@@ -439,10 +523,20 @@ export default function SettingsPage() {
                   />
                 </label>
               </div>
+              <ActionFeedback status={actions["alerts-save"]} />
               <div className="form-actions">
-                <button className="primary">
-                  <Save size={16} />
-                  Save thresholds
+                <button
+                  className="primary"
+                  disabled={actions["alerts-save"]?.phase === "pending"}
+                >
+                  {actions["alerts-save"]?.phase === "pending" ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Save size={16} />
+                  )}
+                  {actions["alerts-save"]?.phase === "pending"
+                    ? "Saving…"
+                    : "Save thresholds"}
                 </button>
               </div>
             </form>
@@ -520,7 +614,7 @@ export default function SettingsPage() {
                 </label>
                 <TestNotificationButton
                   label="webhook"
-                  testing={testing}
+                  status={actions["notification-test-webhook"]}
                   onTest={testNotification}
                 />
               </div>
@@ -549,7 +643,7 @@ export default function SettingsPage() {
                 </label>
                 <TestNotificationButton
                   label="discord"
-                  testing={testing}
+                  status={actions["notification-test-discord"]}
                   onTest={testNotification}
                 />
               </div>
@@ -593,7 +687,7 @@ export default function SettingsPage() {
                 </div>
                 <TestNotificationButton
                   label="pushover"
-                  testing={testing}
+                  status={actions["notification-test-pushover"]}
                   onTest={testNotification}
                 />
               </div>
@@ -678,7 +772,7 @@ export default function SettingsPage() {
                 </div>
                 <TestNotificationButton
                   label="email"
-                  testing={testing}
+                  status={actions["notification-test-email"]}
                   onTest={testNotification}
                 />
               </div>
@@ -691,10 +785,20 @@ export default function SettingsPage() {
                   <small>{provider.read_only ? "Read only" : "Installed"}</small>
                 </div>
               ))}
+              <ActionFeedback status={actions["integrations-save"]} />
               <div className="form-actions">
-                <button className="primary">
-                  <Save size={16} />
-                  Save integrations
+                <button
+                  className="primary"
+                  disabled={actions["integrations-save"]?.phase === "pending"}
+                >
+                  {actions["integrations-save"]?.phase === "pending" ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Save size={16} />
+                  )}
+                  {actions["integrations-save"]?.phase === "pending"
+                    ? "Saving…"
+                    : "Save integrations"}
                 </button>
               </div>
             </form>
@@ -714,10 +818,23 @@ export default function SettingsPage() {
               </div>
             </div>
             <div className="advanced-actions">
-              <button className="secondary" onClick={createBackup}>
-                <Database size={16} />
-                Create backup
-              </button>
+              <div className="advanced-action">
+                <button
+                  className="secondary"
+                  onClick={createBackup}
+                  disabled={actions.backup?.phase === "pending"}
+                >
+                  {actions.backup?.phase === "pending" ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Database size={16} />
+                  )}
+                  {actions.backup?.phase === "pending"
+                    ? "Creating backup…"
+                    : "Create backup"}
+                </button>
+                <ActionFeedback status={actions.backup} />
+              </div>
               <a className="secondary" href="/api/system/diagnostics">
                 <Download size={16} />
                 Download diagnostics

@@ -817,6 +817,19 @@ button {
   background: linear-gradient(135deg, #5d6edf, #7d89f5);
   color: white;
 }
+.secondary:disabled,
+.primary:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .sense-page {
   max-width: 1250px;
 }
@@ -1156,10 +1169,33 @@ button {
   gap: 9px;
   margin-top: 20px;
 }
+.form-feedback {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.action-feedback {
+  border: 1px solid #235743;
+  background: #10251f;
+  color: var(--good);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 11px;
+}
+.action-feedback.error {
+  border-color: #71343b;
+  background: #2a151a;
+  color: #ff9ca7;
+}
 .advanced-actions {
   display: flex;
+  align-items: flex-start;
   gap: 9px;
   padding-top: 20px;
+}
+.advanced-action {
+  display: grid;
+  gap: 8px;
 }
 .advanced-actions a {
   text-decoration: none;
@@ -1215,8 +1251,12 @@ button {
   margin-bottom: 14px;
 }
 .notification-test {
-  display: block;
   margin-left: auto;
+}
+.notification-test-action {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
 }
 .auth-page {
   min-height: 100vh;
