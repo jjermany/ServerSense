@@ -16,7 +16,9 @@ services:
       - /etc/unraid-version:/etc/unraid-version:ro
       - /dev:/dev:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    device_cgroup_rules:
+      - "b 8:* r"
+      - "b 259:* r"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-

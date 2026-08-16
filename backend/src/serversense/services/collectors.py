@@ -334,8 +334,8 @@ class UnraidCollector(LinuxCollector):
             "name": data.get("name", device),
             "role": self._disk_role(data),
             "manufacturer": smart.get("manufacturer"),
-            "model": data.get("model"),
-            "serial": data.get("id"),
+            "model": smart.get("model") or data.get("model"),
+            "serial": smart.get("serial") or data.get("id"),
             "interface": smart.get("interface"),
             "total_bytes": total,
             "used_bytes": max(0, total - free),
@@ -361,15 +361,36 @@ class UnraidCollector(LinuxCollector):
                 check=False,
             )
             payload = json.loads(result.stdout or "{}")
+            messages = payload.get("smartctl", {}).get("messages", [])
+            errors = [
+                str(item.get("string", ""))[:200]
+                for item in messages
+                if item.get("severity") == "error" and item.get("string")
+            ]
+            if errors:
+                logger.warning(
+                    "SMART collection unavailable for /dev/%s: %s",
+                    device_name,
+                    "; ".join(errors),
+                )
+                return {}
+
             passed = payload.get("smart_status", {}).get("passed")
             attributes = {
                 str(item.get("id")): item.get("raw", {}).get("value")
                 for item in payload.get("ata_smart_attributes", {}).get("table", [])
             }
-            if "9" in attributes:
+            power_on_hours = payload.get("power_on_time", {}).get("hours")
+            if power_on_hours is not None:
+                attributes["power_on_hours"] = power_on_hours
+            elif "9" in attributes:
                 attributes["power_on_hours"] = attributes["9"]
             if "5" in attributes:
                 attributes["reallocated_sectors"] = attributes["5"]
+            model = payload.get("model_name") or payload.get("product")
+            manufacturer = payload.get("vendor") or payload.get("model_family")
+            if not manufacturer and isinstance(model, str):
+                manufacturer = model.partition(" ")[0] or None
             return {
                 "temperature": payload.get("temperature", {}).get("current"),
                 "status": "healthy"
@@ -378,10 +399,17 @@ class UnraidCollector(LinuxCollector):
                 if passed is False
                 else "unknown",
                 "attributes": attributes,
-                "manufacturer": payload.get("model_family"),
+                "manufacturer": manufacturer,
+                "model": model,
+                "serial": payload.get("serial_number"),
                 "interface": payload.get("device", {}).get("protocol"),
             }
-        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "SMART collection unavailable for /dev/%s: %s",
+                device_name,
+                type(exc).__name__,
+            )
             return {}
 
 

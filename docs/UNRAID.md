@@ -12,6 +12,7 @@ Build or pull the ServerSense image, then create a container with:
 - `/var/local/emhttp` → `/var/local/emhttp` read-only.
 - `/etc/unraid-version` → `/etc/unraid-version` read-only.
 - `/dev` → `/dev` read-only for SMART access.
+- Extra Parameters: `--device-cgroup-rule='b 8:* r' --device-cgroup-rule='b 259:* r'` for read-only SATA/SAS and NVMe access.
 - `/var/run/docker.sock` → `/var/run/docker.sock` read-only for container inventory.
 - `SERVERSENSE_SECRET_KEY` → a stable random 64-character hex string.
 - `SERVERSENSE_ARRAY_PATH=/mnt/user`.
@@ -32,10 +33,23 @@ docker run -d \
   -v /etc/unraid-version:/etc/unraid-version:ro \
   -v /dev:/dev:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  --device-cgroup-rule='b 8:* r' \
+  --device-cgroup-rule='b 259:* r' \
   ghcr.io/jjermany/serversense:latest
 ```
 
 Save the generated secret in a password manager before running the container. Reuse it on every update; it protects encrypted provider credentials.
+
+After applying or updating the template, verify SMART access with the container's exact,
+case-sensitive name and one physical device reported by `disks.ini`:
+
+```bash
+docker exec ServerSense smartctl -a -j /dev/sde
+```
+
+An `Operation not permitted` message means the container was not recreated with the device
+cgroup rules. Do not enable privileged mode. Edit the container, switch to Advanced View,
+confirm the rules are present under Extra Parameters, and apply the update.
 
 ## Updating and backup
 

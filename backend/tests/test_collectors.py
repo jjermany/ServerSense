@@ -21,9 +21,17 @@ def test_smart_json_is_normalized_without_shell(monkeypatch: MonkeyPatch, tmp_pa
                 {
                     "device": {"protocol": "SATA"},
                     "model_family": "Example Storage",
+                    "model_name": "Example Disk 1000",
+                    "serial_number": "serial-1000",
+                    "power_on_time": {"hours": 1234},
                     "temperature": {"current": 39},
                     "smart_status": {"passed": True},
-                    "ata_smart_attributes": {"table": [{"id": 5, "raw": {"value": 0}}]},
+                    "ata_smart_attributes": {
+                        "table": [
+                            {"id": 5, "raw": {"value": 0}},
+                            {"id": 9, "raw": {"value": 999}},
+                        ]
+                    },
                 }
             ),
             stderr="",
@@ -38,9 +46,57 @@ def test_smart_json_is_normalized_without_shell(monkeypatch: MonkeyPatch, tmp_pa
     assert result["status"] == "healthy"
     assert result["temperature"] == 39
     assert result["attributes"]["5"] == 0
+    assert result["attributes"]["power_on_hours"] == 1234
+    assert result["attributes"]["reallocated_sectors"] == 0
+    assert result["manufacturer"] == "Example Storage"
+    assert result["model"] == "Example Disk 1000"
+    assert result["serial"] == "serial-1000"
 
     assert collector._smart("../sda") == {}
     assert len(observed) == 1
+
+
+def test_smart_uses_model_vendor_fallback_and_rejects_device_errors(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    payloads = iter(
+        [
+            {
+                "device": {"protocol": "ATA"},
+                "model_name": "TOSHIBA MD09ACA18TR",
+                "serial_number": "4590A001TK2H",
+                "smart_status": {"passed": True},
+                "power_on_time": {"hours": 6542},
+                "ata_smart_attributes": {"table": [{"id": 5, "raw": {"value": 0}}]},
+            },
+            {
+                "smartctl": {
+                    "messages": [
+                        {
+                            "string": "Smartctl open device failed: Operation not permitted",
+                            "severity": "error",
+                        }
+                    ]
+                }
+            },
+        ]
+    )
+
+    def fake_run(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            arguments, 0, stdout=json.dumps(next(payloads)), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    collector = UnraidCollector(Settings(secret_key="collector-test-secret-key"))
+
+    result = collector._smart("sde")
+    assert result["manufacturer"] == "TOSHIBA"
+    assert result["model"] == "TOSHIBA MD09ACA18TR"
+    assert result["serial"] == "4590A001TK2H"
+    assert result["interface"] == "ATA"
+    assert result["attributes"]["power_on_hours"] == 6542
+    assert collector._smart("sde") == {}
 
 
 def test_unraid_pool_devices_are_grouped_without_double_counting_filesystem() -> None:
