@@ -66,6 +66,19 @@ class AlertSettings(BaseModel):
     temperature_c_threshold: float = Field(default=50, ge=30, le=90)
     webhook_enabled: bool = False
     webhook_url: str | None = Field(default=None, max_length=2000)
+    discord_enabled: bool = False
+    discord_webhook_url: str | None = Field(default=None, max_length=2000)
+    pushover_enabled: bool = False
+    pushover_user_key: str | None = Field(default=None, max_length=200)
+    pushover_app_token: str | None = Field(default=None, max_length=200)
+    email_enabled: bool = False
+    smtp_host: str = Field(default="", max_length=253)
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_security: str = Field(default="starttls", pattern="^(starttls|tls|none)$")
+    smtp_username: str | None = Field(default=None, max_length=500)
+    smtp_password: str | None = Field(default=None, max_length=500)
+    email_from: str = Field(default="", max_length=320)
+    email_to: str = Field(default="", max_length=320)
 
 
 class ChatRequest(BaseModel):

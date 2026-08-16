@@ -28,6 +28,19 @@ type AlertConfig = {
   temperature_c_threshold: number;
   webhook_enabled: boolean;
   webhook_configured: boolean;
+  discord_enabled: boolean;
+  discord_webhook_url_configured: boolean;
+  pushover_enabled: boolean;
+  pushover_user_key_configured: boolean;
+  pushover_app_token_configured: boolean;
+  email_enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_security: "starttls" | "tls" | "none";
+  smtp_username_configured: boolean;
+  smtp_password_configured: boolean;
+  email_from: string;
+  email_to: string;
 };
 type GeneralConfig = {
   server_name?: string;
@@ -48,6 +61,40 @@ type IntegrationsConfig = {
     configured: boolean;
   }>;
 };
+const alertProviderValues = (alerts: AlertConfig) => ({
+  webhook_enabled: alerts.webhook_enabled,
+  discord_enabled: alerts.discord_enabled,
+  pushover_enabled: alerts.pushover_enabled,
+  email_enabled: alerts.email_enabled,
+  smtp_host: alerts.smtp_host,
+  smtp_port: alerts.smtp_port,
+  smtp_security: alerts.smtp_security,
+  email_from: alerts.email_from,
+  email_to: alerts.email_to,
+});
+const secretPlaceholder = (configured: boolean, empty: string) =>
+  configured ? "Configured — leave blank to keep" : empty;
+
+function TestNotificationButton({
+  label,
+  testing,
+  onTest,
+}: {
+  label: string;
+  testing: boolean;
+  onTest: (provider: string) => Promise<void>;
+}) {
+  return (
+    <button
+      type="button"
+      className="secondary notification-test"
+      onClick={() => void onTest(label)}
+      disabled={testing}
+    >
+      Test {label.charAt(0).toUpperCase() + label.slice(1)}
+    </button>
+  );
+}
 export default function SettingsPage() {
   const [config, setConfig] = useState<AIConfig>();
   const [alerts, setAlerts] = useState<AlertConfig>();
@@ -108,6 +155,7 @@ export default function SettingsPage() {
     const updated = await api<AlertConfig>("/api/settings/alerts", {
       method: "PUT",
       body: JSON.stringify({
+        ...alertProviderValues(alerts),
         free_percent_threshold: Number(raw.free_percent_threshold),
         forecast_days_threshold: Number(raw.forecast_days_threshold),
         temperature_c_threshold: Number(raw.temperature_c_threshold),
@@ -124,22 +172,36 @@ export default function SettingsPage() {
     const updated = await api<AlertConfig>("/api/settings/alerts", {
       method: "PUT",
       body: JSON.stringify({
+        ...alertProviderValues(alerts),
         free_percent_threshold: alerts.free_percent_threshold,
         forecast_days_threshold: alerts.forecast_days_threshold,
         temperature_c_threshold: alerts.temperature_c_threshold,
         webhook_enabled: form.get("webhook_enabled") === "on",
         webhook_url: form.get("webhook_url"),
+        discord_enabled: form.get("discord_enabled") === "on",
+        discord_webhook_url: form.get("discord_webhook_url"),
+        pushover_enabled: form.get("pushover_enabled") === "on",
+        pushover_user_key: form.get("pushover_user_key"),
+        pushover_app_token: form.get("pushover_app_token"),
+        email_enabled: form.get("email_enabled") === "on",
+        smtp_host: form.get("smtp_host"),
+        smtp_port: Number(form.get("smtp_port")),
+        smtp_security: form.get("smtp_security"),
+        smtp_username: form.get("smtp_username"),
+        smtp_password: form.get("smtp_password"),
+        email_from: form.get("email_from"),
+        email_to: form.get("email_to"),
       }),
     });
     setAlerts(updated);
     setMessage("Integration settings saved securely.");
     setTimeout(() => setMessage(""), 3000);
   };
-  const testWebhook = async () => {
+  const testNotification = async (provider: string) => {
     setTesting(true);
     try {
       const result = await api<{ detail: string }>(
-        "/api/settings/alerts/test",
+        `/api/settings/alerts/test/${provider}`,
         {
           method: "POST",
         },
@@ -433,29 +495,193 @@ export default function SettingsPage() {
               </div>
             </div>
             <form onSubmit={saveWebhook}>
-              <label className="check">
-                <input
-                  name="webhook_enabled"
-                  type="checkbox"
-                  defaultChecked={alerts.webhook_enabled}
+              <div className="notification-option">
+                <label className="check">
+                  <input
+                    name="webhook_enabled"
+                    type="checkbox"
+                    defaultChecked={alerts.webhook_enabled}
+                  />
+                  <span>
+                    <b>Generic webhook</b>
+                    <small>Send each alert as structured JSON.</small>
+                  </span>
+                </label>
+                <label>
+                  Webhook URL
+                  <input
+                    name="webhook_url"
+                    type="url"
+                    placeholder={secretPlaceholder(
+                      alerts.webhook_configured,
+                      "https://example.com/webhook",
+                    )}
+                  />
+                </label>
+                <TestNotificationButton
+                  label="webhook"
+                  testing={testing}
+                  onTest={testNotification}
                 />
-                <span>
-                  <b>Enable generic webhook</b>
-                  <small>Send each newly created alert as structured JSON.</small>
-                </span>
-              </label>
-              <label>
-                Webhook URL
-                <input
-                  name="webhook_url"
-                  type="url"
-                  placeholder={
-                    alerts.webhook_configured
-                      ? "Configured — leave blank to keep"
-                      : "https://example.com/webhook"
-                  }
+              </div>
+              <div className="notification-option">
+                <label className="check">
+                  <input
+                    name="discord_enabled"
+                    type="checkbox"
+                    defaultChecked={alerts.discord_enabled}
+                  />
+                  <span>
+                    <b>Discord</b>
+                    <small>Post a formatted alert embed to a Discord channel.</small>
+                  </span>
+                </label>
+                <label>
+                  Discord webhook URL
+                  <input
+                    name="discord_webhook_url"
+                    type="url"
+                    placeholder={secretPlaceholder(
+                      alerts.discord_webhook_url_configured,
+                      "https://discord.com/api/webhooks/…",
+                    )}
+                  />
+                </label>
+                <TestNotificationButton
+                  label="discord"
+                  testing={testing}
+                  onTest={testNotification}
                 />
-              </label>
+              </div>
+              <div className="notification-option">
+                <label className="check">
+                  <input
+                    name="pushover_enabled"
+                    type="checkbox"
+                    defaultChecked={alerts.pushover_enabled}
+                  />
+                  <span>
+                    <b>Pushover</b>
+                    <small>Send alerts through your Pushover application.</small>
+                  </span>
+                </label>
+                <div className="field-grid">
+                  <label>
+                    User key
+                    <input
+                      name="pushover_user_key"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={secretPlaceholder(
+                        alerts.pushover_user_key_configured,
+                        "Pushover user key",
+                      )}
+                    />
+                  </label>
+                  <label>
+                    Application token
+                    <input
+                      name="pushover_app_token"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={secretPlaceholder(
+                        alerts.pushover_app_token_configured,
+                        "Application API token",
+                      )}
+                    />
+                  </label>
+                </div>
+                <TestNotificationButton
+                  label="pushover"
+                  testing={testing}
+                  onTest={testNotification}
+                />
+              </div>
+              <div className="notification-option">
+                <label className="check">
+                  <input
+                    name="email_enabled"
+                    type="checkbox"
+                    defaultChecked={alerts.email_enabled}
+                  />
+                  <span>
+                    <b>Email</b>
+                    <small>Deliver alert messages through an SMTP server.</small>
+                  </span>
+                </label>
+                <div className="field-grid three">
+                  <label>
+                    SMTP host
+                    <input name="smtp_host" defaultValue={alerts.smtp_host} />
+                  </label>
+                  <label>
+                    Port
+                    <input
+                      name="smtp_port"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      defaultValue={alerts.smtp_port}
+                    />
+                  </label>
+                  <label>
+                    Security
+                    <select name="smtp_security" defaultValue={alerts.smtp_security}>
+                      <option value="starttls">STARTTLS</option>
+                      <option value="tls">TLS / SSL</option>
+                      <option value="none">None</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="field-grid">
+                  <label>
+                    SMTP username
+                    <input
+                      name="smtp_username"
+                      placeholder={secretPlaceholder(
+                        alerts.smtp_username_configured,
+                        "Optional username",
+                      )}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <label>
+                    SMTP password
+                    <input
+                      name="smtp_password"
+                      type="password"
+                      placeholder={secretPlaceholder(
+                        alerts.smtp_password_configured,
+                        "Optional password",
+                      )}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                </div>
+                <div className="field-grid">
+                  <label>
+                    From address
+                    <input
+                      name="email_from"
+                      type="email"
+                      defaultValue={alerts.email_from}
+                    />
+                  </label>
+                  <label>
+                    To address
+                    <input
+                      name="email_to"
+                      type="email"
+                      defaultValue={alerts.email_to}
+                    />
+                  </label>
+                </div>
+                <TestNotificationButton
+                  label="email"
+                  testing={testing}
+                  onTest={testNotification}
+                />
+              </div>
               {integrations.available_providers.map((provider) => (
                 <div className="integration-provider" key={provider.key}>
                   <span>
@@ -466,17 +692,9 @@ export default function SettingsPage() {
                 </div>
               ))}
               <div className="form-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={testWebhook}
-                  disabled={testing}
-                >
-                  Test webhook
-                </button>
                 <button className="primary">
                   <Save size={16} />
-                  Save integration
+                  Save integrations
                 </button>
               </div>
             </form>

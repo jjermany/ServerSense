@@ -10,7 +10,7 @@ from serversense.models import Alert, Setting
 from serversense.schemas import AISettings, AlertSettings
 from serversense.security import current_user
 from serversense.services.ai_config import read_ai_config
-from serversense.services.notifications import WebhookProvider
+from serversense.services.notifications import DELIVERY_ERRORS, provider_from_config
 from serversense.services.secrets import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
@@ -62,23 +62,42 @@ def get_general_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
     return row.value if row else {}
 
 
+ALERT_DEFAULTS: dict[str, Any] = {
+    "free_percent_threshold": 10,
+    "forecast_days_threshold": 90,
+    "temperature_c_threshold": 50,
+    "webhook_enabled": False,
+    "discord_enabled": False,
+    "pushover_enabled": False,
+    "email_enabled": False,
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_security": "starttls",
+    "email_from": "",
+    "email_to": "",
+}
+ALERT_SECRET_FIELDS = (
+    "webhook_url",
+    "discord_webhook_url",
+    "pushover_user_key",
+    "pushover_app_token",
+    "smtp_username",
+    "smtp_password",
+)
+
+
 def read_alert_config(db: Session, include_secret: bool = False) -> dict[str, Any]:
     row = db.get(Setting, "alerts")
-    value = (
-        dict(row.value)
-        if row
-        else {
-            "free_percent_threshold": 10,
-            "forecast_days_threshold": 90,
-            "temperature_c_threshold": 50,
-            "webhook_enabled": False,
-        }
-    )
-    encrypted = str(value.pop("webhook_url_encrypted", ""))
-    if include_secret:
-        value["webhook_url"] = decrypt_secret(encrypted) if encrypted else ""
-    else:
-        value["webhook_configured"] = bool(encrypted)
+    value = {**ALERT_DEFAULTS, **(row.value if row else {})}
+    for field in ALERT_SECRET_FIELDS:
+        encrypted = str(value.pop(f"{field}_encrypted", ""))
+        if include_secret:
+            value[field] = decrypt_secret(encrypted) if encrypted else ""
+        else:
+            configured_key = (
+                "webhook_configured" if field == "webhook_url" else f"{field}_configured"
+            )
+            value[configured_key] = bool(encrypted)
     return value
 
 
@@ -90,13 +109,23 @@ def get_alert_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.put("/alerts")
 def update_alert_settings(payload: AlertSettings, db: Session = Depends(get_db)) -> dict[str, Any]:
     current = db.get(Setting, "alerts")
-    value = payload.model_dump(exclude={"webhook_url"})
-    if payload.webhook_url:
-        if not payload.webhook_url.startswith(("http://", "https://")):
-            raise HTTPException(422, "Webhook URL must use HTTP or HTTPS")
-        value["webhook_url_encrypted"] = encrypt_secret(payload.webhook_url)
-    elif current and current.value.get("webhook_url_encrypted"):
-        value["webhook_url_encrypted"] = current.value["webhook_url_encrypted"]
+    value = payload.model_dump(exclude=set(ALERT_SECRET_FIELDS))
+    for field in ALERT_SECRET_FIELDS:
+        supplied = getattr(payload, field)
+        if supplied:
+            if field.endswith("webhook_url") and not supplied.startswith(("http://", "https://")):
+                raise HTTPException(
+                    422, f"{field.replace('_', ' ').title()} must use HTTP or HTTPS"
+                )
+            value[f"{field}_encrypted"] = encrypt_secret(supplied)
+        elif current and current.value.get(f"{field}_encrypted"):
+            value[f"{field}_encrypted"] = current.value[f"{field}_encrypted"]
+    for provider_key in ("webhook", "discord", "pushover", "email"):
+        if value.get(f"{provider_key}_enabled"):
+            try:
+                provider_from_config(provider_key, value)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(422, str(exc)) from exc
     if current:
         current.value = value
     else:
@@ -107,10 +136,21 @@ def update_alert_settings(payload: AlertSettings, db: Session = Depends(get_db))
 
 @router.post("/alerts/test")
 def test_alert_webhook(db: Session = Depends(get_db)) -> dict[str, Any]:
-    config = read_alert_config(db, include_secret=True)
-    url = str(config.get("webhook_url", ""))
-    if not config.get("webhook_enabled") or not url:
-        raise HTTPException(422, "Enable and save a webhook before testing")
+    return _test_notification_provider("webhook", db)
+
+
+@router.post("/alerts/test/{provider_key}")
+def test_alert_provider(provider_key: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    if provider_key not in {"webhook", "discord", "pushover", "email"}:
+        raise HTTPException(404, "Notification provider was not found")
+    return _test_notification_provider(provider_key, db)
+
+
+def _test_notification_provider(provider_key: str, db: Session) -> dict[str, Any]:
+    row = db.get(Setting, "alerts")
+    value = row.value if row else {}
+    if not value.get(f"{provider_key}_enabled"):
+        raise HTTPException(422, f"Enable and save {provider_key} before testing")
     alert = Alert(
         alert_type="test",
         severity="info",
@@ -121,7 +161,9 @@ def test_alert_webhook(db: Session = Depends(get_db)) -> dict[str, Any]:
     )
     alert.created_at = datetime.now(UTC)
     try:
-        WebhookProvider(url).send(alert)
-    except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(502, f"Webhook delivery failed: {type(exc).__name__}") from exc
+        provider_from_config(provider_key, value).send(alert)
+    except DELIVERY_ERRORS as exc:
+        raise HTTPException(
+            502, f"{provider_key.title()} delivery failed: {type(exc).__name__}"
+        ) from exc
     return {"ok": True, "detail": "Test notification delivered"}

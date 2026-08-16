@@ -71,4 +71,4 @@ Proactive explanation path: passed (opt-in, no tools, provenance, fallback)
 
 - The checked-in browser suite currently targets Chromium. Manual browser verification also passed in Brave at desktop and mobile viewport sizes.
 - Embedded model binaries and in-app GGUF downloads are not bundled. A local Ollama-compatible endpoint works and the provider abstraction remains replaceable.
-- Generic webhook is the external notification provider in v1; Discord, Pushover, and additional integrations can use the existing provider registries.
+- Alert delivery supports generic webhooks, Discord webhooks, Pushover, and SMTP email with encrypted credentials and isolated provider failures. Additional read-only data integrations can use the existing provider registry.

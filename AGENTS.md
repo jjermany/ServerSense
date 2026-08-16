@@ -23,6 +23,7 @@ Everything persistent must live below `/config`. The production schema changes o
 Keep this a modular monolith. API routes coordinate; services own business behavior; collectors normalize platform data; model providers never get raw host access.
 
 Deterministic rules must create alerts before any optional model explanation. Proactive model calls are opt-in, receive normalized alert records only, expose no tools, and may never block collection or notification delivery when a provider fails.
+Notification providers must use narrow protocols and encrypted stored credentials. A Discord, Pushover, SMTP, or webhook failure may never interrupt collection or deterministic alert persistence.
 
 ## Commands
 

@@ -31,7 +31,7 @@ Last updated: 2026-08-15
 - [x] metric-driven storage, forecast, SMART, temperature, and container rules
 - [x] Unraid array/parity state, disk/cache inventory, and available APC UPS data
 - [x] persisted per-container CPU, memory, health, restarts, and uptime
-- [x] configurable alert thresholds and encrypted generic webhook delivery
+- [x] configurable alert thresholds and encrypted generic webhook, Discord, Pushover, and SMTP email delivery
 - [x] daily retention cleanup and old storage sample downsampling
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 
@@ -56,7 +56,7 @@ Last updated: 2026-08-15
 - [x] README, architecture, agent guidance, Unraid guide/template draft
 - [x] frontend component tests
 - [x] checked-in fresh-container Chromium E2E for setup, routes, SENSE, and mobile navigation
-- [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, webhook integration
+- [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, and individually testable alert integrations
 - [x] production Docker build, health, setup, route, stream, and recreation verification
 - [x] GitHub Actions verification gate and GitHub Container Registry publishing on push
 - [x] migration upgrade/downgrade/upgrade round trip

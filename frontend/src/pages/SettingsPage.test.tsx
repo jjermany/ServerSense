@@ -23,6 +23,19 @@ const alertConfig = {
   temperature_c_threshold: 50,
   webhook_enabled: false,
   webhook_configured: false,
+  discord_enabled: false,
+  discord_webhook_url_configured: false,
+  pushover_enabled: false,
+  pushover_user_key_configured: false,
+  pushover_app_token_configured: false,
+  email_enabled: false,
+  smtp_host: "",
+  smtp_port: 587,
+  smtp_security: "starttls" as const,
+  smtp_username_configured: false,
+  smtp_password_configured: false,
+  email_from: "",
+  email_to: "",
 };
 
 const generalConfig = { server_name: "Test Tower", demo_mode: false };
@@ -76,5 +89,8 @@ describe("AI settings", () => {
     );
     expect(screen.getByText("Live monitoring")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Save integration/ })).toBeInTheDocument();
+    expect(screen.getByText("Discord")).toBeInTheDocument();
+    expect(screen.getByText("Pushover")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
   });
 });

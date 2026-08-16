@@ -1204,6 +1204,20 @@ button {
 .integration-provider + .integration-provider {
   margin-top: 8px;
 }
+.notification-option {
+  border: 1px solid var(--line);
+  background: #0b1018;
+  border-radius: 9px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.notification-option .check {
+  margin-bottom: 14px;
+}
+.notification-test {
+  display: block;
+  margin-left: auto;
+}
 .auth-page {
   min-height: 100vh;
   display: grid;

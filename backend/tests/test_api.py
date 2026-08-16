@@ -95,6 +95,10 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
     authenticated_client: TestClient,
 ) -> None:
     secret_url = "https://example.invalid/hook/super-secret-token"
+    discord_url = "https://discord.com/api/webhooks/123/discord-secret"
+    pushover_user = "pushover-user-secret"
+    pushover_token = "pushover-app-secret"
+    smtp_password = "smtp-password-secret"
     saved = authenticated_client.put(
         "/api/settings/alerts",
         json={
@@ -103,15 +107,55 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
             "temperature_c_threshold": 48,
             "webhook_enabled": True,
             "webhook_url": secret_url,
+            "discord_enabled": True,
+            "discord_webhook_url": discord_url,
+            "pushover_enabled": True,
+            "pushover_user_key": pushover_user,
+            "pushover_app_token": pushover_token,
+            "email_enabled": True,
+            "smtp_host": "smtp.example.invalid",
+            "smtp_port": 587,
+            "smtp_security": "starttls",
+            "smtp_username": "alerts@example.invalid",
+            "smtp_password": smtp_password,
+            "email_from": "alerts@example.invalid",
+            "email_to": "admin@example.invalid",
         },
     )
     assert saved.status_code == 200
     assert saved.json()["webhook_configured"] is True
-    assert secret_url not in saved.text
+    assert saved.json()["discord_webhook_url_configured"] is True
+    assert saved.json()["pushover_user_key_configured"] is True
+    assert saved.json()["pushover_app_token_configured"] is True
+    assert saved.json()["smtp_password_configured"] is True
+    secrets = (secret_url, discord_url, pushover_user, pushover_token, smtp_password)
+    assert all(secret not in saved.text for secret in secrets)
+    preserved = authenticated_client.put(
+        "/api/settings/alerts",
+        json={
+            "free_percent_threshold": 10,
+            "forecast_days_threshold": 90,
+            "temperature_c_threshold": 50,
+            "webhook_enabled": True,
+            "discord_enabled": True,
+            "pushover_enabled": True,
+            "email_enabled": True,
+            "smtp_host": "smtp.example.invalid",
+            "smtp_port": 587,
+            "smtp_security": "starttls",
+            "email_from": "alerts@example.invalid",
+            "email_to": "admin@example.invalid",
+        },
+    )
+    assert preserved.status_code == 200
+    assert preserved.json()["webhook_configured"] is True
+    assert preserved.json()["discord_webhook_url_configured"] is True
+    assert preserved.json()["pushover_app_token_configured"] is True
+    assert preserved.json()["smtp_password_configured"] is True
     diagnostics = authenticated_client.get("/api/system/diagnostics")
     assert diagnostics.status_code == 200
     assert diagnostics.headers["content-type"] == "application/zip"
-    assert secret_url.encode() not in diagnostics.content
+    assert all(secret.encode() not in diagnostics.content for secret in secrets)
     backup = authenticated_client.post("/api/system/backup")
     assert backup.status_code == 200
     assert backup.json()["filename"].endswith(".db")
