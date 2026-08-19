@@ -177,3 +177,26 @@ class MediaActivity(Base):
     quality: Mapped[str | None] = mapped_column(String(100))
     bytes: Mapped[int | None] = mapped_column(Integer)
     is_upgrade: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MediaSchedule(Base):
+    __tablename__ = "media_schedules"
+    __table_args__ = (
+        UniqueConstraint("integration_id", "external_id", name="uq_media_schedule_source"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    integration_id: Mapped[int] = mapped_column(
+        ForeignKey("integrations.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(80))
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    provider: Mapped[str] = mapped_column(String(20), index=True)
+    instance_name: Mapped[str] = mapped_column(String(160), index=True)
+    media_type: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(300))
+    parent_title: Mapped[str | None] = mapped_column(String(300))
+    season_number: Mapped[int | None] = mapped_column(Integer)
+    episode_number: Mapped[int | None] = mapped_column(Integer)
+    release_type: Mapped[str] = mapped_column(String(40))
+    monitored: Mapped[bool] = mapped_column(Boolean, default=True)
+    has_file: Mapped[bool] = mapped_column(Boolean, default=False)

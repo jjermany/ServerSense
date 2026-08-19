@@ -7,7 +7,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample, Event, MediaActivity, MetricSample
-from serversense.services.tools import media_activity_summary, storage_forecast
+from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
 
 REFRESH_INTERVAL = timedelta(hours=6)
 MINIMUM_REFRESH_INTERVAL = timedelta(minutes=15)
@@ -106,6 +106,7 @@ def _facts(db: Session) -> dict[str, Any] | None:
             for row in alerts
         ],
         "media_activity_7_days": media,
+        "upcoming_media_24_hours": upcoming_media(db, {"days": 1, "limit": 30}),
     }
 
 

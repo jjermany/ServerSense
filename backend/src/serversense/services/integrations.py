@@ -5,10 +5,10 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from serversense.models import Integration, MediaActivity
+from serversense.models import Integration, MediaActivity, MediaSchedule
 from serversense.services.secrets import decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
         episode = _mapping(record.get("episode"))
         series = _mapping(record.get("series"))
         episode_file = _mapping(episode.get("episodeFile"))
-        title = _text(episode.get("title"), 300) or _text(record.get("sourceTitle"), 300)
+        title = _text(episode.get("title"), 300)
         parent_title = _text(series.get("title"), 300) or None
         season = _integer(episode.get("seasonNumber"))
         number = _integer(episode.get("episodeNumber"))
@@ -133,7 +133,7 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
     else:
         movie = _mapping(record.get("movie"))
         movie_file = _mapping(movie.get("movieFile"))
-        title = _text(movie.get("title"), 300) or _text(record.get("sourceTitle"), 300)
+        title = _text(movie.get("title"), 300)
         parent_title = None
         season = number = None
         size = _integer(data.get("size")) or _integer(movie_file.get("size"))
@@ -156,6 +156,93 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
     )
 
 
+def _schedule(
+    integration: Integration,
+    record: dict[str, Any],
+    window_start: datetime,
+    window_end: datetime,
+) -> MediaSchedule | None:
+    external_id = _text(record.get("id"), 80)
+    if not external_id:
+        return None
+    if integration.provider == "sonarr":
+        series = _mapping(record.get("series"))
+        scheduled_at = _date(record.get("airDateUtc"))
+        if scheduled_at is None:
+            return None
+        title = _text(record.get("title"), 300)
+        parent_title = _text(series.get("title"), 300) or None
+        season = _integer(record.get("seasonNumber"))
+        episode = _integer(record.get("episodeNumber"))
+        release_type = "airing"
+        monitored = record.get("monitored") is not False and series.get("monitored") is not False
+        has_file = record.get("hasFile") is True
+        media_type = "episode"
+        external_id = f"episode:{external_id}"
+    else:
+        candidates = [
+            (_date(record.get("digitalRelease")), "digital_release"),
+            (_date(record.get("physicalRelease")), "physical_release"),
+            (_date(record.get("inCinemas")), "cinema_release"),
+        ]
+        in_window = [
+            (value, kind)
+            for value, kind in candidates
+            if value is not None and window_start <= value <= window_end
+        ]
+        if not in_window:
+            return None
+        scheduled_at, release_type = min(in_window, key=lambda item: item[0])
+        statistics = _mapping(record.get("statistics"))
+        title = _text(record.get("title"), 300)
+        parent_title = None
+        season = episode = None
+        monitored = record.get("monitored") is not False
+        has_file = (
+            record.get("hasFile") is True or (_integer(statistics.get("movieFileCount")) or 0) > 0
+        )
+        media_type = "movie"
+        external_id = f"movie:{external_id}"
+    return MediaSchedule(
+        integration_id=integration.id,
+        external_id=external_id,
+        scheduled_at=scheduled_at,
+        provider=integration.provider,
+        instance_name=integration.name,
+        media_type=media_type,
+        title=title or "Unknown title",
+        parent_title=parent_title,
+        season_number=season,
+        episode_number=episode,
+        release_type=release_type,
+        monitored=monitored,
+        has_file=has_file,
+    )
+
+
+def _replace_calendar(db: Session, integration: Integration, now: datetime) -> None:
+    window_start = now - timedelta(days=1)
+    window_end = now + timedelta(days=31)
+    params: dict[str, Any] = {
+        "start": window_start.isoformat(),
+        "end": window_end.isoformat(),
+        "unmonitored": False,
+    }
+    if integration.provider == "sonarr":
+        params["includeSeries"] = True
+    payload = _request(integration, "calendar", params)
+    if not isinstance(payload, list):
+        raise ValueError("The server returned an unexpected calendar response")
+    schedules = [
+        schedule
+        for raw in payload[:1000]
+        if isinstance(raw, dict)
+        if (schedule := _schedule(integration, raw, window_start, window_end)) is not None
+    ]
+    db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == integration.id))
+    db.add_all(schedules)
+
+
 def collect_integration(db: Session, integration: Integration, now: datetime | None = None) -> int:
     now = now or datetime.now(UTC)
     config = dict(integration.config)
@@ -164,11 +251,12 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
         return 0
     cutoff = last or now - INITIAL_LOOKBACK
     added = 0
-    existing_ids = set(
-        db.scalars(
-            select(MediaActivity.external_id).where(MediaActivity.integration_id == integration.id)
+    existing = {
+        row.external_id: row
+        for row in db.scalars(
+            select(MediaActivity).where(MediaActivity.integration_id == integration.id)
         )
-    )
+    }
     for page in range(1, 5):
         params: dict[str, Any] = {
             "page": page,
@@ -177,6 +265,8 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
             "sortDirection": "descending",
             "includeSeries" if integration.provider == "sonarr" else "includeMovie": True,
         }
+        if integration.provider == "sonarr":
+            params["includeEpisode"] = True
         payload = _request(integration, "history", params)
         records = payload.get("records", []) if isinstance(payload, dict) else []
         if not isinstance(records, list):
@@ -189,12 +279,29 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
             if activity and activity.occurred_at < cutoff:
                 reached_cutoff = True
                 continue
-            if activity and activity.external_id not in existing_ids:
-                db.add(activity)
-                existing_ids.add(activity.external_id)
-                added += 1
+            if activity:
+                current = existing.get(activity.external_id)
+                if current is None:
+                    db.add(activity)
+                    existing[activity.external_id] = activity
+                    added += 1
+                else:
+                    if activity.title != "Unknown title":
+                        current.title = activity.title
+                    if activity.parent_title is not None:
+                        current.parent_title = activity.parent_title
+                    if activity.season_number is not None:
+                        current.season_number = activity.season_number
+                    if activity.episode_number is not None:
+                        current.episode_number = activity.episode_number
+                    if activity.quality is not None:
+                        current.quality = activity.quality
+                    if activity.bytes is not None:
+                        current.bytes = activity.bytes
+                    current.is_upgrade = current.is_upgrade or activity.is_upgrade
         if reached_cutoff or len(records) < 250:
             break
+    _replace_calendar(db, integration, now)
     config["last_collected_at"] = now.isoformat()
     integration.config = config
     db.commit()

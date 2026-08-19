@@ -4,7 +4,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from serversense.db import get_db
-from serversense.models import Integration, MediaActivity
+from serversense.models import Integration, MediaActivity, MediaSchedule
 from serversense.schemas import MediaIntegrationRequest
 from serversense.security import current_user
 from serversense.services.integrations import DESCRIPTORS, normalize_url, test_integration
@@ -107,6 +107,11 @@ def update_integration(
             .where(MediaActivity.integration_id == item.id)
             .values(instance_name=name)
         )
+        db.execute(
+            update(MediaSchedule)
+            .where(MediaSchedule.integration_id == item.id)
+            .values(instance_name=name)
+        )
     item.name = name
     item.enabled = payload.enabled
     db.commit()
@@ -136,6 +141,7 @@ def delete_integration(integration_id: int, db: Session = Depends(get_db)) -> Re
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Integration not found")
     db.execute(delete(MediaActivity).where(MediaActivity.integration_id == item.id))
+    db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == item.id))
     db.delete(item)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

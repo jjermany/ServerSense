@@ -9,7 +9,9 @@ from serversense.models import (
     Alert,
     DiskSample,
     DockerSample,
+    Integration,
     MediaActivity,
+    MediaSchedule,
     MetricSample,
     Setting,
     StorageSample,
@@ -199,13 +201,62 @@ def _media_rows(db: Session, args: dict[str, Any]) -> tuple[int, list[MediaActiv
         query = query.where(MediaActivity.provider == args["provider"])
     if args.get("instance"):
         query = query.where(MediaActivity.instance_name == args["instance"])
-    if args.get("event_type"):
+    if args.get("event_type") and not args.get("upgrades_only", False):
         query = query.where(MediaActivity.event_type == args["event_type"])
     return days, list(db.scalars(query.order_by(desc(MediaActivity.occurred_at))))
 
 
+def _media_identity(row: MediaActivity) -> tuple[Any, ...]:
+    return (
+        row.integration_id,
+        row.media_type,
+        row.parent_title,
+        row.title,
+        row.season_number,
+        row.episode_number,
+    )
+
+
+def _upgrade_pairs(rows: list[MediaActivity]) -> dict[int, MediaActivity]:
+    deletions: dict[tuple[Any, ...], list[MediaActivity]] = {}
+    for row in rows:
+        if row.event_type == "file_deleted" and row.is_upgrade:
+            deletions.setdefault(_media_identity(row), []).append(row)
+    pairs: dict[int, MediaActivity] = {}
+    used: set[int] = set()
+    for imported in (row for row in rows if row.event_type == "imported"):
+        candidates = [
+            deleted
+            for deleted in deletions.get(_media_identity(imported), [])
+            if deleted.id not in used
+            and abs(
+                (
+                    _aware_datetime(imported.occurred_at) - _aware_datetime(deleted.occurred_at)
+                ).total_seconds()
+            )
+            <= 600
+        ]
+        if candidates:
+            deleted = min(
+                candidates,
+                key=lambda row: abs(
+                    (
+                        _aware_datetime(imported.occurred_at) - _aware_datetime(row.occurred_at)
+                    ).total_seconds()
+                ),
+            )
+            pairs[imported.id] = deleted
+            used.add(deleted.id)
+    return pairs
+
+
+def _aware_datetime(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     days, rows = _media_rows(db, args)
+    upgrade_pairs = _upgrade_pairs(rows)
     instances: dict[str, dict[str, Any]] = {}
     for row in rows:
         group = instances.setdefault(
@@ -221,7 +272,9 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         events[row.event_type] = events.get(row.event_type, 0) + 1
         if row.event_type == "imported" and row.bytes is not None:
             group["known_import_bytes"] += row.bytes
-        if row.event_type == "imported" and row.is_upgrade:
+        if row.event_type == "file_deleted" and row.is_upgrade:
+            group["explicit_upgrades"] += 1
+        elif row.event_type == "imported" and row.is_upgrade and row.id not in upgrade_pairs:
             group["explicit_upgrades"] += 1
     cutoff = datetime.now(UTC) - timedelta(days=days)
     storage = list(
@@ -239,7 +292,8 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "evidence_note": (
             "Import sizes are gross media events and do not prove net storage growth; "
             "hardlinks, replacements, deletions, and incomplete size fields can differ. "
-            "Upgrade counts include only events explicitly marked as upgrades by the provider."
+            "Quality upgrades are confirmed by a provider deletion event whose reason is Upgrade, "
+            "paired with a nearby import when available. They are not video conversions."
         ),
     }
 
@@ -247,11 +301,74 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
 def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     days, rows = _media_rows(db, args)
     limit = min(max(int(args.get("limit", 25)), 1), 100)
-    return {
-        "days": days,
-        "activities": [
+    upgrade_pairs = _upgrade_pairs(rows)
+    paired_deletions = {row.id for row in upgrade_pairs.values()}
+    activities: list[dict[str, Any]] = []
+    for row in rows:
+        deleted = upgrade_pairs.get(row.id)
+        if args.get("upgrades_only", False):
+            if deleted is not None:
+                activities.append(
+                    {
+                        "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                        "provider": row.provider,
+                        "instance": row.instance_name,
+                        "event_type": "quality_upgraded",
+                        "media_type": row.media_type,
+                        "title": row.title,
+                        "series": row.parent_title,
+                        "season": row.season_number,
+                        "episode": row.episode_number,
+                        "previous_quality": deleted.quality,
+                        "quality": row.quality,
+                        "bytes": row.bytes,
+                        "evidence": "provider deletion reason Upgrade followed by import",
+                    }
+                )
+            elif (
+                row.event_type == "file_deleted"
+                and row.is_upgrade
+                and row.id not in paired_deletions
+            ):
+                activities.append(
+                    {
+                        "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                        "provider": row.provider,
+                        "instance": row.instance_name,
+                        "event_type": "quality_upgrade",
+                        "media_type": row.media_type,
+                        "title": row.title,
+                        "series": row.parent_title,
+                        "season": row.season_number,
+                        "episode": row.episode_number,
+                        "previous_quality": row.quality,
+                        "quality": None,
+                        "bytes": None,
+                        "evidence": "provider deletion reason Upgrade; matching import is outside the selected window",
+                    }
+                )
+            elif row.event_type == "imported" and row.is_upgrade and deleted is None:
+                activities.append(
+                    {
+                        "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                        "provider": row.provider,
+                        "instance": row.instance_name,
+                        "event_type": "quality_upgraded",
+                        "media_type": row.media_type,
+                        "title": row.title,
+                        "series": row.parent_title,
+                        "season": row.season_number,
+                        "episode": row.episode_number,
+                        "previous_quality": None,
+                        "quality": row.quality,
+                        "bytes": row.bytes,
+                        "evidence": "import explicitly marked as an upgrade by the provider",
+                    }
+                )
+            continue
+        activities.append(
             {
-                "timestamp": row.occurred_at.isoformat(),
+                "timestamp": _aware_datetime(row.occurred_at).isoformat(),
                 "provider": row.provider,
                 "instance": row.instance_name,
                 "event_type": row.event_type,
@@ -260,13 +377,67 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "series": row.parent_title,
                 "season": row.season_number,
                 "episode": row.episode_number,
+                "previous_quality": deleted.quality if deleted else None,
                 "quality": row.quality,
                 "bytes": row.bytes,
-                "explicit_upgrade": row.is_upgrade,
+                "explicit_upgrade": row.is_upgrade or deleted is not None,
             }
-            for row in rows[:limit]
-        ],
+        )
+    return {
+        "days": days,
+        "activities": activities[:limit],
     }
+
+
+def upcoming_media(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    days = min(max(int(args.get("days", 1)), 1), 30)
+    limit = min(max(int(args.get("limit", 50)), 1), 100)
+    now = datetime.now(UTC)
+    query = (
+        select(MediaSchedule)
+        .join(Integration, MediaSchedule.integration_id == Integration.id)
+        .where(
+            Integration.enabled.is_(True),
+            MediaSchedule.monitored.is_(True),
+            MediaSchedule.scheduled_at >= now,
+            MediaSchedule.scheduled_at <= now + timedelta(days=days),
+        )
+    )
+    if args.get("provider"):
+        query = query.where(MediaSchedule.provider == args["provider"])
+    if args.get("instance"):
+        query = query.where(MediaSchedule.instance_name == args["instance"])
+    if not args.get("include_acquired", False):
+        query = query.where(MediaSchedule.has_file.is_(False))
+    rows = list(db.scalars(query.order_by(MediaSchedule.scheduled_at).limit(limit)))
+    return {
+        "window_start_utc": now.isoformat(),
+        "window_end_utc": (now + timedelta(days=days)).isoformat(),
+        "items": [
+            {
+                "scheduled_at": _aware_datetime(row.scheduled_at).isoformat(),
+                "provider": row.provider,
+                "instance": row.instance_name,
+                "media_type": row.media_type,
+                "title": row.title,
+                "series": row.parent_title,
+                "season": row.season_number,
+                "episode": row.episode_number,
+                "calendar_event": row.release_type,
+                "already_has_file": row.has_file,
+            }
+            for row in rows
+        ],
+        "terminology_note": (
+            "These are monitored Sonarr/Radarr calendar entries in a rolling UTC window, not "
+            "guaranteed scheduled downloads. Sonarr/Radarr may grab them when an eligible "
+            "release becomes available; use grabbed history to confirm an actual download."
+        ),
+    }
+
+
+def quality_upgrades(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    return media_activity_items(db, args | {"upgrades_only": True})
 
 
 TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
@@ -354,7 +525,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         server_overview,
     ),
     "get_media_activity_summary": (
-        "Summarize normalized Sonarr/Radarr activity by configurable instance. Use this to explain recent storage changes, downloads, imports, or upgrades; heed its evidence note.",
+        "Summarize normalized Sonarr/Radarr activity by configurable instance. ServerSense does track quality upgrades: use this before answering questions about TV/movie upgrades, downloads, imports, or storage changes; heed its evidence note.",
         {
             "type": "object",
             "properties": {
@@ -367,7 +538,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         media_activity_summary,
     ),
     "get_media_activity_items": (
-        "List bounded normalized Sonarr/Radarr activity with titles and source instance. Use after a summary when the user asks which items.",
+        "List bounded normalized Sonarr/Radarr activity with titles and source instance. Set upgrades_only=true for quality upgrades confirmed by provider upgrade-deletion evidence and a nearby import when available.",
         {
             "type": "object",
             "properties": {
@@ -384,11 +555,41 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
                         "file_renamed",
                     ],
                 },
+                "upgrades_only": {"type": "boolean"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
             },
             "additionalProperties": False,
         },
         media_activity_items,
+    ),
+    "get_upcoming_media": (
+        "Get monitored upcoming Sonarr/Radarr calendar entries. Use for questions about what is coming today or may download soon, but describe them as upcoming/eligible rather than guaranteed scheduled downloads.",
+        {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 30},
+                "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
+                "instance": {"type": "string", "maxLength": 160},
+                "include_acquired": {"type": "boolean"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "additionalProperties": False,
+        },
+        upcoming_media,
+    ),
+    "get_quality_upgrades": (
+        "List confirmed Sonarr/Radarr quality replacements. Use this for questions such as 'any TV upgrades today?'; these are higher-quality file replacements, not conversions.",
+        {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
+                "instance": {"type": "string", "maxLength": 160},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "additionalProperties": False,
+        },
+        quality_upgrades,
     ),
 }
 
@@ -426,6 +627,8 @@ def _validate_arguments(name: str, arguments: dict[str, Any]) -> None:
                 raise ValueError(f"Argument is too long: {key}")
             if "enum" in rule and value not in rule["enum"]:
                 raise ValueError(f"Argument is not an allowed value: {key}")
+        if rule.get("type") == "boolean" and not isinstance(value, bool):
+            raise ValueError(f"Argument must be a boolean: {key}")
 
 
 def execute_tool(db: Session, name: str, arguments: dict[str, Any]) -> dict[str, Any]:

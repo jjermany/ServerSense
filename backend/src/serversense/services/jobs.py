@@ -14,6 +14,7 @@ from serversense.models import (
     DockerSample,
     Event,
     MediaActivity,
+    MediaSchedule,
     MetricSample,
     Setting,
     StorageSample,
@@ -74,6 +75,9 @@ def cleanup_cycle() -> None:
         db.execute(delete(DiskSample).where(DiskSample.timestamp < cutoff))
         db.execute(delete(StorageSample).where(StorageSample.timestamp < cutoff))
         db.execute(delete(MediaActivity).where(MediaActivity.occurred_at < cutoff))
+        db.execute(
+            delete(MediaSchedule).where(MediaSchedule.scheduled_at < now - timedelta(days=2))
+        )
         db.execute(
             delete(Event).where(
                 Event.event_type == "sense_dashboard_summary",

@@ -1,11 +1,12 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
 from serversense.db import SessionLocal
-from serversense.models import Integration, MediaActivity, StorageSample
+from serversense.models import Integration, MediaActivity, MediaSchedule, StorageSample
 from serversense.services.integrations import collect_integration
 from serversense.services.tools import execute_tool
 
@@ -61,8 +62,18 @@ def test_collects_normalized_history_and_deduplicates(
         db.commit()
         db.refresh(integration)
 
-        def fake_request(item: Integration, path: str, params: dict | None = None) -> dict:
+        def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
             assert item.id == integration.id
+            if path == "calendar":
+                return [
+                    {
+                        "id": 7,
+                        "title": "Upcoming Movie",
+                        "digitalRelease": "2026-08-19T12:00:00Z",
+                        "monitored": True,
+                        "hasFile": False,
+                    }
+                ]
             assert path == "history"
             return {
                 "records": [
@@ -71,10 +82,19 @@ def test_collects_normalized_history_and_deduplicates(
                         "date": "2026-08-18T15:00:00Z",
                         "eventType": "downloadFolderImported",
                         "sourceTitle": "/private/download/path.mkv",
-                        "quality": {"quality": {"name": "Bluray-1080p"}},
-                        "data": {"isUpgrade": True, "importedPath": "/private/library/path.mkv"},
+                        "quality": {"quality": {"name": "Bluray-2160p"}},
+                        "data": {"importedPath": "/private/library/path.mkv"},
                         "movie": {"title": "Example Movie", "movieFile": {"size": 1234}},
-                    }
+                    },
+                    {
+                        "id": 41,
+                        "date": "2026-08-18T14:59:59Z",
+                        "eventType": "movieFileDeleted",
+                        "sourceTitle": "/private/library/old-file.mkv",
+                        "quality": {"quality": {"name": "WEBDL-1080p"}},
+                        "data": {"reason": "Upgrade", "size": "800"},
+                        "movie": {"title": "Example Movie"},
+                    },
                 ]
             }
 
@@ -82,17 +102,32 @@ def test_collects_normalized_history_and_deduplicates(
 
         monkeypatch.setattr(integrations, "_request", fake_request)  # type: ignore[attr-defined]
         now = datetime(2026, 8, 18, 16, tzinfo=UTC)
-        assert collect_integration(db, integration, now) == 1
+        assert collect_integration(db, integration, now) == 2
         integration.config = dict(integration.config) | {"last_collected_at": ""}
         db.commit()
         assert collect_integration(db, integration, now) == 0
-        row = db.scalar(select(MediaActivity).where(MediaActivity.integration_id == integration.id))
+        row = db.scalar(
+            select(MediaActivity).where(
+                MediaActivity.integration_id == integration.id,
+                MediaActivity.external_id == "42",
+            )
+        )
         assert row is not None
         assert row.instance_name == "Anime"
         assert row.title == "Example Movie"
+        assert row.quality == "Bluray-2160p"
         assert row.bytes == 1234
-        assert row.is_upgrade is True
+        assert row.is_upgrade is False
         assert "private" not in str(row.__dict__)
+        upgrades = execute_tool(db, "get_quality_upgrades", {"days": 1, "instance": "Anime"})
+        assert upgrades["activities"][0]["previous_quality"] == "WEBDL-1080p"
+        assert upgrades["activities"][0]["quality"] == "Bluray-2160p"
+        schedule = db.scalar(
+            select(MediaSchedule).where(MediaSchedule.integration_id == integration.id)
+        )
+        assert schedule is not None
+        assert schedule.title == "Upcoming Movie"
+        assert schedule.release_type == "digital_release"
 
 
 def test_media_tools_filter_by_instance_and_explain_storage_evidence() -> None:
@@ -148,6 +183,106 @@ def test_media_tools_filter_by_instance_and_explain_storage_evidence() -> None:
             {"days": 1, "instance": "Movies", "event_type": "imported", "limit": 10},
         )
         assert any(row["title"] == "A Movie" for row in items["activities"])
+
+
+def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        integration = Integration(provider="sonarr", name="TV upgrades", enabled=True, config={})
+        db.add(integration)
+        db.flush()
+        common = {
+            "integration_id": integration.id,
+            "provider": "sonarr",
+            "instance_name": "TV upgrades",
+            "media_type": "episode",
+            "title": "The Episode",
+            "parent_title": "The Show",
+            "season_number": 2,
+            "episode_number": 4,
+        }
+        db.add_all(
+            [
+                MediaActivity(
+                    **common,
+                    external_id="upgrade-delete",
+                    occurred_at=now,
+                    event_type="file_deleted",
+                    quality="WEBDL-1080p",
+                    bytes=1_000,
+                    is_upgrade=True,
+                ),
+                MediaActivity(
+                    **common,
+                    external_id="upgrade-import",
+                    occurred_at=now + timedelta(seconds=3),
+                    event_type="imported",
+                    quality="Bluray-2160p",
+                    bytes=2_000,
+                    is_upgrade=False,
+                ),
+            ]
+        )
+        db.commit()
+
+        summary = execute_tool(
+            db, "get_media_activity_summary", {"days": 1, "instance": "TV upgrades"}
+        )
+        assert summary["instances"]["TV upgrades"]["explicit_upgrades"] == 1
+        items = execute_tool(
+            db,
+            "get_quality_upgrades",
+            {"days": 1, "instance": "TV upgrades"},
+        )
+        assert items["activities"] == [
+            {
+                "timestamp": (now + timedelta(seconds=3)).isoformat(),
+                "provider": "sonarr",
+                "instance": "TV upgrades",
+                "event_type": "quality_upgraded",
+                "media_type": "episode",
+                "title": "The Episode",
+                "series": "The Show",
+                "season": 2,
+                "episode": 4,
+                "previous_quality": "WEBDL-1080p",
+                "quality": "Bluray-2160p",
+                "bytes": 2_000,
+                "evidence": "provider deletion reason Upgrade followed by import",
+            }
+        ]
+
+
+def test_upcoming_media_is_normalized_and_not_described_as_guaranteed() -> None:
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        integration = Integration(provider="sonarr", name="TV calendar", enabled=True, config={})
+        db.add(integration)
+        db.flush()
+        db.add(
+            MediaSchedule(
+                integration_id=integration.id,
+                external_id="episode:99",
+                scheduled_at=now + timedelta(hours=2),
+                provider="sonarr",
+                instance_name="TV calendar",
+                media_type="episode",
+                title="Tonight's Episode",
+                parent_title="The Show",
+                season_number=1,
+                episode_number=8,
+                release_type="airing",
+                monitored=True,
+                has_file=False,
+            )
+        )
+        db.commit()
+
+        result = execute_tool(
+            db, "get_upcoming_media", {"days": 1, "provider": "sonarr", "limit": 10}
+        )
+        assert any(item["title"] == "Tonight's Episode" for item in result["items"])
+        assert "not guaranteed scheduled downloads" in result["terminology_note"]
 
 
 def test_integration_test_does_not_follow_redirects(
