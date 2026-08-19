@@ -25,6 +25,7 @@ Keep this a modular monolith. API routes coordinate; services own business behav
 
 Deterministic rules must create alerts before any optional model explanation. Proactive model calls are opt-in, receive normalized alert records only, expose no tools, and may never block collection or notification delivery when a provider fails.
 Interactive model calls must remain asynchronously cancellable, stream bounded output, and persist an exchange only after successful completion. Conversation context is limited to the six most recent messages within a 30-minute active window; stored conversations expire after 30 days.
+Dashboard model summaries are additive and opt-in. Generate them only in the isolated background loop from bounded normalized facts, preserve the deterministic insight card, retain the last successful cache on failure, and never call a model from dashboard requests or the monitoring loop.
 Notification providers must use narrow protocols and encrypted stored credentials. A Discord, Pushover, SMTP, or webhook failure may never interrupt collection or deterministic alert persistence.
 Notification category preferences filter delivery only; deterministic alerts must still be persisted for disabled delivery categories.
 

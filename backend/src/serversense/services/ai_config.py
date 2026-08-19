@@ -21,6 +21,7 @@ def read_ai_config(db: Session, include_secret: bool = False) -> dict[str, Any]:
             "max_tool_calls": 3,
             "max_output_tokens": 512,
             "proactive_insights": False,
+            "dashboard_summaries": False,
         }
     )
     value.setdefault("context_window", 4096)
@@ -29,6 +30,7 @@ def read_ai_config(db: Session, include_secret: bool = False) -> dict[str, Any]:
     value.setdefault("max_tool_calls", 3)
     value.setdefault("max_output_tokens", 512)
     value.setdefault("proactive_insights", False)
+    value.setdefault("dashboard_summaries", False)
     encrypted = str(value.pop("api_key_encrypted", ""))
     if include_secret:
         value["api_key"] = decrypt_secret(encrypted) if encrypted else ""

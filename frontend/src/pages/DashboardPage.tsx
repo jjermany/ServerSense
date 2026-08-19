@@ -235,7 +235,7 @@ export default function DashboardPage() {
                   className={`status-dot ${insight.severity === "warning" ? "warn" : "good"}`}
                 />{" "}
                 {insight.source === "sense"
-                  ? `SENSE explanation · ${insight.model ?? "configured model"}`
+                  ? `${insight.kind === "dashboard_summary" ? "Cached SENSE summary" : "SENSE explanation"} · ${insight.model ?? "configured model"}`
                   : "Based on measured telemetry"}
               </small>
             </article>

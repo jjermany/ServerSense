@@ -59,6 +59,7 @@ class AISettings(BaseModel):
     max_tool_calls: int = Field(default=3, ge=1, le=12)
     max_output_tokens: int = Field(default=512, ge=64, le=4096)
     proactive_insights: bool = False
+    dashboard_summaries: bool = False
 
 
 class AlertSettings(BaseModel):

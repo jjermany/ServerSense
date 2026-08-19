@@ -107,4 +107,36 @@ describe("dashboard", () => {
     const results = await axe(container);
     expect(results.violations).toHaveLength(0);
   });
+
+  it("adds a cached AI summary without replacing measured insights", async () => {
+    vi.mocked(api).mockImplementation((path: string) =>
+      Promise.resolve(
+        path === "/api/dashboard"
+          ? {
+              ...dashboard,
+              insights: [
+                {
+                  severity: "info",
+                  title: "Current server summary",
+                  message: "Media imports explain part of this week's measured growth.",
+                  source: "sense",
+                  kind: "dashboard_summary",
+                  model: "small-local-model",
+                },
+                ...dashboard.insights,
+              ],
+            }
+          : history,
+      ),
+    );
+
+    render(<DashboardPage />);
+
+    expect(await screen.findByText("Current server summary")).toBeVisible();
+    expect(screen.getByText("Storage trajectory")).toBeVisible();
+    expect(screen.getByText(/Cached SENSE summary/)).toHaveTextContent(
+      "small-local-model",
+    );
+    expect(screen.getByText("Based on measured telemetry")).toBeVisible();
+  });
 });

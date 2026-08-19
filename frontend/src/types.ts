@@ -76,6 +76,8 @@ export type Dashboard = {
     message: string;
     source: string;
     model?: string;
+    kind?: string;
+    generated_at?: string;
   }[];
   demo_mode: boolean;
 };

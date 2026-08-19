@@ -12,6 +12,7 @@ from serversense.models import (
     AIToolCall,
     DiskSample,
     DockerSample,
+    Event,
     MediaActivity,
     MetricSample,
     Setting,
@@ -20,6 +21,7 @@ from serversense.models import (
 from serversense.services.ai_config import read_ai_config
 from serversense.services.alerting import evaluate_alerts
 from serversense.services.collectors import build_collector, persist_snapshot
+from serversense.services.dashboard_insights import refresh_dashboard_summary
 from serversense.services.integrations import collect_media_integrations
 from serversense.services.notifications import dispatch_notifications
 from serversense.services.proactive import explain_alerts
@@ -72,6 +74,12 @@ def cleanup_cycle() -> None:
         db.execute(delete(DiskSample).where(DiskSample.timestamp < cutoff))
         db.execute(delete(StorageSample).where(StorageSample.timestamp < cutoff))
         db.execute(delete(MediaActivity).where(MediaActivity.occurred_at < cutoff))
+        db.execute(
+            delete(Event).where(
+                Event.event_type == "sense_dashboard_summary",
+                Event.timestamp < conversation_cutoff,
+            )
+        )
         older = list(
             db.scalars(
                 select(StorageSample)
@@ -119,3 +127,20 @@ async def monitoring_loop() -> None:
             await asyncio.to_thread(cleanup_cycle)
             cleanup_elapsed = 0
         await asyncio.sleep(settings.metrics_interval_seconds)
+
+
+def dashboard_summary_cycle() -> None:
+    with SessionLocal() as db:
+        try:
+            refresh_dashboard_summary(db, read_ai_config(db, include_secret=True))
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Cached SENSE dashboard summary failed: %s", type(exc).__name__)
+
+
+async def dashboard_summary_loop() -> None:
+    # Keep optional model work fully outside monitoring and dashboard request paths.
+    await asyncio.sleep(30)
+    while True:
+        await asyncio.to_thread(dashboard_summary_cycle)
+        await asyncio.sleep(300)

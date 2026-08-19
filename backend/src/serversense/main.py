@@ -14,7 +14,7 @@ from serversense.config import get_settings
 from serversense.db import SessionLocal, initialize_database
 from serversense.logging import configure_logging
 from serversense.services.demo import seed_demo_data
-from serversense.services.jobs import monitoring_loop
+from serversense.services.jobs import dashboard_summary_loop, monitoring_loop
 
 
 @asynccontextmanager
@@ -25,13 +25,18 @@ async def lifespan(app: FastAPI):
     if settings_value.demo_mode:
         with SessionLocal() as db:
             seed_demo_data(db)
-    task = asyncio.create_task(monitoring_loop())
+    tasks = [
+        asyncio.create_task(monitoring_loop()),
+        asyncio.create_task(dashboard_summary_loop()),
+    ]
     try:
         yield
     finally:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(title="ServerSense API", version="1.0.0", lifespan=lifespan)

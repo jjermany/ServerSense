@@ -19,7 +19,9 @@ from serversense.models import (
 )
 from serversense.schemas import DashboardResponse, ForecastResponse, ForecastWindow, StoragePoint
 from serversense.security import current_user
+from serversense.services.ai_config import read_ai_config
 from serversense.services.collectors import build_collector
+from serversense.services.dashboard_insights import latest_dashboard_summary
 from serversense.services.forecasting import calculate_all
 from serversense.services.maintenance import create_backup, diagnostic_bundle
 from serversense.services.metrics import calculate_network_rates
@@ -130,6 +132,26 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
         (item for item in (forecast.forecasts if forecast else []) if item.window_days == 30), None
     )
     insights: list[dict] = []
+    ai_config = read_ai_config(db)
+    dashboard_summary = (
+        latest_dashboard_summary(db)
+        if ai_config.get("dashboard_summaries", False)
+        and ai_config.get("provider") != "disabled"
+        and ai_config.get("model")
+        else None
+    )
+    if dashboard_summary:
+        insights.append(
+            {
+                "severity": dashboard_summary.severity,
+                "title": dashboard_summary.title,
+                "message": dashboard_summary.message,
+                "source": "sense",
+                "kind": "dashboard_summary",
+                "model": dashboard_summary.data.get("model"),
+                "generated_at": dashboard_summary.timestamp.isoformat(),
+            }
+        )
     active_alert_ids = {alert.id for alert in alerts}
     explanation = next(
         (

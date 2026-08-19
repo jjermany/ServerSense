@@ -16,6 +16,7 @@ const aiConfig = {
   max_tool_calls: 5,
   max_output_tokens: 512,
   proactive_insights: false,
+  dashboard_summaries: false,
 };
 
 const alertConfig = {
@@ -77,9 +78,31 @@ describe("AI settings", () => {
       expect(update).toBeDefined();
       const payload = JSON.parse(String(update?.[1]?.body));
       expect(payload.proactive_insights).toBe(true);
+      expect(payload.dashboard_summaries).toBe(false);
       expect(payload.max_tool_calls).toBe(5);
       expect(payload.max_output_tokens).toBe(512);
       expect(payload.timeout_seconds).toBe(30);
+    });
+  });
+
+  it("offers a separate opt-in for cached dashboard summaries", async () => {
+    render(<SettingsPage />);
+    const summary = await screen.findByLabelText(/Add a cached AI dashboard summary/);
+    expect(summary).not.toBeChecked();
+
+    fireEvent.click(summary);
+    fireEvent.submit(summary.closest("form")!);
+
+    await waitFor(() => {
+      const update = vi
+        .mocked(api)
+        .mock.calls.find(
+          ([path, options]) =>
+            path === "/api/settings/ai" &&
+            options?.method === "PUT" &&
+            JSON.parse(String(options.body)).dashboard_summaries === true,
+        );
+      expect(update).toBeDefined();
     });
   });
 

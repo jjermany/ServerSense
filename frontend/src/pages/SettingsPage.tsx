@@ -25,6 +25,7 @@ type AIConfig = {
   max_tool_calls: number;
   max_output_tokens: number;
   proactive_insights: boolean;
+  dashboard_summaries: boolean;
 };
 type AlertConfig = {
   free_percent_threshold: number;
@@ -208,6 +209,7 @@ export default function SettingsPage() {
             max_tool_calls: Number(raw.max_tool_calls),
             max_output_tokens: Number(raw.max_output_tokens),
             proactive_insights: form.get("proactive_insights") === "on",
+            dashboard_summaries: form.get("dashboard_summaries") === "on",
           }),
         }),
       "AI settings saved securely.",
@@ -522,6 +524,21 @@ export default function SettingsPage() {
                     Send each new deterministic alert batch to the configured
                     model once for a concise explanation. Monitoring and alerts
                     continue normally if the model is unavailable.
+                  </small>
+                </span>
+              </label>
+              <label className="check">
+                <input
+                  name="dashboard_summaries"
+                  type="checkbox"
+                  defaultChecked={config.dashboard_summaries}
+                />
+                <span>
+                  <b>Add a cached AI dashboard summary</b>
+                  <small>
+                    Generate a short background summary at most every six hours
+                    or after meaningful alert and media activity. Existing
+                    measured insights remain unchanged if the model is unavailable.
                   </small>
                 </span>
               </label>
