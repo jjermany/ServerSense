@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -5,6 +6,43 @@ from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample, StorageSample
 from serversense.services.forecasting import calculate_forecast
+
+CONTAINER_STOPPED_GRACE_PERIOD = timedelta(minutes=10)
+RUNNING_CONTAINER_STATES = {"running", "created"}
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _containers_stopped_beyond_grace_period(
+    samples: list[DockerSample],
+) -> list[DockerSample]:
+    """Return current containers continuously non-running for at least the grace period."""
+    if not samples:
+        return []
+    newest_timestamp = samples[0].timestamp
+    current = {
+        sample.container_id: sample for sample in samples if sample.timestamp == newest_timestamp
+    }
+    history: dict[str, list[DockerSample]] = {}
+    for sample in samples:
+        if sample.container_id in current:
+            history.setdefault(sample.container_id, []).append(sample)
+
+    stopped: list[DockerSample] = []
+    for container_id, latest in current.items():
+        if latest.status.lower() in RUNNING_CONTAINER_STATES:
+            continue
+        continuous_samples = history[container_id]
+        stopped_since = latest.timestamp
+        for sample in continuous_samples[1:]:
+            if sample.status.lower() in RUNNING_CONTAINER_STATES:
+                break
+            stopped_since = sample.timestamp
+        if _as_utc(latest.timestamp) - _as_utc(stopped_since) >= CONTAINER_STOPPED_GRACE_PERIOD:
+            stopped.append(latest)
+    return stopped
 
 
 def _upsert(
@@ -103,21 +141,20 @@ def evaluate_alerts(
             )
             if alert:
                 created.append(alert)
-    latest_containers: dict[str, DockerSample] = {}
-    for container in db.scalars(select(DockerSample).order_by(DockerSample.timestamp.desc())):
-        latest_containers.setdefault(container.container_id, container)
-    for container in latest_containers.values():
-        if container.status not in ("running", "created"):
-            alert = _upsert(
-                db,
-                "container_stopped",
-                "warning",
-                f"{container.name} is stopped",
-                f"Container state is {container.status}.",
-                f"container-{container.container_id}",
-                {"container_id": container.container_id},
-            )
-            if alert:
-                created.append(alert)
+    container_samples = list(
+        db.scalars(select(DockerSample).order_by(DockerSample.timestamp.desc()))
+    )
+    for container in _containers_stopped_beyond_grace_period(container_samples):
+        alert = _upsert(
+            db,
+            "container_stopped",
+            "warning",
+            f"{container.name} is stopped",
+            f"Container state has been {container.status} for at least 10 minutes.",
+            f"container-{container.container_id}",
+            {"container_id": container.container_id},
+        )
+        if alert:
+            created.append(alert)
     db.commit()
     return created

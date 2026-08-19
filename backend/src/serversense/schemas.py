@@ -64,6 +64,11 @@ class AlertSettings(BaseModel):
     free_percent_threshold: float = Field(default=10, ge=1, le=50)
     forecast_days_threshold: int = Field(default=90, ge=1, le=3650)
     temperature_c_threshold: float = Field(default=50, ge=30, le=90)
+    notify_storage_low: bool = True
+    notify_forecast_low: bool = True
+    notify_disk_smart: bool = True
+    notify_disk_temperature: bool = True
+    notify_container_stopped: bool = True
     webhook_enabled: bool = False
     webhook_url: str | None = Field(default=None, max_length=2000)
     discord_enabled: bool = False

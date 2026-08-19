@@ -27,6 +27,11 @@ type AlertConfig = {
   free_percent_threshold: number;
   forecast_days_threshold: number;
   temperature_c_threshold: number;
+  notify_storage_low: boolean;
+  notify_forecast_low: boolean;
+  notify_disk_smart: boolean;
+  notify_disk_temperature: boolean;
+  notify_container_stopped: boolean;
   webhook_enabled: boolean;
   webhook_configured: boolean;
   discord_enabled: boolean;
@@ -63,6 +68,11 @@ type IntegrationsConfig = {
   }>;
 };
 const alertProviderValues = (alerts: AlertConfig) => ({
+  notify_storage_low: alerts.notify_storage_low,
+  notify_forecast_low: alerts.notify_forecast_low,
+  notify_disk_smart: alerts.notify_disk_smart,
+  notify_disk_temperature: alerts.notify_disk_temperature,
+  notify_container_stopped: alerts.notify_container_stopped,
   webhook_enabled: alerts.webhook_enabled,
   discord_enabled: alerts.discord_enabled,
   pushover_enabled: alerts.pushover_enabled,
@@ -221,6 +231,13 @@ export default function SettingsPage() {
             free_percent_threshold: Number(raw.free_percent_threshold),
             forecast_days_threshold: Number(raw.forecast_days_threshold),
             temperature_c_threshold: Number(raw.temperature_c_threshold),
+            notify_storage_low: form.get("notify_storage_low") === "on",
+            notify_forecast_low: form.get("notify_forecast_low") === "on",
+            notify_disk_smart: form.get("notify_disk_smart") === "on",
+            notify_disk_temperature:
+              form.get("notify_disk_temperature") === "on",
+            notify_container_stopped:
+              form.get("notify_container_stopped") === "on",
             webhook_enabled: alerts.webhook_enabled,
           }),
         });
@@ -486,7 +503,8 @@ export default function SettingsPage() {
               <div>
                 <h2>ALERT THRESHOLDS</h2>
                 <p>
-                  Set the deterministic thresholds used to create alerts.
+                  Choose when alerts are created and which ones are sent to your
+                  notification providers.
                 </p>
               </div>
             </div>
@@ -503,7 +521,7 @@ export default function SettingsPage() {
                   />
                 </label>
                 <label>
-                  Forecast threshold (days)
+                  Notify before projected exhaustion (days)
                   <input
                     name="forecast_days_threshold"
                     type="number"
@@ -523,6 +541,56 @@ export default function SettingsPage() {
                   />
                 </label>
               </div>
+              <div className="notification-preferences">
+                <p>
+                  <b>Notification categories</b>
+                  <br />
+                  Alerts are always recorded. Uncheck a category to keep it out of
+                  webhook, Discord, Pushover, and email delivery.
+                </p>
+                <div className="field-grid">
+                  <label className="check">
+                    <input
+                      name="notify_storage_low"
+                      type="checkbox"
+                      defaultChecked={alerts.notify_storage_low}
+                    />
+                    <span>Low free storage</span>
+                  </label>
+                  <label className="check">
+                    <input
+                      name="notify_forecast_low"
+                      type="checkbox"
+                      defaultChecked={alerts.notify_forecast_low}
+                    />
+                    <span>Projected storage exhaustion</span>
+                  </label>
+                  <label className="check">
+                    <input
+                      name="notify_disk_smart"
+                      type="checkbox"
+                      defaultChecked={alerts.notify_disk_smart}
+                    />
+                    <span>SMART warnings and failures</span>
+                  </label>
+                  <label className="check">
+                    <input
+                      name="notify_disk_temperature"
+                      type="checkbox"
+                      defaultChecked={alerts.notify_disk_temperature}
+                    />
+                    <span>High disk temperature</span>
+                  </label>
+                  <label className="check">
+                    <input
+                      name="notify_container_stopped"
+                      type="checkbox"
+                      defaultChecked={alerts.notify_container_stopped}
+                    />
+                    <span>Containers stopped over 10 minutes</span>
+                  </label>
+                </div>
+              </div>
               <ActionFeedback status={actions["alerts-save"]} />
               <div className="form-actions">
                 <button
@@ -536,7 +604,7 @@ export default function SettingsPage() {
                   )}
                   {actions["alerts-save"]?.phase === "pending"
                     ? "Saving…"
-                    : "Save thresholds"}
+                    : "Save alert preferences"}
                 </button>
               </div>
             </form>

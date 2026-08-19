@@ -21,6 +21,11 @@ const alertConfig = {
   free_percent_threshold: 10,
   forecast_days_threshold: 90,
   temperature_c_threshold: 50,
+  notify_storage_low: true,
+  notify_forecast_low: true,
+  notify_disk_smart: true,
+  notify_disk_temperature: true,
+  notify_container_stopped: true,
   webhook_enabled: false,
   webhook_configured: false,
   discord_enabled: false,
@@ -139,5 +144,31 @@ describe("AI settings", () => {
       "Webhook delivery failed",
     );
     expect(screen.getByRole("button", { name: "Test Webhook" })).toBeEnabled();
+  });
+
+  it("saves the forecast lead time and notification categories", async () => {
+    render(<SettingsPage />);
+
+    const forecast = await screen.findByLabelText(
+      "Notify before projected exhaustion (days)",
+    );
+    fireEvent.change(forecast, { target: { value: "180" } });
+    fireEvent.click(screen.getByLabelText("Projected storage exhaustion"));
+    fireEvent.submit(forecast.closest("form")!);
+
+    await waitFor(() => {
+      const update = vi
+        .mocked(api)
+        .mock.calls.find(
+          ([path, options]) =>
+            path === "/api/settings/alerts" && options?.method === "PUT",
+        );
+      expect(update).toBeDefined();
+      const payload = JSON.parse(String(update?.[1]?.body));
+      expect(payload.forecast_days_threshold).toBe(180);
+      expect(payload.notify_forecast_low).toBe(false);
+      expect(payload.notify_storage_low).toBe(true);
+      expect(payload.notify_container_stopped).toBe(true);
+    });
   });
 });

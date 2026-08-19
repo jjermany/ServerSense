@@ -12,7 +12,7 @@ export default function AlertsPage() {
   }, []);
   const ack = async (id: number) => {
     await api(`/api/alerts/${id}/acknowledge`, { method: "POST" });
-    void load();
+    await load();
   };
   return (
     <div className="page">
@@ -34,11 +34,14 @@ export default function AlertsPage() {
                 <p>{row.message}</p>
                 <small>{new Date(row.created_at).toLocaleString()}</small>
               </div>
-              {row.active && (
+              {row.active && !row.acknowledged_at && (
                 <button className="secondary" onClick={() => ack(row.id)}>
                   <Check size={15} />
                   Acknowledge
                 </button>
+              )}
+              {row.acknowledged_at && (
+                <small>Acknowledged {new Date(row.acknowledged_at).toLocaleString()}</small>
               )}
             </article>
           ))

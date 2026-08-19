@@ -4,9 +4,12 @@ import pytest
 from fastapi import HTTPException
 
 from serversense.db import SessionLocal
-from serversense.models import Alert, DiskSample, StorageSample
+from serversense.models import Alert, DiskSample, DockerSample, StorageSample
 from serversense.security import LoginRateLimiter
-from serversense.services.alerting import evaluate_alerts
+from serversense.services.alerting import (
+    _containers_stopped_beyond_grace_period,
+    evaluate_alerts,
+)
 from serversense.services.permissions import (
     ActionRequest,
     ActionRisk,
@@ -96,3 +99,47 @@ def test_alert_rules_trigger_from_metrics() -> None:
         assert "disk_temperature" in types
         assert "disk_smart" in types
         assert "storage_low" in types
+
+
+def _docker_sample(timestamp: datetime, status: str) -> DockerSample:
+    return DockerSample(
+        timestamp=timestamp,
+        container_id="appdata",
+        name="Appdata",
+        image="example/appdata:latest",
+        status=status,
+        health=None,
+        started_at=None,
+        cpu_percent=None,
+        memory_bytes=None,
+        restart_count=0,
+    )
+
+
+def test_stopped_container_requires_ten_continuous_minutes() -> None:
+    now = datetime.now(UTC)
+    nine_minutes = [
+        _docker_sample(now, "exited"),
+        _docker_sample(now - timedelta(minutes=9), "exited"),
+        _docker_sample(now - timedelta(minutes=10), "running"),
+    ]
+    assert _containers_stopped_beyond_grace_period(nine_minutes) == []
+
+    ten_minutes = [
+        _docker_sample(now, "exited"),
+        _docker_sample(now - timedelta(minutes=5), "exited"),
+        _docker_sample(now - timedelta(minutes=10), "exited"),
+        _docker_sample(now - timedelta(minutes=11), "running"),
+    ]
+    assert _containers_stopped_beyond_grace_period(ten_minutes) == [ten_minutes[0]]
+
+
+def test_container_restart_resets_stopped_grace_period() -> None:
+    now = datetime.now(UTC)
+    samples = [
+        _docker_sample(now, "exited"),
+        _docker_sample(now - timedelta(minutes=4), "exited"),
+        _docker_sample(now - timedelta(minutes=5), "running"),
+        _docker_sample(now - timedelta(minutes=20), "exited"),
+    ]
+    assert _containers_stopped_beyond_grace_period(samples) == []

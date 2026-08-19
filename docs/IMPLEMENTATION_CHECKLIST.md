@@ -28,10 +28,10 @@ Last updated: 2026-08-15
 - [x] scheduled collection and retention cleanup
 - [x] deterministic 7/30/90-day robust forecasting
 - [x] dashboard, storage chart/ranges, disk cards, Docker table
-- [x] metric-driven storage, forecast, SMART, temperature, and container rules
+- [x] metric-driven storage, forecast, SMART, temperature, and container rules with a 10-minute stopped-container grace period
 - [x] Unraid array/parity state, disk/cache inventory, and available APC UPS data
 - [x] persisted per-container CPU, memory, health, restarts, and uptime
-- [x] configurable alert thresholds and encrypted generic webhook, Discord, Pushover, and SMTP email delivery
+- [x] configurable alert thresholds and per-category encrypted generic webhook, Discord, Pushover, and SMTP email delivery
 - [x] daily retention cleanup and old storage sample downsampling
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 

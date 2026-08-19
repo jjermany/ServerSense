@@ -32,6 +32,7 @@ export type Alert = {
   message: string;
   created_at: string;
   active?: boolean;
+  acknowledged_at?: string | null;
 };
 export type Pool = {
   name: string;

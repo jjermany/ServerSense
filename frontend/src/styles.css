@@ -1144,6 +1144,20 @@ button {
 .field-grid.three {
   grid-template-columns: repeat(3, 1fr);
 }
+.notification-preferences {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 16px;
+}
+.notification-preferences > p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.notification-preferences > p b {
+  color: var(--text);
+}
 .permission-box {
   display: flex;
   gap: 11px;

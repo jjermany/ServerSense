@@ -12,6 +12,29 @@ def test_health_and_authentication_required(client: TestClient) -> None:
     assert client.get("/api/dashboard").status_code == 401
 
 
+def test_alert_acknowledgement_is_persisted(authenticated_client: TestClient) -> None:
+    with SessionLocal() as db:
+        alert = Alert(
+            alert_type="test_acknowledgement",
+            severity="warning",
+            title="Acknowledge me",
+            message="This alert exercises the acknowledgement route.",
+            fingerprint=f"test-acknowledgement-{datetime.now(UTC).timestamp()}",
+            data={},
+        )
+        db.add(alert)
+        db.commit()
+        alert_id = alert.id
+
+    response = authenticated_client.post(f"/api/alerts/{alert_id}/acknowledge")
+    assert response.status_code == 200
+
+    rows = authenticated_client.get("/api/alerts").json()
+    acknowledged = next(row for row in rows if row["id"] == alert_id)
+    assert acknowledged["active"] is True
+    assert acknowledged["acknowledged_at"] is not None
+
+
 def test_first_run_setup_and_dashboard(client: TestClient) -> None:
     if not client.get("/api/auth/status").json()["setup_required"]:
         return
@@ -105,6 +128,11 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
             "free_percent_threshold": 12,
             "forecast_days_threshold": 120,
             "temperature_c_threshold": 48,
+            "notify_storage_low": True,
+            "notify_forecast_low": False,
+            "notify_disk_smart": True,
+            "notify_disk_temperature": False,
+            "notify_container_stopped": True,
             "webhook_enabled": True,
             "webhook_url": secret_url,
             "discord_enabled": True,
@@ -128,6 +156,8 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
     assert saved.json()["pushover_user_key_configured"] is True
     assert saved.json()["pushover_app_token_configured"] is True
     assert saved.json()["smtp_password_configured"] is True
+    assert saved.json()["notify_forecast_low"] is False
+    assert saved.json()["notify_disk_temperature"] is False
     secrets = (secret_url, discord_url, pushover_user, pushover_token, smtp_password)
     assert all(secret not in saved.text for secret in secrets)
     preserved = authenticated_client.put(
@@ -136,6 +166,11 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
             "free_percent_threshold": 10,
             "forecast_days_threshold": 90,
             "temperature_c_threshold": 50,
+            "notify_storage_low": True,
+            "notify_forecast_low": False,
+            "notify_disk_smart": True,
+            "notify_disk_temperature": False,
+            "notify_container_stopped": True,
             "webhook_enabled": True,
             "discord_enabled": True,
             "pushover_enabled": True,

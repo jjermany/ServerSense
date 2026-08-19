@@ -206,12 +206,27 @@ def configured_providers(db: Session) -> list[NotificationProvider]:
 
 
 DELIVERY_ERRORS = (httpx.HTTPError, smtplib.SMTPException, OSError, ValueError)
+NOTIFICATION_PREFERENCES = {
+    "storage_low": "notify_storage_low",
+    "forecast_low": "notify_forecast_low",
+    "disk_smart": "notify_disk_smart",
+    "disk_temperature": "notify_disk_temperature",
+    "container_stopped": "notify_container_stopped",
+}
+
+
+def notification_enabled(value: dict[str, Any], alert: Alert) -> bool:
+    preference = NOTIFICATION_PREFERENCES.get(alert.alert_type)
+    return preference is None or bool(value.get(preference, True))
 
 
 def dispatch_notifications(db: Session, alerts: list[Alert]) -> list[str]:
     failures: list[str] = []
+    row = db.get(Setting, "alerts")
+    values = row.value if row else {}
+    selected_alerts = [alert for alert in alerts if notification_enabled(values, alert)]
     for provider in configured_providers(db):
-        for alert in alerts:
+        for alert in selected_alerts:
             try:
                 provider.send(alert)
             except DELIVERY_ERRORS as exc:
