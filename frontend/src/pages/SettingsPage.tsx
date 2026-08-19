@@ -6,9 +6,11 @@ import {
   Database,
   Download,
   LoaderCircle,
+  Plus,
   Plug,
   Save,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import { api } from "../api";
 import { Card, PageHeader } from "../components/UI";
@@ -21,6 +23,7 @@ type AIConfig = {
   temperature: number;
   timeout_seconds: number;
   max_tool_calls: number;
+  max_output_tokens: number;
   proactive_insights: boolean;
 };
 type AlertConfig = {
@@ -64,7 +67,8 @@ type IntegrationsConfig = {
     provider: string;
     name: string;
     enabled: boolean;
-    configured: boolean;
+    url: string;
+    api_key_configured: boolean;
   }>;
 };
 const alertProviderValues = (alerts: AlertConfig) => ({
@@ -202,6 +206,7 @@ export default function SettingsPage() {
             temperature: Number(raw.temperature),
             timeout_seconds: Number(raw.timeout_seconds),
             max_tool_calls: Number(raw.max_tool_calls),
+            max_output_tokens: Number(raw.max_output_tokens),
             proactive_insights: form.get("proactive_insights") === "on",
           }),
         }),
@@ -293,6 +298,66 @@ export default function SettingsPage() {
           method: "POST",
         }),
       (result) => result.detail,
+    );
+  };
+  const refreshIntegrations = async () => {
+    setIntegrations(await api<IntegrationsConfig>("/api/integrations"));
+  };
+  const saveMediaIntegration = async (
+    e: FormEvent<HTMLFormElement>,
+    integrationId?: number,
+  ) => {
+    e.preventDefault();
+    const formElement = e.currentTarget;
+    const form = new FormData(formElement);
+    const key = integrationId ? `media-save-${integrationId}` : "media-add";
+    await runAction(
+      key,
+      integrationId ? "Saving media managerâ€¦" : "Adding media managerâ€¦",
+      async () => {
+        const result = await api(
+          integrationId
+            ? `/api/integrations/${integrationId}`
+            : "/api/integrations",
+          {
+            method: integrationId ? "PUT" : "POST",
+            body: JSON.stringify({
+              provider: form.get("provider"),
+              name: form.get("name"),
+              url: form.get("url"),
+              api_key: form.get("api_key") || null,
+              enabled: form.get("enabled") === "on",
+            }),
+          },
+        );
+        await refreshIntegrations();
+        if (!integrationId) formElement.reset();
+        return result;
+      },
+      integrationId ? "Media manager saved." : "Media manager added.",
+    );
+  };
+  const testMediaIntegration = async (integrationId: number) => {
+    await runAction(
+      `media-test-${integrationId}`,
+      "Testing media managerâ€¦",
+      () =>
+        api<{ detail: string }>(`/api/integrations/${integrationId}/test`, {
+          method: "POST",
+        }),
+      (result) => result.detail,
+    );
+  };
+  const deleteMediaIntegration = async (integrationId: number, name: string) => {
+    if (!window.confirm(`Remove ${name} and its collected activity?`)) return;
+    await runAction(
+      `media-delete-${integrationId}`,
+      "Removing media managerâ€¦",
+      async () => {
+        await api(`/api/integrations/${integrationId}`, { method: "DELETE" });
+        await refreshIntegrations();
+      },
+      "Media manager removed.",
     );
   };
   const createBackup = async () => {
@@ -433,6 +498,17 @@ export default function SettingsPage() {
                   max="600"
                   defaultValue={config.timeout_seconds}
                 />
+              </label>
+              <label>
+                Maximum response tokens
+                <input
+                  name="max_output_tokens"
+                  type="number"
+                  min="64"
+                  max="4096"
+                  defaultValue={config.max_output_tokens}
+                />
+                <small>Limits model output so local requests cannot reason indefinitely.</small>
               </label>
               <label className="check">
                 <input
@@ -844,15 +920,6 @@ export default function SettingsPage() {
                   onTest={testNotification}
                 />
               </div>
-              {integrations.available_providers.map((provider) => (
-                <div className="integration-provider" key={provider.key}>
-                  <span>
-                    <b>{provider.name}</b>
-                    <small>{provider.description}</small>
-                  </span>
-                  <small>{provider.read_only ? "Read only" : "Installed"}</small>
-                </div>
-              ))}
               <ActionFeedback status={actions["integrations-save"]} />
               <div className="form-actions">
                 <button
@@ -870,6 +937,143 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+            <div className="media-integrations">
+              <div className="settings-title compact">
+                <span>
+                  <Bot />
+                </span>
+                <div>
+                  <h3>AI MEDIA CONTEXT</h3>
+                  <p>
+                    Add any number of named Sonarr or Radarr instances. SENSE uses
+                    their normalized, read-only history only while AI is enabled.
+                  </p>
+                </div>
+              </div>
+              {integrations.configured.map((item) => (
+                <form
+                  className="media-integration-editor"
+                  key={item.id}
+                  onSubmit={(event) => void saveMediaIntegration(event, item.id)}
+                >
+                  <div className="field-grid three">
+                    <label>
+                      Type
+                      <input type="hidden" name="provider" value={item.provider} />
+                      <select value={item.provider} disabled>
+                        <option value="sonarr">Sonarr</option>
+                        <option value="radarr">Radarr</option>
+                      </select>
+                    </label>
+                    <label>
+                      Instance name
+                      <input name="name" defaultValue={item.name} required />
+                    </label>
+                    <label>
+                      URL
+                      <input name="url" type="url" defaultValue={item.url} required />
+                    </label>
+                  </div>
+                  <div className="field-grid">
+                    <label>
+                      API key
+                      <input
+                        name="api_key"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={secretPlaceholder(
+                          item.api_key_configured,
+                          "Sonarr or Radarr API key",
+                        )}
+                      />
+                    </label>
+                    <label className="check media-enabled">
+                      <input name="enabled" type="checkbox" defaultChecked={item.enabled} />
+                      <span>Collect AI context</span>
+                    </label>
+                  </div>
+                  <ActionFeedback status={actions[`media-save-${item.id}`]} />
+                  <ActionFeedback status={actions[`media-test-${item.id}`]} />
+                  <ActionFeedback status={actions[`media-delete-${item.id}`]} />
+                  <div className="form-actions media-actions">
+                    <button
+                      className="primary"
+                      disabled={actions[`media-save-${item.id}`]?.phase === "pending"}
+                    >
+                      {actions[`media-save-${item.id}`]?.phase === "pending" ? (
+                        <LoaderCircle className="spin" size={16} />
+                      ) : (
+                        <Save size={16} />
+                      )}
+                      Save {item.name}
+                    </button>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => void testMediaIntegration(item.id)}
+                      disabled={actions[`media-test-${item.id}`]?.phase === "pending"}
+                    >
+                      Test connection
+                    </button>
+                    <button
+                      className="secondary danger"
+                      type="button"
+                      onClick={() => void deleteMediaIntegration(item.id, item.name)}
+                      disabled={actions[`media-delete-${item.id}`]?.phase === "pending"}
+                    >
+                      <Trash2 size={16} /> Remove
+                    </button>
+                  </div>
+                </form>
+              ))}
+              <form
+                className="media-integration-editor add"
+                onSubmit={(event) => void saveMediaIntegration(event)}
+              >
+                <h4>ADD MEDIA MANAGER</h4>
+                <div className="field-grid three">
+                  <label>
+                    Type
+                    <select name="provider" defaultValue="radarr">
+                      <option value="sonarr">Sonarr</option>
+                      <option value="radarr">Radarr</option>
+                    </select>
+                  </label>
+                  <label>
+                    Instance name
+                    <input name="name" placeholder="Movies or Anime" required />
+                  </label>
+                  <label>
+                    URL
+                    <input name="url" type="url" placeholder="http://radarr:7878" required />
+                  </label>
+                </div>
+                <div className="field-grid">
+                  <label>
+                    API key
+                    <input name="api_key" type="password" required autoComplete="new-password" />
+                  </label>
+                  <label className="check media-enabled">
+                    <input name="enabled" type="checkbox" defaultChecked />
+                    <span>Collect AI context</span>
+                  </label>
+                </div>
+                <ActionFeedback status={actions["media-add"]} />
+                <div className="form-actions">
+                  <button
+                    className="primary"
+                    disabled={actions["media-add"]?.phase === "pending"}
+                  >
+                    {actions["media-add"]?.phase === "pending" ? (
+                      <LoaderCircle className="spin" size={16} />
+                    ) : (
+                      <Plus size={16} />
+                    )}
+                    Add instance
+                  </button>
+                </div>
+              </form>
+            </div>
           </Card>
           <Card className="settings-card">
             <span id="advanced" />

@@ -7,6 +7,8 @@ Browser → authenticated API → services → SQLite under /config
                                   ↑
 Unraid/Linux/SMART/Docker → restricted collectors
 
+Sonarr/Radarr read-only APIs → bounded normalizer → media activity records
+
 SENSE provider ↔ orchestrator → allowlisted read-only tools → normalized database data
 
 deterministic alerts → optional one-shot SENSE explanation → persisted event → dashboard
@@ -17,6 +19,10 @@ deterministic alerts → optional one-shot SENSE explanation → persisted event
 Container names, images, SMART text, media metadata, alert messages, and integration responses are untrusted. SENSE’s system policy tells the model to treat them as data. More importantly, application policy is enforced in code: only names registered in `TOOLS` can execute, and those handlers query normalized records. There is no shell tool.
 
 Proactive explanations preserve the deterministic-first boundary. A configured administrator must opt in; each new alert batch produces at most one model request, the request exposes no tools, and the model output is stored as a separate event with provider/model provenance. Provider failures are logged only by exception type and do not interrupt telemetry collection, deterministic alert persistence, or notification delivery.
+
+Interactive SENSE requests use asynchronous provider streams. Each authenticated request can cancel only its own active generation; cancellation closes the provider stream and does not persist a partial exchange. Model output and tool loops are bounded. Only the six most recent messages from a conversation updated within the last 30 minutes are returned to the provider, and daily cleanup removes conversations older than 30 days.
+
+Sonarr and Radarr are configured as independently named integration rows, allowing multiple instances of either provider. API keys are encrypted and never returned by the API. When AI is enabled, a five-minute bounded poll reads only v3 status/history endpoints with redirects disabled. The collector retains normalized event type, title, series/episode identity, quality, known size, explicit upgrade evidence, and source instance; raw payloads and filesystem paths are discarded. Each instance fails independently, and `(integration_id, external_id)` deduplication makes repeated polls idempotent. SENSE receives only these normalized rows and a warning that gross import sizes do not establish net storage causation.
 
 Password hashes use Argon2. Session cookies are HttpOnly and SameSite=Strict. Enable secure cookies when serving behind HTTPS. Provider keys are encrypted with Fernet using a key derived from the installation secret; losing or changing that secret makes stored provider keys unreadable.
 

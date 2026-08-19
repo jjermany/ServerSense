@@ -5,7 +5,15 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from serversense.models import Alert, DiskSample, DockerSample, MetricSample, Setting, StorageSample
+from serversense.models import (
+    Alert,
+    DiskSample,
+    DockerSample,
+    MediaActivity,
+    MetricSample,
+    Setting,
+    StorageSample,
+)
 from serversense.services.forecasting import calculate_all
 from serversense.services.metrics import calculate_network_rates
 from serversense.services.permissions import ActionRequest, ActionRisk, policy
@@ -182,6 +190,85 @@ def recent_alerts(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _media_rows(db: Session, args: dict[str, Any]) -> tuple[int, list[MediaActivity]]:
+    days = min(max(int(args.get("days", 30)), 1), 365)
+    query = select(MediaActivity).where(
+        MediaActivity.occurred_at >= datetime.now(UTC) - timedelta(days=days)
+    )
+    if args.get("provider"):
+        query = query.where(MediaActivity.provider == args["provider"])
+    if args.get("instance"):
+        query = query.where(MediaActivity.instance_name == args["instance"])
+    if args.get("event_type"):
+        query = query.where(MediaActivity.event_type == args["event_type"])
+    return days, list(db.scalars(query.order_by(desc(MediaActivity.occurred_at))))
+
+
+def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    days, rows = _media_rows(db, args)
+    instances: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        group = instances.setdefault(
+            row.instance_name,
+            {
+                "provider": row.provider,
+                "events": {},
+                "known_import_bytes": 0,
+                "explicit_upgrades": 0,
+            },
+        )
+        events: dict[str, int] = group["events"]
+        events[row.event_type] = events.get(row.event_type, 0) + 1
+        if row.event_type == "imported" and row.bytes is not None:
+            group["known_import_bytes"] += row.bytes
+        if row.event_type == "imported" and row.is_upgrade:
+            group["explicit_upgrades"] += 1
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    storage = list(
+        db.scalars(
+            select(StorageSample)
+            .where(StorageSample.timestamp >= cutoff)
+            .order_by(StorageSample.timestamp)
+        )
+    )
+    measured_change = storage[-1].used_bytes - storage[0].used_bytes if len(storage) >= 2 else None
+    return {
+        "days": days,
+        "instances": instances,
+        "measured_storage_change_bytes": measured_change,
+        "evidence_note": (
+            "Import sizes are gross media events and do not prove net storage growth; "
+            "hardlinks, replacements, deletions, and incomplete size fields can differ. "
+            "Upgrade counts include only events explicitly marked as upgrades by the provider."
+        ),
+    }
+
+
+def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    days, rows = _media_rows(db, args)
+    limit = min(max(int(args.get("limit", 25)), 1), 100)
+    return {
+        "days": days,
+        "activities": [
+            {
+                "timestamp": row.occurred_at.isoformat(),
+                "provider": row.provider,
+                "instance": row.instance_name,
+                "event_type": row.event_type,
+                "media_type": row.media_type,
+                "title": row.title,
+                "series": row.parent_title,
+                "season": row.season_number,
+                "episode": row.episode_number,
+                "quality": row.quality,
+                "bytes": row.bytes,
+                "explicit_upgrade": row.is_upgrade,
+            }
+            for row in rows[:limit]
+        ],
+    }
+
+
 TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
     "get_server_overview": (
         "Get current array, capacity, and resource summary.",
@@ -266,6 +353,43 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         {"type": "object", "properties": {}, "additionalProperties": False},
         server_overview,
     ),
+    "get_media_activity_summary": (
+        "Summarize normalized Sonarr/Radarr activity by configurable instance. Use this to explain recent storage changes, downloads, imports, or upgrades; heed its evidence note.",
+        {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
+                "instance": {"type": "string", "maxLength": 160},
+            },
+            "additionalProperties": False,
+        },
+        media_activity_summary,
+    ),
+    "get_media_activity_items": (
+        "List bounded normalized Sonarr/Radarr activity with titles and source instance. Use after a summary when the user asks which items.",
+        {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
+                "instance": {"type": "string", "maxLength": 160},
+                "event_type": {
+                    "type": "string",
+                    "enum": [
+                        "grabbed",
+                        "imported",
+                        "download_failed",
+                        "file_deleted",
+                        "file_renamed",
+                    ],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "additionalProperties": False,
+        },
+        media_activity_items,
+    ),
 }
 
 
@@ -300,6 +424,8 @@ def _validate_arguments(name: str, arguments: dict[str, Any]) -> None:
                 raise ValueError(f"Argument must be a string: {key}")
             if len(value) > rule.get("maxLength", len(value)):
                 raise ValueError(f"Argument is too long: {key}")
+            if "enum" in rule and value not in rule["enum"]:
+                raise ValueError(f"Argument is not an allowed value: {key}")
 
 
 def execute_tool(db: Session, name: str, arguments: dict[str, Any]) -> dict[str, Any]:

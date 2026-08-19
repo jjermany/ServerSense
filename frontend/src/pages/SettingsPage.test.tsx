@@ -14,6 +14,7 @@ const aiConfig = {
   temperature: 0.2,
   timeout_seconds: 30,
   max_tool_calls: 5,
+  max_output_tokens: 512,
   proactive_insights: false,
 };
 
@@ -77,6 +78,7 @@ describe("AI settings", () => {
       const payload = JSON.parse(String(update?.[1]?.body));
       expect(payload.proactive_insights).toBe(true);
       expect(payload.max_tool_calls).toBe(5);
+      expect(payload.max_output_tokens).toBe(512);
       expect(payload.timeout_seconds).toBe(30);
     });
   });
@@ -169,6 +171,48 @@ describe("AI settings", () => {
       expect(payload.notify_forecast_low).toBe(false);
       expect(payload.notify_storage_low).toBe(true);
       expect(payload.notify_container_stopped).toBe(true);
+    });
+  });
+
+  it("adds multiple independently named Radarr instances", async () => {
+    vi.mocked(api).mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "/api/integrations" && options?.method === "POST") {
+        return Promise.resolve({ id: 9 });
+      }
+      if (path === "/api/integrations") return Promise.resolve(integrationsConfig);
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path.endsWith("/general")) return Promise.resolve(generalConfig);
+      return Promise.resolve(aiConfig);
+    });
+    render(<SettingsPage />);
+
+    fireEvent.change(await screen.findByPlaceholderText("Movies or Anime"), {
+      target: { value: "Anime" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("http://radarr:7878"), {
+      target: { value: "http://radarr-anime:7878" },
+    });
+    const key = screen.getByLabelText("API key", {
+      selector: '.media-integration-editor.add input',
+    });
+    fireEvent.change(key, { target: { value: "anime-secret" } });
+    fireEvent.submit(key.closest("form")!);
+
+    await waitFor(() => {
+      const create = vi
+        .mocked(api)
+        .mock.calls.find(
+          ([path, options]) =>
+            path === "/api/integrations" && options?.method === "POST",
+        );
+      expect(create).toBeDefined();
+      expect(JSON.parse(String(create?.[1]?.body))).toMatchObject({
+        provider: "radarr",
+        name: "Anime",
+        url: "http://radarr-anime:7878",
+        api_key: "anime-secret",
+        enabled: true,
+      });
     });
   });
 });

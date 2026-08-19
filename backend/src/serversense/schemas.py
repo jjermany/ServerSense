@@ -53,10 +53,11 @@ class AISettings(BaseModel):
     model: str = Field(default="", max_length=200)
     endpoint: str = Field(default="", max_length=2000)
     api_key: str | None = Field(default=None, max_length=500)
-    context_window: int = Field(default=8192, ge=1024, le=262144)
+    context_window: int = Field(default=4096, ge=1024, le=262144)
     temperature: float = Field(default=0.2, ge=0, le=2)
-    timeout_seconds: int = Field(default=60, ge=5, le=600)
-    max_tool_calls: int = Field(default=5, ge=1, le=12)
+    timeout_seconds: int = Field(default=120, ge=5, le=600)
+    max_tool_calls: int = Field(default=3, ge=1, le=12)
+    max_output_tokens: int = Field(default=512, ge=64, le=4096)
     proactive_insights: bool = False
 
 
@@ -96,6 +97,14 @@ class ChatResponse(BaseModel):
     message: str
     tools_used: list[str]
     model: str
+
+
+class MediaIntegrationRequest(BaseModel):
+    provider: str = Field(pattern="^(sonarr|radarr)$")
+    name: str = Field(min_length=1, max_length=160)
+    url: str = Field(min_length=1, max_length=2000)
+    api_key: str | None = Field(default=None, max_length=500)
+    enabled: bool = True
 
 
 class DashboardResponse(BaseModel):

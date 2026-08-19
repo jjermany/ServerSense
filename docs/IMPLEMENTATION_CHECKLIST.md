@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-08-15
+Last updated: 2026-08-18
 
 ## Foundation
 
@@ -45,7 +45,10 @@ Last updated: 2026-08-15
 - [x] conversation/message/tool-call persistence
 - [x] prompt-injection boundary and no arbitrary shell/action tools
 - [x] SSE streaming, user-facing activity, and restored conversation selection UI
+- [x] token-level provider streaming, authenticated request cancellation, bounded recent context, output limits, and 30-day conversation cleanup
 - [x] opt-in proactive LLM explanations layered on deterministic events with safe fallback
+- [x] AI-only, multi-instance Sonarr/Radarr history collection with encrypted keys and normalized records
+- [x] bounded media summaries and title follow-ups filterable by configurable instance name
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 
 ## Production readiness

@@ -6,10 +6,21 @@ from sqlalchemy import delete, select
 
 from serversense.config import get_settings
 from serversense.db import SessionLocal
-from serversense.models import DiskSample, DockerSample, MetricSample, Setting, StorageSample
+from serversense.models import (
+    AIConversation,
+    AIMessage,
+    AIToolCall,
+    DiskSample,
+    DockerSample,
+    MediaActivity,
+    MetricSample,
+    Setting,
+    StorageSample,
+)
 from serversense.services.ai_config import read_ai_config
 from serversense.services.alerting import evaluate_alerts
 from serversense.services.collectors import build_collector, persist_snapshot
+from serversense.services.integrations import collect_media_integrations
 from serversense.services.notifications import dispatch_notifications
 from serversense.services.proactive import explain_alerts
 
@@ -42,6 +53,9 @@ def collection_cycle(include_storage: bool = True) -> bool:
             failures = dispatch_notifications(db, created)
             if failures:
                 logger.warning("Notification delivery failed for %d alert(s)", len(failures))
+            ai_config = read_ai_config(db)
+            if ai_config.get("provider") != "disabled" and ai_config.get("model"):
+                collect_media_integrations(db)
         except Exception:
             logger.exception("Monitoring collection cycle failed")
         return True
@@ -51,11 +65,13 @@ def cleanup_cycle() -> None:
     now = datetime.now(UTC)
     cutoff = now - timedelta(days=get_settings().retention_days)
     downsample_cutoff = now - timedelta(days=90)
+    conversation_cutoff = now - timedelta(days=30)
     with SessionLocal() as db:
         db.execute(delete(MetricSample).where(MetricSample.timestamp < cutoff))
         db.execute(delete(DockerSample).where(DockerSample.timestamp < cutoff))
         db.execute(delete(DiskSample).where(DiskSample.timestamp < cutoff))
         db.execute(delete(StorageSample).where(StorageSample.timestamp < cutoff))
+        db.execute(delete(MediaActivity).where(MediaActivity.occurred_at < cutoff))
         older = list(
             db.scalars(
                 select(StorageSample)
@@ -73,6 +89,13 @@ def cleanup_cycle() -> None:
                 seen_days.add(day)
         if duplicate_ids:
             db.execute(delete(StorageSample).where(StorageSample.id.in_(duplicate_ids)))
+        old_conversations = select(AIConversation.id).where(
+            AIConversation.updated_at < conversation_cutoff
+        )
+        old_messages = select(AIMessage.id).where(AIMessage.conversation_id.in_(old_conversations))
+        db.execute(delete(AIToolCall).where(AIToolCall.message_id.in_(old_messages)))
+        db.execute(delete(AIMessage).where(AIMessage.conversation_id.in_(old_conversations)))
+        db.execute(delete(AIConversation).where(AIConversation.id.in_(old_conversations)))
         db.commit()
 
 

@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from serversense.db import Base, TimestampMixin
@@ -143,3 +153,27 @@ class Integration(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(160))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     config: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class MediaActivity(Base):
+    __tablename__ = "media_activities"
+    __table_args__ = (
+        UniqueConstraint("integration_id", "external_id", name="uq_media_activity_source"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    integration_id: Mapped[int] = mapped_column(
+        ForeignKey("integrations.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(80))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    provider: Mapped[str] = mapped_column(String(20), index=True)
+    instance_name: Mapped[str] = mapped_column(String(160), index=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    media_type: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(300))
+    parent_title: Mapped[str | None] = mapped_column(String(300))
+    season_number: Mapped[int | None] = mapped_column(Integer)
+    episode_number: Mapped[int | None] = mapped_column(Integer)
+    quality: Mapped[str | None] = mapped_column(String(100))
+    bytes: Mapped[int | None] = mapped_column(Integer)
+    is_upgrade: Mapped[bool] = mapped_column(Boolean, default=False)

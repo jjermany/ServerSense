@@ -1005,6 +1005,11 @@ button {
 .thinking {
   color: #8995a6;
 }
+.streaming-label {
+  display: block;
+  color: #8995a6;
+  margin-top: 8px;
+}
 .thinking i {
   display: inline-block;
   width: 4px;
@@ -1043,6 +1048,12 @@ button {
   color: white;
   border-radius: 7px;
   width: 40px;
+}
+.chat-input button.stop {
+  background: #b94d5d;
+}
+.chat-input button.stop svg {
+  width: 15px;
 }
 .settings-layout {
   display: grid;
@@ -1271,6 +1282,38 @@ button {
   display: grid;
   justify-items: end;
   gap: 8px;
+}
+.media-integrations {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 24px;
+}
+.settings-title.compact {
+  margin-bottom: 16px;
+}
+.media-integration-editor {
+  border: 1px solid var(--line);
+  background: #0b1018;
+  border-radius: 9px;
+  padding: 16px;
+  margin-top: 12px;
+}
+.media-integration-editor.add {
+  border-style: dashed;
+}
+.media-integration-editor h4 {
+  margin: 0 0 14px;
+}
+.media-enabled {
+  align-self: end;
+  min-height: 42px;
+}
+.media-actions {
+  flex-wrap: wrap;
+}
+button.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
 }
 .auth-page {
   min-height: 100vh;

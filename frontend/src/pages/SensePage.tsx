@@ -1,6 +1,6 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Bot, Send, Sparkles, User } from "lucide-react";
+import { Bot, Send, Sparkles, Square, User } from "lucide-react";
 import { PageHeader } from "../components/UI";
 import { api } from "../api";
 type Message = {
@@ -20,8 +20,12 @@ export default function SensePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<number>();
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState("");
   const [activity, setActivity] = useState("Checking server telemetry…");
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const controllerRef = useRef<AbortController | undefined>(undefined);
+  const requestIdRef = useRef<string | undefined>(undefined);
+  const stoppedRef = useRef(false);
   const loadConversations = useCallback(
     () => api<Conversation[]>("/api/ai/conversations").then(setConversations),
     [],
@@ -41,12 +45,18 @@ export default function SensePage() {
     if (!text.trim() || busy) return;
     setMessages((x) => [...x, { role: "user", content: text }]);
     setBusy(true);
+    setDraft("");
+    stoppedRef.current = false;
+    requestIdRef.current = undefined;
+    const controller = new AbortController();
+    controllerRef.current = controller;
     try {
       const response = await fetch("/api/ai/chat/stream", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, conversation_id: conversation }),
+        signal: controller.signal,
       });
       if (!response.ok || !response.body) {
         throw new Error(`SENSE request failed (${response.status})`);
@@ -68,11 +78,15 @@ export default function SensePage() {
             conversation_id?: number;
             tools_used?: string[];
             model?: string;
+            request_id?: string;
           };
+          if (data.request_id) requestIdRef.current = data.request_id;
           if (event === "activity") setActivity(data.message);
+          if (event === "delta") setDraft((current) => current + data.message);
           if (event === "error") throw new Error(data.message);
           if (event === "message") {
             setConversation(data.conversation_id);
+            setDraft("");
             setMessages((x) => [
               ...x,
               {
@@ -87,6 +101,10 @@ export default function SensePage() {
         if (done) break;
       }
     } catch (e) {
+      if (stoppedRef.current || (e instanceof DOMException && e.name === "AbortError")) {
+        return;
+      }
+      setDraft("");
       setMessages((x) => [
         ...x,
         {
@@ -95,9 +113,31 @@ export default function SensePage() {
         },
       ]);
     } finally {
-      setBusy(false);
+      if (controllerRef.current === controller) {
+        controllerRef.current = undefined;
+        requestIdRef.current = undefined;
+        setBusy(false);
+      }
       void loadConversations();
     }
+  };
+  const stop = () => {
+    if (!busy) return;
+    stoppedRef.current = true;
+    const requestId = requestIdRef.current;
+    if (requestId) {
+      void fetch(`/api/ai/requests/${requestId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    }
+    controllerRef.current?.abort();
+    setDraft("");
+    setBusy(false);
+    setMessages((current) => [
+      ...current,
+      { role: "assistant", content: "Request stopped." },
+    ]);
   };
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -183,11 +223,18 @@ export default function SensePage() {
                   <span>
                     <Bot />
                   </span>
-                  <div className="thinking">
-                    <i />
-                    <i />
-                    <i /> {activity}
-                  </div>
+                  {draft ? (
+                    <div>
+                      <ReactMarkdown>{draft}</ReactMarkdown>
+                      <small className="streaming-label">SENSE is responding…</small>
+                    </div>
+                  ) : (
+                    <div className="thinking">
+                      <i />
+                      <i />
+                      <i /> {activity}
+                    </div>
+                  )}
                 </article>
               )}
             </div>
@@ -197,10 +244,22 @@ export default function SensePage() {
               name="message"
               placeholder="Ask about storage, health, disks, containers…"
               autoComplete="off"
+              disabled={busy}
             />
-            <button disabled={busy} aria-label="Send">
-              <Send />
-            </button>
+            {busy ? (
+              <button
+                type="button"
+                className="stop"
+                aria-label="Stop response"
+                onClick={stop}
+              >
+                <Square />
+              </button>
+            ) : (
+              <button aria-label="Send">
+                <Send />
+              </button>
+            )}
           </form>
         </div>
       </div>

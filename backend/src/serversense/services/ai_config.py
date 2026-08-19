@@ -15,13 +15,19 @@ def read_ai_config(db: Session, include_secret: bool = False) -> dict[str, Any]:
             "provider": "disabled",
             "model": "",
             "endpoint": "",
-            "context_window": 8192,
+            "context_window": 4096,
             "temperature": 0.2,
-            "timeout_seconds": 60,
-            "max_tool_calls": 5,
+            "timeout_seconds": 120,
+            "max_tool_calls": 3,
+            "max_output_tokens": 512,
             "proactive_insights": False,
         }
     )
+    value.setdefault("context_window", 4096)
+    value.setdefault("temperature", 0.2)
+    value.setdefault("timeout_seconds", 120)
+    value.setdefault("max_tool_calls", 3)
+    value.setdefault("max_output_tokens", 512)
     value.setdefault("proactive_insights", False)
     encrypted = str(value.pop("api_key_encrypted", ""))
     if include_secret:
