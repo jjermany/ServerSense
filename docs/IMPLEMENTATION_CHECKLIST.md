@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-08-18
+Last updated: 2026-08-26
 
 ## Foundation
 
@@ -34,6 +34,7 @@ Last updated: 2026-08-18
 - [x] configurable alert thresholds, persistent acknowledgement/dismissal, and per-category encrypted generic webhook, Discord, Pushover, and SMTP email delivery
 - [x] daily retention cleanup and old storage sample downsampling
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
+- [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware UI refresh, and independent Docker, SMART, and storage cadences
 
 ## SENSE
 

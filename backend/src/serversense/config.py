@@ -14,7 +14,11 @@ class Settings(BaseSettings):
     demo_mode: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     session_hours: int = Field(default=24, ge=1, le=720)
-    metrics_interval_seconds: int = Field(default=300, ge=30)
+    metrics_interval_seconds: int = Field(default=30, ge=30)
+    active_metrics_interval_seconds: int = Field(default=5, ge=2, le=30)
+    docker_interval_seconds: int = Field(default=30, ge=15)
+    active_docker_interval_seconds: int = Field(default=15, ge=5, le=30)
+    disk_interval_seconds: int = Field(default=900, ge=300)
     storage_interval_seconds: int = Field(default=3600, ge=300)
     retention_days: int = Field(default=365, ge=7)
     array_path: Path = Path("/mnt/user")

@@ -10,6 +10,13 @@ from serversense.models import Alert, DiskSample, Event
 def test_health_and_authentication_required(client: TestClient) -> None:
     assert client.get("/api/health").json()["status"] == "ok"
     assert client.get("/api/dashboard").status_code == 401
+    assert client.post("/api/activity").status_code == 401
+
+
+def test_authenticated_ui_can_renew_active_viewer_lease(
+    authenticated_client: TestClient,
+) -> None:
+    assert authenticated_client.post("/api/activity").status_code == 204
 
 
 def test_alert_acknowledgement_is_persisted(authenticated_client: TestClient) -> None:

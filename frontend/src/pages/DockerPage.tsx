@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
 import { Box } from "lucide-react";
-import { api, formatBytes } from "../api";
+import { formatBytes } from "../api";
 import type { Container } from "../types";
 import { Card, PageHeader, Status } from "../components/UI";
+import { useLiveQuery } from "../hooks/useLiveQuery";
 const formatUptime = (seconds: number | null) => {
   if (seconds == null) return "—";
   const days = Math.floor(seconds / 86400);
@@ -10,10 +10,7 @@ const formatUptime = (seconds: number | null) => {
   return days ? `${days}d ${hours}h` : `${hours}h`;
 };
 export default function DockerPage() {
-  const [rows, setRows] = useState<Container[]>([]);
-  useEffect(() => {
-    api<Container[]>("/api/docker").then(setRows);
-  }, []);
+  const { data: rows = [], error } = useLiveQuery<Container[]>("/api/docker");
   return (
     <div className="page">
       <PageHeader eyebrow="CONTAINER MONITORING" title="Docker">
@@ -22,6 +19,7 @@ export default function DockerPage() {
           online
         </span>
       </PageHeader>
+      {error && <div className="form-error">{error}</div>}
       <Card className="table-card">
         <div className="data-table">
           <div className="table-head">

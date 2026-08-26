@@ -18,22 +18,28 @@ import {
 import { api, formatBytes, formatRate } from "../api";
 import type { Dashboard, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
+import { useLiveQuery } from "../hooks/useLiveQuery";
 
 export default function DashboardPage() {
-  const [data, setData] = useState<Dashboard>();
+  const { data, error: liveError } = useLiveQuery<Dashboard>("/api/dashboard");
   const [history, setHistory] = useState<StoragePoint[]>([]);
-  const [error, setError] = useState("");
+  const [historyError, setHistoryError] = useState("");
   useEffect(() => {
-    Promise.all([
-      api<Dashboard>("/api/dashboard"),
-      api<StoragePoint[]>("/api/storage/history?range=90d"),
-    ])
-      .then(([dashboard, points]) => {
-        setData(dashboard);
-        setHistory(points);
+    let active = true;
+    api<StoragePoint[]>("/api/storage/history?range=90d")
+      .then((points) => {
+        if (active) setHistory(points);
       })
-      .catch((e) => setError(e.message));
+      .catch((reason) => {
+        if (active) {
+          setHistoryError(reason instanceof Error ? reason.message : "Unable to load history");
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, []);
+  const error = liveError || historyError;
   if (error)
     return (
       <div className="page">

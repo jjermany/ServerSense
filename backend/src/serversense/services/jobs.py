@@ -19,6 +19,7 @@ from serversense.models import (
     Setting,
     StorageSample,
 )
+from serversense.services.activity import active_viewers
 from serversense.services.ai_config import read_ai_config
 from serversense.services.alerting import evaluate_alerts
 from serversense.services.collectors import build_collector, persist_snapshot
@@ -30,7 +31,13 @@ from serversense.services.proactive import explain_alerts
 logger = logging.getLogger(__name__)
 
 
-def collection_cycle(include_storage: bool = True) -> bool:
+def collection_cycle(
+    include_storage: bool = True,
+    include_disks: bool = True,
+    include_containers: bool = True,
+    include_state: bool = True,
+    include_integrations: bool = True,
+) -> bool:
     settings = get_settings()
     with SessionLocal() as db:
         general = db.get(Setting, "general")
@@ -39,7 +46,12 @@ def collection_cycle(include_storage: bool = True) -> bool:
         if settings.demo_mode or general.value.get("demo_mode"):
             return True
         try:
-            snapshot = build_collector(settings).collect()
+            snapshot = build_collector(settings).collect(
+                include_storage=include_storage,
+                include_disks=include_disks,
+                include_containers=include_containers,
+                include_state=include_state,
+            )
             persist_snapshot(db, snapshot, include_storage=include_storage)
             alert_setting = db.get(Setting, "alerts")
             values = alert_setting.value if alert_setting else {}
@@ -57,7 +69,11 @@ def collection_cycle(include_storage: bool = True) -> bool:
             if failures:
                 logger.warning("Notification delivery failed for %d alert(s)", len(failures))
             ai_config = read_ai_config(db)
-            if ai_config.get("provider") != "disabled" and ai_config.get("model"):
+            if (
+                include_integrations
+                and ai_config.get("provider") != "disabled"
+                and ai_config.get("model")
+            ):
                 collect_media_integrations(db)
         except Exception:
             logger.exception("Monitoring collection cycle failed")
@@ -113,24 +129,81 @@ def cleanup_cycle() -> None:
 
 async def monitoring_loop() -> None:
     settings = get_settings()
+    tick_seconds = min(
+        settings.active_metrics_interval_seconds,
+        settings.active_docker_interval_seconds,
+    )
+    metrics_elapsed = settings.metrics_interval_seconds
+    docker_elapsed = settings.docker_interval_seconds
+    state_elapsed = settings.metrics_interval_seconds
     storage_elapsed = settings.storage_interval_seconds
+    disk_elapsed = settings.disk_interval_seconds
+    integration_elapsed = 300
     cleanup_elapsed = 86400
     # Give first-run setup ownership of selecting demo versus live collection.
     await asyncio.sleep(2)
     while True:
+        active = active_viewers.is_active()
+        metrics_interval = (
+            settings.active_metrics_interval_seconds
+            if active
+            else settings.metrics_interval_seconds
+        )
+        docker_interval = (
+            settings.active_docker_interval_seconds if active else settings.docker_interval_seconds
+        )
+        include_metrics = metrics_elapsed >= metrics_interval
+        include_containers = docker_elapsed >= docker_interval
+        include_state = state_elapsed >= settings.metrics_interval_seconds
         include_storage = storage_elapsed >= settings.storage_interval_seconds
-        configured = await asyncio.to_thread(collection_cycle, include_storage)
+        include_disks = disk_elapsed >= settings.disk_interval_seconds
+        include_integrations = integration_elapsed >= 300
+        collection_due = any(
+            (
+                include_metrics,
+                include_containers,
+                include_state,
+                include_storage,
+                include_disks,
+                include_integrations,
+            )
+        )
+        configured = True
+        if collection_due:
+            configured = await asyncio.to_thread(
+                collection_cycle,
+                include_storage,
+                include_disks,
+                include_containers,
+                include_state,
+                include_integrations,
+            )
         if not configured:
             await asyncio.sleep(2)
             continue
-        storage_elapsed = (
-            0 if include_storage else storage_elapsed + settings.metrics_interval_seconds
-        )
-        cleanup_elapsed += settings.metrics_interval_seconds
+        if collection_due:
+            metrics_elapsed = 0
+        if include_containers:
+            docker_elapsed = 0
+        if include_state:
+            state_elapsed = 0
+        if include_storage:
+            storage_elapsed = 0
+        if include_disks:
+            disk_elapsed = 0
+        if include_integrations:
+            integration_elapsed = 0
         if cleanup_elapsed >= 86400:
             await asyncio.to_thread(cleanup_cycle)
             cleanup_elapsed = 0
-        await asyncio.sleep(settings.metrics_interval_seconds)
+        await asyncio.sleep(tick_seconds)
+        metrics_elapsed += tick_seconds
+        docker_elapsed += tick_seconds
+        state_elapsed += tick_seconds
+        storage_elapsed += tick_seconds
+        disk_elapsed += tick_seconds
+        integration_elapsed += tick_seconds
+        cleanup_elapsed += tick_seconds
 
 
 def dashboard_summary_cycle() -> None:

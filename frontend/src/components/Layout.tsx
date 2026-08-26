@@ -1,5 +1,5 @@
 import { Bell, Bot, Container, Gauge, HardDrive, LogOut, Menu, Settings, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api } from '../api'
 import { Brand } from '../App'
@@ -10,6 +10,19 @@ const links = [
 
 export default function Layout({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const renewActivity = () => {
+      if (document.visibilityState === 'visible') void api('/api/activity', { method: 'POST' }).catch(() => undefined)
+    }
+    const renewWhenVisible = () => { if (document.visibilityState === 'visible') renewActivity() }
+    renewActivity()
+    const timer = window.setInterval(renewActivity, 15_000)
+    document.addEventListener('visibilitychange', renewWhenVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', renewWhenVisible)
+    }
+  }, [])
   const logout = async () => { await api('/api/auth/logout', { method: 'POST' }); onLogout() }
   return <div className="app-shell">
     <aside className={open ? 'sidebar open' : 'sidebar'}>
@@ -20,4 +33,3 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
     <main><header className="topbar"><button className="icon-button mobile-only" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu /></button><div><span className="eyebrow">SERVER INTELLIGENCE</span><strong>All systems observed</strong></div><span className="live"><i/> Live</span></header><Outlet /></main>
   </div>
 }
-

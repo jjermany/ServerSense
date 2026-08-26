@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.orm import Session
 
 from serversense.config import get_settings
@@ -19,6 +19,7 @@ from serversense.models import (
 )
 from serversense.schemas import DashboardResponse, ForecastResponse, ForecastWindow, StoragePoint
 from serversense.security import current_user
+from serversense.services.activity import active_viewers
 from serversense.services.ai_config import read_ai_config
 from serversense.services.collectors import build_collector
 from serversense.services.dashboard_insights import latest_dashboard_summary
@@ -27,6 +28,12 @@ from serversense.services.maintenance import create_backup, diagnostic_bundle
 from serversense.services.metrics import calculate_network_rates
 
 router = APIRouter(prefix="/api", tags=["monitoring"], dependencies=[Depends(current_user)])
+
+
+@router.post("/activity", status_code=204)
+def renew_active_viewer() -> Response:
+    active_viewers.renew()
+    return Response(status_code=204)
 
 
 @router.get("/system/detect")
@@ -49,15 +56,11 @@ def backup_database() -> dict[str, str]:
     return {"ok": "true", "filename": path.name}
 
 
-def latest_per_key(rows: list[Any], key: str) -> list[Any]:
-    if not rows:
+def latest_snapshot(db: Session, model: type[DiskSample] | type[DockerSample]) -> list[Any]:
+    timestamp = db.scalar(select(model.timestamp).order_by(desc(model.timestamp)).limit(1))
+    if timestamp is None:
         return []
-    latest_timestamp = rows[0].timestamp
-    found: dict[str, Any] = {}
-    for row in rows:
-        if row.timestamp == latest_timestamp:
-            found.setdefault(str(getattr(row, key)), row)
-    return list(found.values())
+    return list(db.scalars(select(model).where(model.timestamp == timestamp)))
 
 
 def elapsed_since(value: datetime | None) -> int | None:
@@ -67,24 +70,34 @@ def elapsed_since(value: datetime | None) -> int | None:
     return max(0, int((datetime.now(UTC) - aware).total_seconds()))
 
 
-def container_change_times(rows: list[DockerSample]) -> dict[str, datetime | None]:
-    grouped: dict[str, list[DockerSample]] = {}
-    for row in rows:
-        grouped.setdefault(row.container_id, []).append(row)
-    result: dict[str, datetime | None] = {}
-    for container_id, samples in grouped.items():
-        latest = samples[0]
-        changed = next(
-            (
-                item
-                for item in samples[1:]
-                if (item.status, item.health, item.restart_count)
-                != (latest.status, latest.health, latest.restart_count)
-            ),
-            None,
+def container_change_times(db: Session, rows: list[DockerSample]) -> dict[str, datetime | None]:
+    if not rows:
+        return {}
+    changed = set(
+        db.scalars(
+            select(DockerSample.container_id)
+            .where(
+                or_(
+                    *(
+                        and_(
+                            DockerSample.container_id == row.container_id,
+                            DockerSample.timestamp < row.timestamp,
+                            or_(
+                                DockerSample.status != row.status,
+                                DockerSample.health.is_distinct_from(row.health),
+                                DockerSample.restart_count != row.restart_count,
+                            ),
+                        )
+                        for row in rows
+                    )
+                )
+            )
+            .distinct()
         )
-        result[container_id] = latest.timestamp if changed else None
-    return result
+    )
+    return {
+        row.container_id: row.timestamp if row.container_id in changed else None for row in rows
+    }
 
 
 def get_storage_forecast(db: Session) -> ForecastResponse:
@@ -112,12 +125,9 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     metrics = list(db.scalars(select(MetricSample).order_by(desc(MetricSample.timestamp)).limit(2)))
     metric = metrics[0] if metrics else None
     network = calculate_network_rates(metrics[1] if len(metrics) > 1 else None, metric)
-    disks = latest_per_key(
-        list(db.scalars(select(DiskSample).order_by(desc(DiskSample.timestamp)))), "disk_id"
-    )
-    docker_rows = list(db.scalars(select(DockerSample).order_by(desc(DockerSample.timestamp))))
-    containers = latest_per_key(docker_rows, "container_id")
-    container_changes = container_change_times(docker_rows)
+    disks = latest_snapshot(db, DiskSample)
+    containers = latest_snapshot(db, DockerSample)
+    container_changes = container_change_times(db, containers)
     alerts = list(
         db.scalars(
             select(Alert)
@@ -326,9 +336,7 @@ def storage_pools(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 @router.get("/disks")
 def disk_list(db: Session = Depends(get_db)) -> list[dict]:
-    rows = latest_per_key(
-        list(db.scalars(select(DiskSample).order_by(desc(DiskSample.timestamp)))), "disk_id"
-    )
+    rows = latest_snapshot(db, DiskSample)
     return [
         {
             "id": x.disk_id,
@@ -384,9 +392,8 @@ def disk_details(disk_id: str, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/docker")
 def docker_list(db: Session = Depends(get_db)) -> list[dict]:
-    history = list(db.scalars(select(DockerSample).order_by(desc(DockerSample.timestamp))))
-    rows = latest_per_key(history, "container_id")
-    changes = container_change_times(history)
+    rows = latest_snapshot(db, DockerSample)
+    changes = container_change_times(db, rows)
     return [
         {
             "id": x.container_id,

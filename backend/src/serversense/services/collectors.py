@@ -37,7 +37,13 @@ class Collector(ABC):
     def detect(self) -> dict[str, Any]: ...
 
     @abstractmethod
-    def collect(self) -> Snapshot: ...
+    def collect(
+        self,
+        include_storage: bool = True,
+        include_disks: bool = True,
+        include_containers: bool = True,
+        include_state: bool = True,
+    ) -> Snapshot: ...
 
 
 class LinuxCollector(Collector):
@@ -55,11 +61,17 @@ class LinuxCollector(Collector):
     def _array_path(self) -> Path:
         return self.settings.array_path if self.settings.array_path.exists() else Path("/")
 
-    def collect(self) -> Snapshot:
+    def collect(
+        self,
+        include_storage: bool = True,
+        include_disks: bool = True,
+        include_containers: bool = True,
+        include_state: bool = True,
+    ) -> Snapshot:
         now = datetime.now(UTC)
         memory = psutil.virtual_memory()
         network = psutil.net_io_counters()
-        disk = shutil.disk_usage(self._array_path())
+        disk = shutil.disk_usage(self._array_path()) if include_storage else None
         return Snapshot(
             timestamp=now,
             metric={
@@ -70,14 +82,20 @@ class LinuxCollector(Collector):
                 "network_rx_bytes": network.bytes_recv,
                 "network_tx_bytes": network.bytes_sent,
             },
-            storage={
-                "total_bytes": disk.total,
-                "used_bytes": disk.used,
-                "free_bytes": disk.free,
-                "source": "system",
-            },
-            containers=self._docker_containers(),
-            state={"array_status": "available", "hostname": platform.node()},
+            storage=(
+                {
+                    "total_bytes": disk.total,
+                    "used_bytes": disk.used,
+                    "free_bytes": disk.free,
+                    "source": "system",
+                }
+                if disk
+                else None
+            ),
+            containers=self._docker_containers() if include_containers else [],
+            state=(
+                {"array_status": "available", "hostname": platform.node()} if include_state else {}
+            ),
         )
 
     def _docker_containers(self) -> list[dict[str, Any]]:
@@ -161,13 +179,26 @@ class UnraidCollector(LinuxCollector):
             data["version"] = version_file.read_text(errors="replace").strip()[:200]
         return data
 
-    def collect(self) -> Snapshot:
-        snapshot = super().collect()
+    def collect(
+        self,
+        include_storage: bool = True,
+        include_disks: bool = True,
+        include_containers: bool = True,
+        include_state: bool = True,
+    ) -> Snapshot:
+        snapshot = super().collect(
+            include_storage=include_storage,
+            include_disks=include_disks,
+            include_containers=include_containers,
+            include_state=include_state,
+        )
         snapshot.platform = "unraid"
-        sections = self._unraid_disk_sections()
-        snapshot.disks = self._unraid_disks(snapshot.timestamp, sections)
-        snapshot.state = self._unraid_state()
-        snapshot.state["pools"] = self._unraid_pools(sections)
+        sections = self._unraid_disk_sections() if include_disks or include_state else []
+        if include_disks:
+            snapshot.disks = self._unraid_disks(snapshot.timestamp, sections)
+        if include_state:
+            snapshot.state = self._unraid_state()
+            snapshot.state["pools"] = self._unraid_pools(sections)
         return snapshot
 
     def _unraid_state(self) -> dict[str, Any]:
@@ -480,14 +511,15 @@ def persist_snapshot(db: Session, snapshot: Snapshot, include_storage: bool = Tr
         db.add(DiskSample(**disk))
     for container in snapshot.containers:
         db.add(DockerSample(timestamp=snapshot.timestamp, **container))
-    state = db.get(Setting, "monitoring_state")
-    value = {
-        **snapshot.state,
-        "platform": snapshot.platform,
-        "collected_at": snapshot.timestamp.isoformat(),
-    }
-    if state:
-        state.value = value
-    else:
-        db.add(Setting(key="monitoring_state", value=value))
+    if snapshot.state:
+        state = db.get(Setting, "monitoring_state")
+        value = {
+            **snapshot.state,
+            "platform": snapshot.platform,
+            "collected_at": snapshot.timestamp.isoformat(),
+        }
+        if state:
+            state.value = value
+        else:
+            db.add(Setting(key="monitoring_state", value=value))
     db.commit()

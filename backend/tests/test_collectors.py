@@ -206,3 +206,36 @@ def test_unraid_metadata_is_a_safe_fallback_when_smart_is_unavailable() -> None:
     )
     assert result["temperature_c"] == 37
     assert result["smart_status"] == "healthy"
+
+
+def test_fast_unraid_collection_skips_smart_inventory(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    collector = UnraidCollector(
+        Settings(
+            array_path=tmp_path,
+            config_dir=tmp_path,
+            secret_key="collector-test-secret-key",
+        )
+    )
+    monkeypatch.setattr(collector, "_docker_containers", lambda: [])
+    monkeypatch.setattr(collector, "_unraid_disk_sections", lambda: [{"name": "disk1"}])
+    monkeypatch.setattr(collector, "_unraid_state", lambda: {"array_status": "started"})
+
+    def fail_if_smart_inventory_runs(*_: object) -> list[dict[str, object]]:
+        raise AssertionError("fast telemetry collection must not run SMART inventory")
+
+    monkeypatch.setattr(collector, "_unraid_disks", fail_if_smart_inventory_runs)
+
+    snapshot = collector.collect(
+        include_storage=False,
+        include_disks=False,
+        include_containers=False,
+        include_state=False,
+    )
+
+    assert snapshot.disks == []
+    assert snapshot.storage is None
+    assert snapshot.containers == []
+    assert snapshot.metric["cpu_percent"] is not None
+    assert snapshot.state == {}
