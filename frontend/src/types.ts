@@ -14,6 +14,7 @@ export type Disk = {
 };
 export type Container = {
   id: string;
+  sampled_at?: string;
   name: string;
   image: string;
   status: string;
@@ -61,6 +62,7 @@ export type Dashboard = {
     growth_bytes_per_day: number | null;
   };
   system: {
+    sampled_at: string | null;
     cpu_percent: number | null;
     memory_percent: number | null;
     load_1m: number | null;

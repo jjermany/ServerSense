@@ -6,9 +6,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
 from serversense.db import get_db
@@ -186,6 +186,8 @@ async def stream_chat(
                     yield _sse("activity", {"message": event.message})
                 elif event.kind == "delta":
                     yield _sse("delta", {"message": event.message})
+                elif event.kind == "reset":
+                    yield _sse("reset", {})
                 elif event.kind == "complete":
                     saved = _persist_exchange(
                         db,
@@ -284,3 +286,20 @@ def conversation_messages(
             for x in rows
         ],
     }
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(current_user),
+) -> Response:
+    conversation = db.get(AIConversation, conversation_id)
+    if not conversation:
+        raise HTTPException(404, "Conversation not found")
+    message_ids = select(AIMessage.id).where(AIMessage.conversation_id == conversation_id)
+    db.execute(delete(AIToolCall).where(AIToolCall.message_id.in_(message_ids)))
+    db.execute(delete(AIMessage).where(AIMessage.conversation_id == conversation_id))
+    db.delete(conversation)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -855,7 +855,7 @@ button {
   background: #0d121b;
   padding: 12px;
 }
-.conversation-list > div {
+.conversation-list > div:first-child {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -870,16 +870,35 @@ button {
   text-align: left;
   display: grid;
 }
-.conversation-list > div button {
+.conversation-list > div:first-child button {
   color: #9da9ff;
   padding: 3px;
   font-size: 10px;
 }
-.conversation-list > button:hover,
-.conversation-list > button.active {
+.conversation-item {
+  position: relative;
+}
+.conversation-item > button:first-child {
+  padding-right: 30px;
+  width: 100%;
+}
+.conversation-item > button:first-child:hover,
+.conversation-item > button:first-child.active {
   border-color: #2a3551;
   background: #171f31;
   color: #e0e5ee;
+}
+.conversation-item .conversation-delete {
+  align-items: center;
+  color: #657186;
+  display: flex;
+  padding: 5px;
+  position: absolute;
+  right: 5px;
+  top: 8px;
+}
+.conversation-item .conversation-delete:hover {
+  color: var(--danger);
 }
 .conversation-list b {
   white-space: nowrap;
@@ -1598,7 +1617,7 @@ button.danger {
   .conversation-list > div {
     min-width: 110px;
   }
-  .conversation-list > button {
+  .conversation-item {
     min-width: 150px;
   }
   .messages article {

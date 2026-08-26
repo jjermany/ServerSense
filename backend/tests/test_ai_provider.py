@@ -4,13 +4,88 @@ import httpx
 from pytest import MonkeyPatch
 
 from serversense.db import SessionLocal
-from serversense.services.ai import chat
+from serversense.services.ai import FOLLOW_UP_PROMPT, _provider_messages, chat
 from serversense.services.demo import seed_demo_data
 
 
 def _stream(*chunks: dict) -> bytes:
     lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in chunks]
     return ("".join(lines) + "data: [DONE]\n\n").encode()
+
+
+def test_follow_up_prompt_makes_history_context_only() -> None:
+    messages = _provider_messages(
+        "Yes, list the recently upgraded titles.",
+        [
+            {"role": "user", "content": "How long until storage is full?"},
+            {"role": "assistant", "content": "About 239 days. Want recent upgrades?"},
+        ],
+    )
+
+    assert FOLLOW_UP_PROMPT in messages[0]["content"]
+    assert messages[-1]["content"] == "Yes, list the recently upgraded titles."
+
+
+async def test_tool_call_preamble_is_not_compiled_into_final_answer(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200,
+                content=_stream(
+                    {"choices": [{"delta": {"content": "The old answer repeated. "}}]},
+                    {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": "media-call",
+                                            "function": {
+                                                "name": "get_quality_upgrades",
+                                                "arguments": "{}",
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                ),
+            )
+        return httpx.Response(
+            200,
+            content=_stream({"choices": [{"delta": {"content": "Here are the titles."}}]}),
+        )
+
+    transport = httpx.MockTransport(handler)
+    async_client = httpx.AsyncClient
+
+    def client_factory(**kwargs: object) -> httpx.AsyncClient:
+        return async_client(transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client_factory)
+    with SessionLocal() as db:
+        answer, tools, _ = await chat(
+            db,
+            "List the recently upgraded titles.",
+            {
+                "provider": "openai_compatible",
+                "endpoint": "http://local-model.test",
+                "model": "local-test-model",
+                "max_tool_calls": 2,
+                "timeout_seconds": 5,
+            },
+        )
+
+    assert answer == "Here are the titles."
+    assert tools == ["get_quality_upgrades"]
 
 
 async def test_openai_compatible_provider_streams_and_executes_read_only_tool_call(

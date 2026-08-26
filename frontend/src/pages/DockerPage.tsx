@@ -17,6 +17,9 @@ export default function DockerPage() {
         <span className="muted">
           {rows.filter((x) => x.status === "running").length} of {rows.length}{" "}
           online
+          {rows[0]?.sampled_at && (
+            <> · sampled {new Date(rows[0].sampled_at).toLocaleTimeString()}</>
+          )}
         </span>
       </PageHeader>
       {error && <div className="form-error">{error}</div>}

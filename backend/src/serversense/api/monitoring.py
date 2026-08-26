@@ -240,6 +240,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
             "growth_bytes_per_day": selected.bytes_per_day if selected else None,
         },
         system={
+            "sampled_at": metric.timestamp.isoformat() if metric else None,
             "cpu_percent": metric.cpu_percent if metric else None,
             "memory_percent": metric.memory_percent if metric else None,
             "load_1m": metric.load_1m if metric else None,
@@ -267,6 +268,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
         containers=[
             {
                 "id": x.container_id,
+                "sampled_at": x.timestamp.isoformat(),
                 "name": x.name,
                 "image": x.image,
                 "status": x.status,
@@ -397,6 +399,7 @@ def docker_list(db: Session = Depends(get_db)) -> list[dict]:
     return [
         {
             "id": x.container_id,
+            "sampled_at": x.timestamp.isoformat(),
             "name": x.name,
             "image": x.image,
             "status": x.status,

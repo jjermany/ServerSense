@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from serversense.db import SessionLocal
-from serversense.models import Alert, DiskSample, Event
+from serversense.models import AIConversation, AIMessage, AIToolCall, Alert, DiskSample, Event
 
 
 def test_health_and_authentication_required(client: TestClient) -> None:
@@ -89,12 +89,14 @@ def test_first_run_setup_and_dashboard(client: TestClient) -> None:
     assert response.status_code == 201
     dashboard = client.get("/api/dashboard")
     assert dashboard.status_code == 200
+    assert dashboard.headers["cache-control"] == "no-store"
     body = dashboard.json()
     assert body["demo_mode"] is True
     assert body["storage"]["used_bytes"] > 0
     assert len(body["disks"]) >= 4
     assert body["system"]["network_rx_bytes_per_second"] == 1_500_000
     assert body["system"]["network_tx_bytes_per_second"] == 300_000
+    assert body["system"]["sampled_at"] is not None
     assert body["server"]["pools"][0]["name"] == "cache"
     assert client.get("/api/storage/pools").json()[0]["device_count"] == 2
 
@@ -146,6 +148,32 @@ def test_streaming_chat_reports_activity(authenticated_client: TestClient) -> No
     assert "event: activity" in body
     assert "event: message" in body
     assert "get_disk_smart_health" in body
+
+
+def test_conversation_can_be_deleted_with_messages_and_tool_calls(
+    authenticated_client: TestClient,
+) -> None:
+    response = authenticated_client.post(
+        "/api/ai/chat", json={"message": "How long until storage is full?"}
+    )
+    conversation_id = response.json()["conversation_id"]
+    with SessionLocal() as db:
+        message_ids = select(AIMessage.id).where(AIMessage.conversation_id == conversation_id)
+        tool_call_ids = list(
+            db.scalars(select(AIToolCall.id).where(AIToolCall.message_id.in_(message_ids)))
+        )
+    assert tool_call_ids
+
+    assert (
+        authenticated_client.delete(f"/api/ai/conversations/{conversation_id}").status_code == 204
+    )
+    assert authenticated_client.get(f"/api/ai/conversations/{conversation_id}").status_code == 404
+    with SessionLocal() as db:
+        assert db.get(AIConversation, conversation_id) is None
+        assert not list(
+            db.scalars(select(AIMessage).where(AIMessage.conversation_id == conversation_id))
+        )
+        assert not list(db.scalars(select(AIToolCall).where(AIToolCall.id.in_(tool_call_ids))))
 
 
 def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(

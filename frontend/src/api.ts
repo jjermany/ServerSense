@@ -1,4 +1,4 @@
-const defaults: RequestInit = { credentials: 'include', headers: { 'Content-Type': 'application/json' } }
+const defaults: RequestInit = { credentials: 'include', cache: 'no-store', headers: { 'Content-Type': 'application/json' } }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...defaults, ...options, headers: { ...defaults.headers, ...options.headers } })

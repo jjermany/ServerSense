@@ -66,4 +66,36 @@ describe("SENSE requests", () => {
       ),
     );
   });
+
+  it("deletes a conversation and clears it when active", async () => {
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.mocked(api).mockImplementation((path, options) => {
+      if (path === "/api/ai/conversations/7" && !options?.method) {
+        return Promise.resolve({
+          id: 7,
+          messages: [{ role: "user", content: "Old question" }],
+        });
+      }
+      if (path === "/api/ai/conversations") {
+        return Promise.resolve([
+          { id: 7, title: "Storage forecast", updated_at: "2026-08-26T00:00:00Z" },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+
+    render(<SensePage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Storage forecast/i }),
+    );
+    expect(await screen.findByText("Old question")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete conversation: Storage forecast" }),
+    );
+
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/ai/conversations/7", { method: "DELETE" }),
+    );
+    expect(await screen.findByText("What would you like to understand?")).toBeInTheDocument();
+  });
 });

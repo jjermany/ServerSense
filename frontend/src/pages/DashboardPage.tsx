@@ -129,7 +129,11 @@ export default function DashboardPage() {
           detail={
             data.system.memory_percent == null
               ? "Memory sample unavailable"
-              : `${data.system.memory_percent.toFixed(1)}% memory used`
+              : `${data.system.memory_percent.toFixed(1)}% memory used · sampled ${
+                  data.system.sampled_at
+                    ? new Date(data.system.sampled_at).toLocaleTimeString()
+                    : "time unavailable"
+                }`
           }
         />
         <Metric

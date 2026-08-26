@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Bot, Send, Sparkles, Square, User } from "lucide-react";
+import { Bot, Send, Sparkles, Square, Trash2, User } from "lucide-react";
 import { PageHeader } from "../components/UI";
 import { api } from "../api";
 type Message = {
@@ -40,6 +40,15 @@ export default function SensePage() {
     }>(`/api/ai/conversations/${id}`);
     setConversation(result.id);
     setMessages(result.messages);
+  };
+  const deleteConversation = async (item: Conversation) => {
+    if (!window.confirm(`Remove "${item.title}" and all of its messages?`)) return;
+    await api<void>(`/api/ai/conversations/${item.id}`, { method: "DELETE" });
+    if (conversation === item.id) {
+      setConversation(undefined);
+      setMessages([]);
+    }
+    await loadConversations();
   };
   const ask = async (text: string) => {
     if (!text.trim() || busy) return;
@@ -83,6 +92,7 @@ export default function SensePage() {
           if (data.request_id) requestIdRef.current = data.request_id;
           if (event === "activity") setActivity(data.message);
           if (event === "delta") setDraft((current) => current + data.message);
+          if (event === "reset") setDraft("");
           if (event === "error") throw new Error(data.message);
           if (event === "message") {
             setConversation(data.conversation_id);
@@ -167,14 +177,25 @@ export default function SensePage() {
             </button>
           </div>
           {conversations.map((item) => (
-            <button
-              key={item.id}
-              className={conversation === item.id ? "active" : ""}
-              onClick={() => openConversation(item.id)}
-            >
-              <b>{item.title}</b>
-              <small>{new Date(item.updated_at).toLocaleDateString()}</small>
-            </button>
+            <div className="conversation-item" key={item.id}>
+              <button
+                className={conversation === item.id ? "active" : ""}
+                onClick={() => openConversation(item.id)}
+              >
+                <b>{item.title}</b>
+                <small>{new Date(item.updated_at).toLocaleDateString()}</small>
+              </button>
+              <button
+                className="conversation-delete"
+                type="button"
+                aria-label={`Delete conversation: ${item.title}`}
+                title="Delete conversation"
+                disabled={busy}
+                onClick={() => void deleteConversation(item)}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           ))}
           {!conversations.length && (
             <p>Your SENSE conversations will appear here.</p>

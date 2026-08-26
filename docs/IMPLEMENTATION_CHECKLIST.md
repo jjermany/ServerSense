@@ -44,6 +44,7 @@ Last updated: 2026-08-26
 - [x] Ollama-compatible `/v1` endpoint configuration
 - [x] encrypted provider key, health test, context/temperature/timeout/tool settings UI
 - [x] conversation/message/tool-call persistence
+- [x] user-initiated conversation deletion and follow-up responses that avoid prior-answer repetition
 - [x] prompt-injection boundary and no arbitrary shell/action tools
 - [x] SSE streaming, user-facing activity, and restored conversation selection UI
 - [x] token-level provider streaming, authenticated request cancellation, bounded recent context, output limits, and 30-day conversation cleanup

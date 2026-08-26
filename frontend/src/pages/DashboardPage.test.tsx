@@ -28,6 +28,7 @@ const dashboard: Dashboard = {
     growth_bytes_per_day: 20_000_000_000,
   },
   system: {
+    sampled_at: "2026-08-26T05:00:00Z",
     cpu_percent: 12,
     memory_percent: 34,
     load_1m: 0.5,
