@@ -61,6 +61,9 @@ def test_collects_normalized_history_and_deduplicates(
         db.add(integration)
         db.commit()
         db.refresh(integration)
+        now = datetime.now(UTC)
+        imported_at = now - timedelta(hours=1)
+        deleted_at = imported_at - timedelta(seconds=1)
 
         def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
             assert item.id == integration.id
@@ -69,7 +72,7 @@ def test_collects_normalized_history_and_deduplicates(
                     {
                         "id": 7,
                         "title": "Upcoming Movie",
-                        "digitalRelease": "2026-08-19T12:00:00Z",
+                        "digitalRelease": (now + timedelta(days=1)).isoformat(),
                         "monitored": True,
                         "hasFile": False,
                     }
@@ -79,7 +82,7 @@ def test_collects_normalized_history_and_deduplicates(
                 "records": [
                     {
                         "id": 42,
-                        "date": "2026-08-18T15:00:00Z",
+                        "date": imported_at.isoformat(),
                         "eventType": "downloadFolderImported",
                         "sourceTitle": "/private/download/path.mkv",
                         "quality": {"quality": {"name": "Bluray-2160p"}},
@@ -88,7 +91,7 @@ def test_collects_normalized_history_and_deduplicates(
                     },
                     {
                         "id": 41,
-                        "date": "2026-08-18T14:59:59Z",
+                        "date": deleted_at.isoformat(),
                         "eventType": "movieFileDeleted",
                         "sourceTitle": "/private/library/old-file.mkv",
                         "quality": {"quality": {"name": "WEBDL-1080p"}},
@@ -101,7 +104,6 @@ def test_collects_normalized_history_and_deduplicates(
         from serversense.services import integrations
 
         monkeypatch.setattr(integrations, "_request", fake_request)  # type: ignore[attr-defined]
-        now = datetime(2026, 8, 18, 16, tzinfo=UTC)
         assert collect_integration(db, integration, now) == 2
         integration.config = dict(integration.config) | {"last_collected_at": ""}
         db.commit()
