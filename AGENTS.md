@@ -28,6 +28,7 @@ Interactive model calls must remain asynchronously cancellable, stream bounded o
 Dashboard model summaries are additive and opt-in. Generate them only in the isolated background loop from bounded normalized facts, preserve the deterministic insight card, retain the last successful cache on failure, and never call a model from dashboard requests or the monitoring loop.
 Notification providers must use narrow protocols and encrypted stored credentials. A Discord, Pushover, SMTP, or webhook failure may never interrupt collection or deterministic alert persistence.
 Notification category preferences filter delivery only; deterministic alerts must still be persisted for disabled delivery categories.
+Alert dismissal is a persisted visibility state: retain dismissed records for history and deduplication, but exclude them from the alert UI, dashboard, and SENSE context.
 
 ## Commands
 

@@ -120,7 +120,10 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     container_changes = container_change_times(docker_rows)
     alerts = list(
         db.scalars(
-            select(Alert).where(Alert.active.is_(True)).order_by(desc(Alert.created_at)).limit(10)
+            select(Alert)
+            .where(Alert.active.is_(True), Alert.dismissed_at.is_(None))
+            .order_by(desc(Alert.created_at))
+            .limit(10)
         )
     )
     general = db.get(Setting, "general")
@@ -404,7 +407,12 @@ def docker_list(db: Session = Depends(get_db)) -> list[dict]:
 
 @router.get("/alerts")
 def alert_list(active: bool | None = None, db: Session = Depends(get_db)) -> list[dict]:
-    statement = select(Alert).order_by(desc(Alert.created_at)).limit(200)
+    statement = (
+        select(Alert)
+        .where(Alert.dismissed_at.is_(None))
+        .order_by(desc(Alert.created_at))
+        .limit(200)
+    )
     if active is not None:
         statement = statement.where(Alert.active == active)
     return [
@@ -416,6 +424,7 @@ def alert_list(active: bool | None = None, db: Session = Depends(get_db)) -> lis
             "message": x.message,
             "active": x.active,
             "acknowledged_at": x.acknowledged_at,
+            "dismissed_at": x.dismissed_at,
             "created_at": x.created_at,
             "data": x.data,
         }
@@ -431,5 +440,17 @@ def acknowledge_alert(
     if not alert:
         raise HTTPException(404, "Alert not found")
     alert.acknowledged_at = datetime.now(UTC)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/alerts/{alert_id}/dismiss")
+def dismiss_alert(
+    alert_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> dict:
+    alert = db.get(Alert, alert_id)
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    alert.dismissed_at = datetime.now(UTC)
     db.commit()
     return {"ok": True}

@@ -70,7 +70,10 @@ def _facts(db: Session) -> dict[str, Any] | None:
     containers = _latest_snapshot(db, DockerSample)
     alerts = list(
         db.scalars(
-            select(Alert).where(Alert.active.is_(True)).order_by(desc(Alert.created_at)).limit(5)
+            select(Alert)
+            .where(Alert.active.is_(True), Alert.dismissed_at.is_(None))
+            .order_by(desc(Alert.created_at))
+            .limit(5)
         )
     )
     media = media_activity_summary(db, {"days": 7})

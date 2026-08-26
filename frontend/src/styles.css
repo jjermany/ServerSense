@@ -780,6 +780,14 @@ button {
 .alerts-page article > div {
   flex: 1;
 }
+.alerts-page article > .alert-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .alerts-page h3 {
   font-size: 14px;
   margin: 5px 0;
@@ -1595,6 +1603,13 @@ button.danger {
   }
   .messages article {
     max-width: 95%;
+  }
+  .alerts-page article {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .alerts-page article > .alert-actions {
+    width: 100%;
   }
 }
 @media (max-width: 470px) {

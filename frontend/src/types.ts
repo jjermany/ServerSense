@@ -33,6 +33,7 @@ export type Alert = {
   created_at: string;
   active?: boolean;
   acknowledged_at?: string | null;
+  dismissed_at?: string | null;
 };
 export type Pool = {
   name: string;

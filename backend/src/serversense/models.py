@@ -105,6 +105,7 @@ class Alert(TimestampMixin, Base):
     fingerprint: Mapped[str] = mapped_column(String(200), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     data: Mapped[dict] = mapped_column(JSON, default=dict)
 

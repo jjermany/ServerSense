@@ -31,7 +31,7 @@ Last updated: 2026-08-18
 - [x] metric-driven storage, forecast, SMART, temperature, and container rules with a 10-minute stopped-container grace period
 - [x] Unraid array/parity state, disk/cache inventory, and available APC UPS data
 - [x] persisted per-container CPU, memory, health, restarts, and uptime
-- [x] configurable alert thresholds and per-category encrypted generic webhook, Discord, Pushover, and SMTP email delivery
+- [x] configurable alert thresholds, persistent acknowledgement/dismissal, and per-category encrypted generic webhook, Discord, Pushover, and SMTP email delivery
 - [x] daily retention cleanup and old storage sample downsampling
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 

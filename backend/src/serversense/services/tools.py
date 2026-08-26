@@ -177,7 +177,14 @@ def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
 
 def recent_alerts(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     limit = min(max(int(args.get("limit", 20)), 1), 100)
-    rows = list(db.scalars(select(Alert).order_by(desc(Alert.created_at)).limit(limit)))
+    rows = list(
+        db.scalars(
+            select(Alert)
+            .where(Alert.dismissed_at.is_(None))
+            .order_by(desc(Alert.created_at))
+            .limit(limit)
+        )
+    )
     return {
         "alerts": [
             {

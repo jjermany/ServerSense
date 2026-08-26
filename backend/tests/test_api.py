@@ -35,6 +35,33 @@ def test_alert_acknowledgement_is_persisted(authenticated_client: TestClient) ->
     assert acknowledged["acknowledged_at"] is not None
 
 
+def test_alert_dismissal_hides_the_persisted_alert(authenticated_client: TestClient) -> None:
+    with SessionLocal() as db:
+        alert = Alert(
+            alert_type="test_dismissal",
+            severity="warning",
+            title="Dismiss me",
+            message="This alert exercises the dismissal route.",
+            fingerprint=f"test-dismissal-{datetime.now(UTC).timestamp()}",
+            data={},
+        )
+        db.add(alert)
+        db.commit()
+        alert_id = alert.id
+
+    response = authenticated_client.post(f"/api/alerts/{alert_id}/dismiss")
+    assert response.status_code == 200
+    assert all(row["id"] != alert_id for row in authenticated_client.get("/api/alerts").json())
+    assert all(
+        row["id"] != alert_id for row in authenticated_client.get("/api/dashboard").json()["alerts"]
+    )
+
+    with SessionLocal() as db:
+        dismissed = db.get(Alert, alert_id)
+        assert dismissed is not None
+        assert dismissed.dismissed_at is not None
+
+
 def test_first_run_setup_and_dashboard(client: TestClient) -> None:
     if not client.get("/api/auth/status").json()["setup_required"]:
         return

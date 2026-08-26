@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import AlertsPage from "./AlertsPage";
 
@@ -10,6 +10,8 @@ describe("AlertsPage", () => {
   beforeEach(() => {
     vi.mocked(api).mockReset();
   });
+
+  afterEach(cleanup);
 
   it("replaces the acknowledge button with the persisted acknowledgement", async () => {
     const activeAlert = {
@@ -42,6 +44,36 @@ describe("AlertsPage", () => {
       expect(screen.getByText(/^Acknowledged /)).toBeInTheDocument();
     });
     expect(api).toHaveBeenNthCalledWith(2, "/api/alerts/42/acknowledge", {
+      method: "POST",
+    });
+  });
+
+  it("dismisses an alert and removes it from the page", async () => {
+    const alert = {
+      id: 43,
+      type: "storage_low",
+      severity: "warning",
+      title: "Storage is low",
+      message: "Only 8% remains.",
+      created_at: "2026-08-18T12:00:00Z",
+      active: true,
+      acknowledged_at: null,
+    };
+    vi.mocked(api).mockResolvedValueOnce([alert]).mockResolvedValueOnce({ ok: true });
+
+    render(
+      <MemoryRouter>
+        <AlertsPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /dismiss/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Storage is low")).toBeNull();
+      expect(screen.getByText("No alerts have been recorded.")).toBeInTheDocument();
+    });
+    expect(api).toHaveBeenNthCalledWith(2, "/api/alerts/43/dismiss", {
       method: "POST",
     });
   });

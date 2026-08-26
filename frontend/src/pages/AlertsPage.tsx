@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Info } from "lucide-react";
+import { AlertTriangle, Check, Info, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import type { Alert } from "../types";
@@ -13,6 +13,10 @@ export default function AlertsPage() {
   const ack = async (id: number) => {
     await api(`/api/alerts/${id}/acknowledge`, { method: "POST" });
     await load();
+  };
+  const dismiss = async (id: number) => {
+    await api(`/api/alerts/${id}/dismiss`, { method: "POST" });
+    setRows((current) => current.filter((row) => row.id !== id));
   };
   return (
     <div className="page">
@@ -34,15 +38,21 @@ export default function AlertsPage() {
                 <p>{row.message}</p>
                 <small>{new Date(row.created_at).toLocaleString()}</small>
               </div>
-              {row.active && !row.acknowledged_at && (
-                <button className="secondary" onClick={() => ack(row.id)}>
-                  <Check size={15} />
-                  Acknowledge
+              <div className="alert-actions">
+                {row.active && !row.acknowledged_at && (
+                  <button className="secondary" onClick={() => ack(row.id)}>
+                    <Check size={15} />
+                    Acknowledge
+                  </button>
+                )}
+                {row.acknowledged_at && (
+                  <small>Acknowledged {new Date(row.acknowledged_at).toLocaleString()}</small>
+                )}
+                <button className="secondary" onClick={() => dismiss(row.id)}>
+                  <X size={15} />
+                  Dismiss
                 </button>
-              )}
-              {row.acknowledged_at && (
-                <small>Acknowledged {new Date(row.acknowledged_at).toLocaleString()}</small>
-              )}
+              </div>
             </article>
           ))
         ) : (
