@@ -62,6 +62,10 @@ class AISettings(BaseModel):
     dashboard_summaries: bool = False
 
 
+class GeneralSettingsUpdate(BaseModel):
+    timezone: str = Field(min_length=1, max_length=100)
+
+
 class AlertSettings(BaseModel):
     free_percent_threshold: float = Field(default=10, ge=1, le=50)
     forecast_days_threshold: int = Field(default=90, ge=1, le=3650)
@@ -109,6 +113,8 @@ class MediaIntegrationRequest(BaseModel):
 
 
 class DashboardResponse(BaseModel):
+    updated_at: datetime | None
+    timezone: str
     server: dict[str, Any]
     storage: dict[str, Any]
     system: dict[str, Any]

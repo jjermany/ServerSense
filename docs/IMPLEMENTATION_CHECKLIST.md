@@ -27,7 +27,7 @@ Last updated: 2026-08-26
 - [x] restricted Docker inventory collector
 - [x] scheduled collection and retention cleanup
 - [x] deterministic 7/30/90-day robust forecasting
-- [x] dashboard, storage chart/ranges, disk cards, Docker table
+- [x] dashboard with timezone-aware overall/source update times, storage chart/ranges, disk cards, Docker table
 - [x] metric-driven storage, forecast, SMART, temperature, and container rules with a 10-minute stopped-container grace period
 - [x] Unraid array/parity state, disk/cache inventory, and available APC UPS data
 - [x] persisted per-container CPU, memory, health, restarts, and uptime
@@ -35,6 +35,7 @@ Last updated: 2026-08-26
 - [x] daily retention cleanup and old storage sample downsampling
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 - [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware UI refresh, and independent Docker, SMART, and storage cadences
+- [x] container `TZ` precedence with validated Settings fallback and shared timezone-aware frontend formatting
 
 ## SENSE
 
@@ -44,14 +45,14 @@ Last updated: 2026-08-26
 - [x] Ollama-compatible `/v1` endpoint configuration
 - [x] encrypted provider key, health test, context/temperature/timeout/tool settings UI
 - [x] conversation/message/tool-call persistence
-- [x] user-initiated conversation deletion and follow-up responses that avoid prior-answer repetition
+- [x] user-initiated conversation deletion and current-turn-grounded follow-ups that avoid prior-answer repetition
 - [x] prompt-injection boundary and no arbitrary shell/action tools
 - [x] SSE streaming, user-facing activity, and restored conversation selection UI
 - [x] token-level provider streaming, authenticated request cancellation, bounded recent context, output limits, and 30-day conversation cleanup
 - [x] opt-in proactive LLM explanations layered on deterministic events with safe fallback
 - [x] AI-only, multi-instance Sonarr/Radarr history collection with encrypted keys and normalized records
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name
-- [x] provider-confirmed quality-upgrade pairing and normalized upcoming Sonarr/Radarr calendars
+- [x] provider-confirmed quality-upgrade pairing and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
 - [x] additive opt-in cached AI dashboard summary with isolated scheduling and deterministic fallback
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 

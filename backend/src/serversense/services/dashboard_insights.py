@@ -7,6 +7,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample, Event, MediaActivity, MetricSample
+from serversense.services.timezones import local_time, time_zone_details
 from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
 
 REFRESH_INTERVAL = timedelta(hours=6)
@@ -81,7 +82,10 @@ def _facts(db: Session) -> dict[str, Any] | None:
     bounded_instances = dict(sorted(media_instances.items())[:20])
     media["instances"] = bounded_instances
     media["omitted_instance_count"] = max(0, len(media_instances) - len(bounded_instances))
+    timezone = time_zone_details(db)
     return {
+        "current_local_time": local_time(db).isoformat(),
+        "display_timezone": timezone.name,
         "storage": forecast,
         "resources": {
             "cpu_percent": metric.cpu_percent if metric else None,

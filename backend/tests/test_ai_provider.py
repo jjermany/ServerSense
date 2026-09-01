@@ -4,7 +4,14 @@ import httpx
 from pytest import MonkeyPatch
 
 from serversense.db import SessionLocal
-from serversense.services.ai import FOLLOW_UP_PROMPT, _provider_messages, chat
+from serversense.services.ai import (
+    FOLLOW_UP_PROMPT,
+    GROUNDED_ANSWER_PROMPT,
+    _calendar_window_days,
+    _provider_messages,
+    _required_tool,
+    chat,
+)
 from serversense.services.demo import seed_demo_data
 
 
@@ -22,19 +29,33 @@ def test_follow_up_prompt_makes_history_context_only() -> None:
         ],
     )
 
-    assert FOLLOW_UP_PROMPT in messages[0]["content"]
+    assert "Current date and time in the configured UTC timezone:" in messages[0]["content"]
+    assert messages[-2] == {"role": "system", "content": FOLLOW_UP_PROMPT}
     assert messages[-1]["content"] == "Yes, list the recently upgraded titles."
+
+
+def test_upcoming_media_follow_up_requires_calendar_tool() -> None:
+    history = [
+        {"role": "user", "content": "What's being added this week?"},
+        {
+            "role": "assistant",
+            "content": "There are three upcoming calendar entries. Want the titles?",
+        },
+    ]
+
+    assert _required_tool("Yes please", history) == "get_upcoming_media"
+    assert _required_tool("What's getting downloaded this week?", ()) == "get_upcoming_media"
+    assert _calendar_window_days("Yes please", history) == 7
 
 
 async def test_tool_call_preamble_is_not_compiled_into_final_answer(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    calls = 0
+    calls: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
             return httpx.Response(
                 200,
                 content=_stream(
@@ -86,6 +107,10 @@ async def test_tool_call_preamble_is_not_compiled_into_final_answer(
 
     assert answer == "Here are the titles."
     assert tools == ["get_quality_upgrades"]
+    assert calls[1]["messages"][-1] == {
+        "role": "system",
+        "content": GROUNDED_ANSWER_PROMPT,
+    }
 
 
 async def test_openai_compatible_provider_streams_and_executes_read_only_tool_call(
@@ -121,7 +146,8 @@ async def test_openai_compatible_provider_streams_and_executes_read_only_tool_ca
                     }
                 ),
             )
-        assert payload["messages"][-1]["role"] == "tool"
+        assert payload["messages"][-2]["role"] == "tool"
+        assert payload["messages"][-1]["content"] == GROUNDED_ANSWER_PROMPT
         return httpx.Response(
             200,
             content=_stream(

@@ -232,6 +232,16 @@ button {
   letter-spacing: -1px;
   margin: 5px 0 0;
 }
+.dashboard-header-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.overview-updated {
+  color: var(--muted);
+  font: 500 10px DM Mono, monospace;
+  white-space: nowrap;
+}
 .server-pill {
   display: flex;
   gap: 10px;
@@ -1259,7 +1269,7 @@ button {
 }
 .settings-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   padding: 20px 0;
 }
@@ -1569,6 +1579,10 @@ button.danger {
   .page-header {
     align-items: start;
   }
+  .dashboard-header-status {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+  }
   .metrics-grid,
   .metrics-grid.three,
   .forecast-grid,
@@ -1577,6 +1591,9 @@ button.danger {
   }
   .server-pill {
     display: none;
+  }
+  .settings-summary {
+    grid-template-columns: 1fr;
   }
   .disk-row {
     grid-template-columns: 20px 80px 1fr 35px;

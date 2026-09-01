@@ -48,6 +48,8 @@ export type Pool = {
   raw_bytes: number;
 };
 export type Dashboard = {
+  updated_at: string | null;
+  timezone: string;
   server: {
     name: string;
     array_status: string;
@@ -55,6 +57,7 @@ export type Dashboard = {
     pools: Pool[];
   };
   storage: {
+    sampled_at: string | null;
     total_bytes: number;
     used_bytes: number;
     free_bytes: number;

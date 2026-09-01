@@ -97,6 +97,9 @@ def test_first_run_setup_and_dashboard(client: TestClient) -> None:
     assert body["system"]["network_rx_bytes_per_second"] == 1_500_000
     assert body["system"]["network_tx_bytes_per_second"] == 300_000
     assert body["system"]["sampled_at"] is not None
+    assert body["updated_at"] is not None
+    assert body["timezone"]
+    assert all(item.get("generated_at") for item in body["insights"])
     assert body["server"]["pools"][0]["name"] == "cache"
     assert client.get("/api/storage/pools").json()[0]["device_count"] == 2
 

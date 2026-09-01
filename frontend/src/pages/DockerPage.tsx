@@ -3,6 +3,8 @@ import { formatBytes } from "../api";
 import type { Container } from "../types";
 import { Card, PageHeader, Status } from "../components/UI";
 import { useLiveQuery } from "../hooks/useLiveQuery";
+import { formatDateTime, formatTime } from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 const formatUptime = (seconds: number | null) => {
   if (seconds == null) return "—";
   const days = Math.floor(seconds / 86400);
@@ -10,6 +12,7 @@ const formatUptime = (seconds: number | null) => {
   return days ? `${days}d ${hours}h` : `${hours}h`;
 };
 export default function DockerPage() {
+  const { timeZone } = useTimeZone();
   const { data: rows = [], error } = useLiveQuery<Container[]>("/api/docker");
   return (
     <div className="page">
@@ -18,7 +21,7 @@ export default function DockerPage() {
           {rows.filter((x) => x.status === "running").length} of {rows.length}{" "}
           online
           {rows[0]?.sampled_at && (
-            <> · sampled {new Date(rows[0].sampled_at).toLocaleTimeString()}</>
+            <> · sampled {formatTime(rows[0].sampled_at, timeZone)}</>
           )}
         </span>
       </PageHeader>
@@ -45,7 +48,7 @@ export default function DockerPage() {
                   {row.last_state_change && (
                     <small>
                       State changed{" "}
-                      {new Date(row.last_state_change).toLocaleString()}
+                      {formatDateTime(row.last_state_change, timeZone)}
                     </small>
                   )}
                 </span>

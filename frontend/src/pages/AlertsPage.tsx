@@ -4,7 +4,10 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import type { Alert } from "../types";
 import { Card, Empty, PageHeader } from "../components/UI";
+import { formatDateTime } from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 export default function AlertsPage() {
+  const { timeZone } = useTimeZone();
   const [rows, setRows] = useState<Alert[]>([]);
   const load = () => api<Alert[]>("/api/alerts").then(setRows);
   useEffect(() => {
@@ -36,7 +39,7 @@ export default function AlertsPage() {
                 <span className="eyebrow">{row.type.replaceAll("_", " ")}</span>
                 <h3>{row.title}</h3>
                 <p>{row.message}</p>
-                <small>{new Date(row.created_at).toLocaleString()}</small>
+                <small>{formatDateTime(row.created_at, timeZone)}</small>
               </div>
               <div className="alert-actions">
                 {row.active && !row.acknowledged_at && (
@@ -46,7 +49,7 @@ export default function AlertsPage() {
                   </button>
                 )}
                 {row.acknowledged_at && (
-                  <small>Acknowledged {new Date(row.acknowledged_at).toLocaleString()}</small>
+                  <small>Acknowledged {formatDateTime(row.acknowledged_at, timeZone)}</small>
                 )}
                 <button className="secondary" onClick={() => dismiss(row.id)}>
                   <X size={15} />

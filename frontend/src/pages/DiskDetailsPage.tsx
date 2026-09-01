@@ -13,12 +13,15 @@ import {
 import { api, formatBytes } from "../api";
 import type { Disk } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
+import { formatDate } from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 
 type DiskDetails = Disk & {
   temperature_history: { timestamp: string; temperature_c: number | null }[];
 };
 
 export default function DiskDetailsPage() {
+  const { timeZone } = useTimeZone();
   const { diskId } = useParams();
   const [disk, setDisk] = useState<DiskDetails>();
   useEffect(() => {
@@ -76,10 +79,7 @@ export default function DiskDetailsPage() {
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={(v) =>
-                    new Date(v).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })
+                    formatDate(String(v), timeZone)
                   }
                   stroke="#626d7e"
                 />

@@ -16,6 +16,7 @@ Build or pull the ServerSense image, then create a container with:
 - `/var/run/docker.sock` → `/var/run/docker.sock` read-only for container inventory.
 - `SERVERSENSE_SECRET_KEY` → a stable random 64-character hex string.
 - `SERVERSENSE_ARRAY_PATH=/mnt/user`.
+- `TZ=America/Chicago` (or another valid IANA timezone) for every displayed date and time.
 
 Example command:
 
@@ -28,6 +29,7 @@ docker run -d \
   -p 8080:8080 \
   -e SERVERSENSE_SECRET_KEY="$(openssl rand -hex 32)" \
   -e SERVERSENSE_ARRAY_PATH=/mnt/user \
+  -e TZ=America/Chicago \
   -v /mnt/user/appdata/serversense:/config \
   -v /mnt/user:/mnt/user:ro \
   -v /var/local/emhttp:/var/local/emhttp:ro \

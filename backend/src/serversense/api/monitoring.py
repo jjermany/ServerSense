@@ -26,6 +26,7 @@ from serversense.services.dashboard_insights import latest_dashboard_summary
 from serversense.services.forecasting import calculate_all
 from serversense.services.maintenance import create_backup, diagnostic_bundle
 from serversense.services.metrics import calculate_network_rates
+from serversense.services.timezones import time_zone_details
 
 router = APIRouter(prefix="/api", tags=["monitoring"], dependencies=[Depends(current_user)])
 
@@ -68,6 +69,10 @@ def elapsed_since(value: datetime | None) -> int | None:
         return None
     aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value
     return max(0, int((datetime.now(UTC) - aware).total_seconds()))
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def container_change_times(db: Session, rows: list[DockerSample]) -> dict[str, datetime | None]:
@@ -128,6 +133,16 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     disks = latest_snapshot(db, DiskSample)
     containers = latest_snapshot(db, DockerSample)
     container_changes = container_change_times(db, containers)
+    observed_at = [
+        _as_utc(value)
+        for value in (
+            storage.timestamp if storage else None,
+            metric.timestamp if metric else None,
+            *(item.timestamp for item in disks),
+            *(item.timestamp for item in containers),
+        )
+        if value is not None
+    ]
     alerts = list(
         db.scalars(
             select(Alert)
@@ -187,6 +202,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
                 "message": explanation.message,
                 "source": "sense",
                 "model": explanation.data.get("model"),
+                "generated_at": explanation.timestamp.isoformat(),
             }
         )
     if selected and selected.days_remaining is not None:
@@ -196,6 +212,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
                 "title": "Storage trajectory",
                 "message": f"At the measured 30-day growth rate, capacity is projected to last approximately {selected.days_remaining:.0f} days.",
                 "source": "deterministic",
+                "generated_at": storage.timestamp.isoformat() if storage else None,
             }
         )
     hot = max(
@@ -210,9 +227,12 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
                 "title": "Disk temperatures",
                 "message": f"{hot.name} is currently the hottest drive at {hot.temperature_c:.0f}°C.",
                 "source": "deterministic",
+                "generated_at": hot.timestamp.isoformat(),
             }
         )
     return DashboardResponse(
+        updated_at=max(observed_at) if observed_at else None,
+        timezone=time_zone_details(db).name,
         server={
             "name": general_value.get("server_name", "ServerSense Host"),
             "array_status": monitoring_value.get(
@@ -233,6 +253,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
             "pools": monitoring_value.get("pools", []),
         },
         storage={
+            "sampled_at": storage.timestamp.isoformat() if storage else None,
             "total_bytes": storage.total_bytes if storage else 0,
             "used_bytes": storage.used_bytes if storage else 0,
             "free_bytes": storage.free_bytes if storage else 0,
@@ -251,6 +272,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
         disks=[
             {
                 "id": x.disk_id,
+                "sampled_at": x.timestamp.isoformat(),
                 "name": x.name,
                 "role": x.role,
                 "manufacturer": x.manufacturer,

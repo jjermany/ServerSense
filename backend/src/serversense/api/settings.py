@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from serversense.db import get_db
 from serversense.models import Alert, Setting
-from serversense.schemas import AISettings, AlertSettings
+from serversense.schemas import AISettings, AlertSettings, GeneralSettingsUpdate
 from serversense.security import current_user
 from serversense.services.ai_config import read_ai_config
 from serversense.services.notifications import DELIVERY_ERRORS, provider_from_config
 from serversense.services.secrets import decrypt_secret, encrypt_secret
+from serversense.services.timezones import time_zone_details, validate_time_zone
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
 
@@ -59,7 +60,34 @@ def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.get("/general")
 def get_general_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
     row = db.get(Setting, "general")
-    return row.value if row else {}
+    value = dict(row.value) if row else {}
+    timezone = time_zone_details(db)
+    return value | {
+        "timezone": timezone.name,
+        "timezone_source": timezone.source,
+        "timezone_configurable": timezone.configurable,
+        "timezone_warning": timezone.warning,
+    }
+
+
+@router.put("/general")
+def update_general_settings(
+    payload: GeneralSettingsUpdate, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    timezone = time_zone_details(db)
+    if not timezone.configurable:
+        raise HTTPException(409, "Timezone is controlled by the container TZ variable")
+    try:
+        name = validate_time_zone(payload.timezone)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    row = db.get(Setting, "general")
+    if row:
+        row.value = dict(row.value) | {"timezone": name}
+    else:
+        db.add(Setting(key="general", value={"timezone": name}, secret=False))
+    db.commit()
+    return get_general_settings(db)
 
 
 ALERT_DEFAULTS: dict[str, Any] = {

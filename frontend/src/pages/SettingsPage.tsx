@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 import { Card, PageHeader } from "../components/UI";
+import { useTimeZone } from "../timeZoneContext";
 type AIConfig = {
   provider: string;
   model: string;
@@ -55,6 +56,10 @@ type AlertConfig = {
 type GeneralConfig = {
   server_name?: string;
   demo_mode?: boolean;
+  timezone: string;
+  timezone_source: "environment" | "settings" | "default" | "invalid_environment";
+  timezone_configurable: boolean;
+  timezone_warning?: string | null;
 };
 type IntegrationsConfig = {
   available_providers: Array<{
@@ -139,6 +144,7 @@ function TestNotificationButton({
   );
 }
 export default function SettingsPage() {
+  const { setTimeZone } = useTimeZone();
   const [config, setConfig] = useState<AIConfig>();
   const [alerts, setAlerts] = useState<AlertConfig>();
   const [general, setGeneral] = useState<GeneralConfig>();
@@ -252,6 +258,24 @@ export default function SettingsPage() {
         return updated;
       },
       "Alert thresholds saved securely.",
+    );
+  };
+  const saveTimezone = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    await runAction(
+      "timezone-save",
+      "Saving timezone…",
+      async () => {
+        const updated = await api<GeneralConfig>("/api/settings/general", {
+          method: "PUT",
+          body: JSON.stringify({ timezone: form.get("timezone") }),
+        });
+        setGeneral(updated);
+        setTimeZone(updated.timezone);
+        return updated;
+      },
+      "Timezone saved.",
     );
   };
   const saveWebhook = async (e: FormEvent<HTMLFormElement>) => {
@@ -722,7 +746,45 @@ export default function SettingsPage() {
                 <small>COLLECTION MODE</small>
                 <b>{general.demo_mode ? "Demo data" : "Live monitoring"}</b>
               </div>
+              <div>
+                <small>TIMEZONE</small>
+                <b>{general.timezone}</b>
+              </div>
             </div>
+            {general.timezone_warning && (
+              <div className="form-error">{general.timezone_warning}</div>
+            )}
+            {general.timezone_configurable ? (
+              <form onSubmit={saveTimezone}>
+                <label>
+                  Display timezone
+                  <input
+                    name="timezone"
+                    defaultValue={general.timezone}
+                    placeholder="America/Chicago"
+                    required
+                  />
+                  <small>
+                    Use an IANA timezone name. This fallback is available because the
+                    container TZ variable is not set.
+                  </small>
+                </label>
+                <ActionFeedback status={actions["timezone-save"]} />
+                <div className="form-actions">
+                  <button
+                    className="primary"
+                    disabled={actions["timezone-save"]?.phase === "pending"}
+                  >
+                    <Save size={16} />
+                    Save timezone
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <p className="settings-note">
+                Display timezone is controlled by the container <code>TZ</code> variable.
+              </p>
+            )}
             <div className="permission-box">
               <CheckCircle2 />
               <div>

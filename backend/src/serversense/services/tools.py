@@ -19,6 +19,7 @@ from serversense.models import (
 from serversense.services.forecasting import calculate_all
 from serversense.services.metrics import calculate_network_rates
 from serversense.services.permissions import ActionRequest, ActionRisk, policy
+from serversense.services.timezones import local_time, time_zone_details
 
 ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
 
@@ -417,12 +418,15 @@ def upcoming_media(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     if not args.get("include_acquired", False):
         query = query.where(MediaSchedule.has_file.is_(False))
     rows = list(db.scalars(query.order_by(MediaSchedule.scheduled_at).limit(limit)))
+    timezone = time_zone_details(db)
     return {
+        "display_timezone": timezone.name,
         "window_start_utc": now.isoformat(),
         "window_end_utc": (now + timedelta(days=days)).isoformat(),
         "items": [
             {
                 "scheduled_at": _aware_datetime(row.scheduled_at).isoformat(),
+                "scheduled_at_local": local_time(db, row.scheduled_at).isoformat(),
                 "provider": row.provider,
                 "instance": row.instance_name,
                 "media_type": row.media_type,

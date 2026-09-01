@@ -287,6 +287,51 @@ def test_upcoming_media_is_normalized_and_not_described_as_guaranteed() -> None:
         assert "not guaranteed scheduled downloads" in result["terminology_note"]
 
 
+def test_radarr_calendar_prefers_provider_selected_release_date(
+    monkeypatch: object,
+) -> None:
+    now = datetime(2026, 9, 1, 12, tzinfo=UTC)
+    with SessionLocal() as db:
+        integration = Integration(
+            provider="radarr",
+            name="Movie calendar",
+            enabled=True,
+            config={"url": "http://radarr:7878", "api_key_encrypted": "unused"},
+        )
+        db.add(integration)
+        db.commit()
+        db.refresh(integration)
+
+        def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
+            if path == "history":
+                return {"records": []}
+            assert path == "calendar"
+            return [
+                {
+                    "id": 2026,
+                    "title": "Provider-selected movie",
+                    "inCinemas": "2026-09-02T00:00:00Z",
+                    "digitalRelease": "2026-09-08T00:00:00Z",
+                    "physicalRelease": "2026-09-15T00:00:00Z",
+                    "releaseDate": "2026-09-08T00:00:00Z",
+                    "monitored": True,
+                    "hasFile": False,
+                }
+            ]
+
+        from serversense.services import integrations
+
+        monkeypatch.setattr(integrations, "_request", fake_request)  # type: ignore[attr-defined]
+        collect_integration(db, integration, now)
+        schedule = db.scalar(
+            select(MediaSchedule).where(MediaSchedule.integration_id == integration.id)
+        )
+
+        assert schedule is not None
+        assert schedule.scheduled_at.replace(tzinfo=UTC) == datetime(2026, 9, 8, tzinfo=UTC)
+        assert schedule.release_type == "digital_release"
+
+
 def test_integration_test_does_not_follow_redirects(
     authenticated_client: TestClient, monkeypatch: object
 ) -> None:

@@ -12,6 +12,8 @@ import {
 import { api, formatBytes } from "../api";
 import type { Pool, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
+import { formatDate, parseTimestamp } from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 
 type Forecast = {
   current_total_bytes: number;
@@ -38,6 +40,7 @@ type ChartPoint = {
 };
 const ranges = ["24h", "7d", "30d", "90d", "1y", "all"];
 export default function StoragePage() {
+  const { timeZone } = useTimeZone();
   const [range, setRange] = useState("90d");
   const [history, setHistory] = useState<StoragePoint[]>([]);
   const [forecast, setForecast] = useState<Forecast>();
@@ -62,7 +65,7 @@ export default function StoragePage() {
     history.length
   ) {
     const horizon = Math.min(preferred.days_remaining, 180);
-    const start = new Date(history[history.length - 1].timestamp);
+    const start = parseTimestamp(history[history.length - 1].timestamp);
     for (let index = 1; index <= 12; index += 1) {
       const days = (horizon / 12) * index;
       const projectedUsed = Math.min(
@@ -105,7 +108,7 @@ export default function StoragePage() {
           }
           detail={
             preferred?.exhaustion_date
-              ? new Date(preferred.exhaustion_date).toLocaleDateString()
+              ? formatDate(preferred.exhaustion_date, timeZone)
               : "Needs more history"
           }
         />
@@ -135,10 +138,7 @@ export default function StoragePage() {
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={(v) =>
-                  new Date(v).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })
+                  formatDate(String(v), timeZone)
                 }
                 stroke="#626d7e"
               />

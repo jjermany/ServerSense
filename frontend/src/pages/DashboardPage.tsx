@@ -19,8 +19,16 @@ import { api, formatBytes, formatRate } from "../api";
 import type { Dashboard, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
 import { useLiveQuery } from "../hooks/useLiveQuery";
+import {
+  formatDate,
+  formatDateTime,
+  formatTime,
+  localHour,
+} from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 
 export default function DashboardPage() {
+  const { timeZone: configuredTimeZone } = useTimeZone();
   const { data, error: liveError } = useLiveQuery<Dashboard>("/api/dashboard");
   const [history, setHistory] = useState<StoragePoint[]>([]);
   const [historyError, setHistoryError] = useState("");
@@ -61,20 +69,30 @@ export default function DashboardPage() {
     (a, b) => (b.temperature_c ?? 0) - (a.temperature_c ?? 0),
   )[0];
   const online = data.containers.filter((x) => x.status === "running").length;
+  const timeZone = data.timezone || configuredTimeZone;
+  const currentHour = localHour(new Date(), timeZone);
   return (
     <div className="page">
       <PageHeader
         eyebrow="OVERVIEW"
-        title={`Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}.`}
+        title={`Good ${currentHour < 12 ? "morning" : currentHour < 18 ? "afternoon" : "evening"}.`}
       >
-        <div className="server-pill">
-          <Server size={17} />
-          <span>
-            <b>{data.server.name}</b>
-            <small>
-              Array <Status value={data.server.array_status} />
-            </small>
-          </span>
+        <div className="dashboard-header-status">
+          <small className="overview-updated">
+            Updated{" "}
+            {data.updated_at
+              ? formatDateTime(data.updated_at, timeZone)
+              : "time unavailable"}
+          </small>
+          <div className="server-pill">
+            <Server size={17} />
+            <span>
+              <b>{data.server.name}</b>
+              <small>
+                Array <Status value={data.server.array_status} />
+              </small>
+            </span>
+          </div>
         </div>
       </PageHeader>
       {data.demo_mode && (
@@ -131,7 +149,7 @@ export default function DashboardPage() {
               ? "Memory sample unavailable"
               : `${data.system.memory_percent.toFixed(1)}% memory used · sampled ${
                   data.system.sampled_at
-                    ? new Date(data.system.sampled_at).toLocaleTimeString()
+                    ? formatTime(data.system.sampled_at, timeZone)
                     : "time unavailable"
                 }`
           }
@@ -176,10 +194,7 @@ export default function DashboardPage() {
                 <XAxis
                   dataKey="timestamp"
                   tickFormatter={(v) =>
-                    new Date(v).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })
+                    formatDate(String(v), timeZone)
                   }
                   stroke="#626d7e"
                   tickLine={false}
@@ -202,7 +217,7 @@ export default function DashboardPage() {
                     borderRadius: 10,
                   }}
                   formatter={(v) => formatBytes(Number(v), 2)}
-                labelFormatter={(v) => new Date(String(v)).toLocaleString()}
+                labelFormatter={(v) => formatDateTime(String(v), timeZone)}
                 />
                 <Area
                   dataKey="used_bytes"
@@ -247,6 +262,12 @@ export default function DashboardPage() {
                 {insight.source === "sense"
                   ? `${insight.kind === "dashboard_summary" ? "Cached SENSE summary" : "SENSE explanation"} · ${insight.model ?? "configured model"}`
                   : "Based on measured telemetry"}
+                {insight.generated_at && (
+                  <>
+                    {" "}· {insight.source === "sense" ? "Generated" : "Measured"}{" "}
+                    {formatDateTime(insight.generated_at, timeZone)}
+                  </>
+                )}
               </small>
             </article>
           ))}
@@ -302,7 +323,7 @@ export default function DashboardPage() {
                   <div>
                     <b>{alert.title}</b>
                     <p>{alert.message}</p>
-                    <small>{new Date(alert.created_at).toLocaleString()}</small>
+                    <small>{formatDateTime(alert.created_at, timeZone)}</small>
                   </div>
                 </article>
               ))}

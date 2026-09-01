@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./api";
 import Layout from "./components/Layout";
 import AuthPage from "./pages/AuthPage";
+import { TimeZoneProvider } from "./timeZone";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const StoragePage = lazy(() => import("./pages/StoragePage"));
@@ -40,6 +41,7 @@ export default function App() {
       <AuthPage mode={auth} onAuthenticated={() => setAuth("authenticated")} />
     );
   return (
+    <TimeZoneProvider>
     <Suspense
       fallback={
         <div className="splash">
@@ -61,6 +63,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Suspense>
+    </TimeZoneProvider>
   );
 }
 

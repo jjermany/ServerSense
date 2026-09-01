@@ -14,6 +14,8 @@ vi.mock("../api", () => ({
 }));
 
 const dashboard: Dashboard = {
+  updated_at: "2026-08-26T05:00:00Z",
+  timezone: "America/Chicago",
   server: {
     name: "Tower",
     array_status: "started",
@@ -21,6 +23,7 @@ const dashboard: Dashboard = {
     pools: [],
   },
   storage: {
+    sampled_at: "2026-08-26T05:00:00Z",
     total_bytes: 10_000_000_000_000,
     used_bytes: 6_000_000_000_000,
     free_bytes: 4_000_000_000_000,
@@ -73,6 +76,7 @@ const dashboard: Dashboard = {
       title: "Storage trajectory",
       message: "Capacity is projected to last approximately 240 days.",
       source: "forecast",
+      generated_at: "2026-08-26T05:00:00Z",
     },
   ],
   demo_mode: true,
@@ -104,6 +108,7 @@ describe("dashboard", () => {
     );
     expect(screen.getByText(/realistic simulated Unraid telemetry/)).toBeVisible();
     expect(screen.getAllByText("4.00 TB")).toHaveLength(2);
+    expect(screen.getByText(/Updated.*CDT/)).toBeVisible();
 
     const results = await axe(container);
     expect(results.violations).toHaveLength(0);
@@ -123,6 +128,7 @@ describe("dashboard", () => {
                   source: "sense",
                   kind: "dashboard_summary",
                   model: "small-local-model",
+                  generated_at: "2026-08-26T04:00:00Z",
                 },
                 ...dashboard.insights,
               ],
@@ -138,6 +144,7 @@ describe("dashboard", () => {
     expect(screen.getByText(/Cached SENSE summary/)).toHaveTextContent(
       "small-local-model",
     );
-    expect(screen.getByText("Based on measured telemetry")).toBeVisible();
+    expect(screen.getByText(/Cached SENSE summary/)).toHaveTextContent("Generated");
+    expect(screen.getByText(/Based on measured telemetry/)).toBeVisible();
   });
 });

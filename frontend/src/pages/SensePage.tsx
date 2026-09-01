@@ -3,6 +3,8 @@ import ReactMarkdown from "react-markdown";
 import { Bot, Send, Sparkles, Square, Trash2, User } from "lucide-react";
 import { PageHeader } from "../components/UI";
 import { api } from "../api";
+import { formatDate } from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 type Message = {
   role: "user" | "assistant";
   content: string;
@@ -17,6 +19,7 @@ const prompts = [
   "What changed on my server today?",
 ];
 export default function SensePage() {
+  const { timeZone } = useTimeZone();
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<number>();
   const [busy, setBusy] = useState(false);
@@ -183,7 +186,7 @@ export default function SensePage() {
                 onClick={() => openConversation(item.id)}
               >
                 <b>{item.title}</b>
-                <small>{new Date(item.updated_at).toLocaleDateString()}</small>
+                <small>{formatDate(item.updated_at, timeZone)}</small>
               </button>
               <button
                 className="conversation-delete"

@@ -45,7 +45,14 @@ const alertConfig = {
   email_to: "",
 };
 
-const generalConfig = { server_name: "Test Tower", demo_mode: false };
+const generalConfig = {
+  server_name: "Test Tower",
+  demo_mode: false,
+  timezone: "America/Chicago",
+  timezone_source: "environment" as const,
+  timezone_configurable: false,
+  timezone_warning: null,
+};
 const integrationsConfig = { available_providers: [], configured: [] };
 
 describe("AI settings", () => {
@@ -122,6 +129,39 @@ describe("AI settings", () => {
     expect(screen.getByText("Discord")).toBeInTheDocument();
     expect(screen.getByText("Pushover")).toBeInTheDocument();
     expect(screen.getByText("Email")).toBeInTheDocument();
+  });
+
+  it("allows a timezone fallback only when the container TZ is absent", async () => {
+    const fallback = {
+      ...generalConfig,
+      timezone: "UTC",
+      timezone_source: "default" as const,
+      timezone_configurable: true,
+    };
+    vi.mocked(api).mockImplementation((path: string, options?: RequestInit) => {
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path === "/api/settings/general" && options?.method === "PUT") {
+        return Promise.resolve({
+          ...fallback,
+          timezone: JSON.parse(String(options.body)).timezone,
+        });
+      }
+      if (path.endsWith("/general")) return Promise.resolve(fallback);
+      if (path === "/api/integrations") return Promise.resolve(integrationsConfig);
+      return Promise.resolve(aiConfig);
+    });
+    render(<SettingsPage />);
+
+    const timezone = await screen.findByLabelText(/Display timezone/);
+    fireEvent.change(timezone, { target: { value: "America/Denver" } });
+    fireEvent.submit(timezone.closest("form")!);
+
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/settings/general", {
+        method: "PUT",
+        body: JSON.stringify({ timezone: "America/Denver" }),
+      }),
+    );
   });
 
   it("shows progress and success next to a save action", async () => {

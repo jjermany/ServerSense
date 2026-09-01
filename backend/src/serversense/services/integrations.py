@@ -185,14 +185,25 @@ def _schedule(
             (_date(record.get("physicalRelease")), "physical_release"),
             (_date(record.get("inCinemas")), "cinema_release"),
         ]
-        in_window = [
-            (value, kind)
-            for value, kind in candidates
-            if value is not None and window_start <= value <= window_end
-        ]
-        if not in_window:
-            return None
-        scheduled_at, release_type = min(in_window, key=lambda item: item[0])
+        # Radarr selects releaseDate for the calendar entry. Prefer that over
+        # independently choosing the earliest metadata date, which can expose a
+        # theatrical date while Radarr's calendar shows a later home release.
+        calendar_date = _date(record.get("releaseDate"))
+        if calendar_date is not None and window_start <= calendar_date <= window_end:
+            scheduled_at = calendar_date
+            release_type = next(
+                (kind for value, kind in candidates if value == calendar_date),
+                "calendar_release",
+            )
+        else:
+            in_window = [
+                (value, kind)
+                for value, kind in candidates
+                if value is not None and window_start <= value <= window_end
+            ]
+            if not in_window:
+                return None
+            scheduled_at, release_type = min(in_window, key=lambda item: item[0])
         statistics = _mapping(record.get("statistics"))
         title = _text(record.get("title"), 300)
         parent_title = None
