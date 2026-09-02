@@ -1,23 +1,67 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Bot, Send, Sparkles, Square, Trash2, User } from "lucide-react";
+import {
+  Bell,
+  Bot,
+  Clock3,
+  Pencil,
+  RotateCcw,
+  Search,
+  Send,
+  Server,
+  Sparkles,
+  Square,
+  Trash2,
+  User,
+  X,
+} from "lucide-react";
 import { PageHeader } from "../components/UI";
 import { api } from "../api";
 import { formatDate } from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
+
 type Message = {
+  id?: number;
   role: "user" | "assistant";
   content: string;
   tools?: string[];
-  model?: string;
+  model?: string | null;
+  provider?: string | null;
+  source?: "user" | "serversense" | "sense_ai";
 };
-type Conversation = { id: number; title: string; updated_at: string };
+type Conversation = { id: number; title: string; updated_at: string; summary?: string };
+type Job = {
+  id: string;
+  conversation_id: number;
+  status: string;
+  model: string;
+  partial_response: string;
+  queue_position?: number | null;
+  backgrounded: boolean;
+  notify_on_completion: boolean;
+  queue_wait_seconds?: number | null;
+  time_to_first_token_seconds?: number | null;
+  inference_seconds?: number | null;
+  generated_tokens?: number | null;
+  first_token_at?: string | null;
+  error?: string | null;
+};
+type Notice = {
+  id: number;
+  title: string;
+  preview: string;
+  conversation_id?: number;
+  read_at?: string | null;
+};
+
 const prompts = [
   "How long until I run out of storage?",
-  "Is any drive showing signs of failure?",
+  "Which disk is hottest?",
   "Are all my Docker containers healthy?",
   "What changed on my server today?",
 ];
+const terminal = new Set(["completed", "failed", "cancelled", "timed_out", "interrupted"]);
+
 export default function SensePage() {
   const { timeZone } = useTimeZone();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -26,23 +70,63 @@ export default function SensePage() {
   const [draft, setDraft] = useState("");
   const [activity, setActivity] = useState("Checking server telemetry…");
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [showNotices, setShowNotices] = useState(false);
+  const [search, setSearch] = useState("");
+  const [longRunningJob, setLongRunningJob] = useState<string>();
+  const [activeStreamJob, setActiveStreamJob] = useState<string>();
+  const [foregroundNotify, setForegroundNotify] = useState(true);
+  const [quickTelemetryError, setQuickTelemetryError] = useState("");
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const requestIdRef = useRef<string | undefined>(undefined);
   const stoppedRef = useRef(false);
+
   const loadConversations = useCallback(
-    () => api<Conversation[]>("/api/ai/conversations").then(setConversations),
-    [],
+    () =>
+      api<Conversation[]>(`/api/ai/conversations${search ? `?q=${encodeURIComponent(search)}` : ""}`).then(
+        setConversations,
+      ),
+    [search],
   );
-  useEffect(() => {
-    void loadConversations();
-  }, [loadConversations]);
-  const openConversation = async (id: number) => {
-    const result = await api<{
-      id: number;
-      messages: { role: "user" | "assistant"; content: string }[];
-    }>(`/api/ai/conversations/${id}`);
+  const loadConversation = useCallback(async (id: number) => {
+    const result = await api<{ id: number; messages: Message[] }>(`/api/ai/conversations/${id}`);
     setConversation(result.id);
     setMessages(result.messages);
+  }, []);
+  const loadBackgroundState = useCallback(async () => {
+    const [jobRows, notificationRows] = await Promise.all([
+      api<Job[]>("/api/ai/jobs"),
+      api<{ unread: number; items: Notice[] }>("/api/ai/notifications"),
+    ]);
+    setJobs(jobRows ?? []);
+    setNotices(notificationRows?.items ?? []);
+    setUnread(notificationRows?.unread ?? 0);
+  }, []);
+
+  useEffect(() => void loadConversations(), [loadConversations]);
+  useEffect(() => {
+    void loadBackgroundState();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadBackgroundState();
+        void loadConversations();
+      }
+    }, 3000);
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void loadBackgroundState();
+    };
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [loadBackgroundState, loadConversations]);
+
+  const openConversation = async (id: number) => {
+    await loadConversation(id);
+    setShowNotices(false);
   };
   const deleteConversation = async (item: Conversation) => {
     if (!window.confirm(`Remove "${item.title}" and all of its messages?`)) return;
@@ -51,11 +135,21 @@ export default function SensePage() {
       setConversation(undefined);
       setMessages([]);
     }
+    await Promise.all([loadConversations(), loadBackgroundState()]);
+  };
+  const renameConversation = async (item: Conversation) => {
+    const title = window.prompt("Conversation name", item.title)?.trim();
+    if (!title || title === item.title) return;
+    await api(`/api/ai/conversations/${item.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
     await loadConversations();
   };
+
   const ask = async (text: string) => {
     if (!text.trim() || busy) return;
-    setMessages((x) => [...x, { role: "user", content: text }]);
+    setMessages((current) => [...current, { role: "user", content: text, source: "user" }]);
     setBusy(true);
     setDraft("");
     stoppedRef.current = false;
@@ -71,7 +165,8 @@ export default function SensePage() {
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
-        throw new Error(`SENSE request failed (${response.status})`);
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail.detail ?? `SENSE request failed (${response.status})`);
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -90,201 +185,302 @@ export default function SensePage() {
             conversation_id?: number;
             tools_used?: string[];
             model?: string;
+            source?: "serversense" | "sense_ai";
             request_id?: string;
+            job_id?: string;
+            status?: string;
+            queue_position?: number;
+            notify_on_completion?: boolean;
+            error?: string;
           };
-          if (data.request_id) requestIdRef.current = data.request_id;
+          if (data.request_id) {
+            requestIdRef.current = data.request_id;
+            setActiveStreamJob(data.request_id);
+          }
+          if (data.conversation_id) setConversation(data.conversation_id);
           if (event === "activity") setActivity(data.message);
+          if (event === "status") {
+            setActivity(
+              data.status === "queued"
+                ? `Queued${data.queue_position ? ` (#${data.queue_position})` : ""}…`
+                : data.status === "gathering_context"
+                  ? "Gathering relevant telemetry…"
+                  : data.status === "analyzing"
+                    ? "SENSE AI is analyzing…"
+                    : "SENSE AI is responding…",
+            );
+          }
           if (event === "delta") setDraft((current) => current + data.message);
           if (event === "reset") setDraft("");
+          if (event === "backgrounded") {
+            setActivity(data.message);
+            if (data.job_id) setLongRunningJob(data.job_id);
+            else if (requestIdRef.current) setLongRunningJob(requestIdRef.current);
+            setForegroundNotify(data.notify_on_completion ?? true);
+            void loadBackgroundState();
+          }
           if (event === "error") throw new Error(data.message);
           if (event === "message") {
-            setConversation(data.conversation_id);
+            setLongRunningJob(undefined);
+            setActiveStreamJob(undefined);
             setDraft("");
-            setMessages((x) => [
-              ...x,
+            setMessages((current) => [
+              ...current,
               {
                 role: "assistant",
                 content: data.message,
                 tools: data.tools_used,
                 model: data.model,
+                source: data.source,
+              },
+            ]);
+          }
+          if (event === "terminal") {
+            setLongRunningJob(undefined);
+            setActiveStreamJob(undefined);
+            setDraft("");
+            setMessages((current) => [
+              ...current,
+              {
+                role: "assistant",
+                content: data.message || data.error || `SENSE job was ${data.status}.`,
+                model: data.model,
+                source: "sense_ai",
               },
             ]);
           }
         }
         if (done) break;
       }
-    } catch (e) {
-      if (stoppedRef.current || (e instanceof DOMException && e.name === "AbortError")) {
-        return;
-      }
+    } catch (error) {
+      if (controller.signal.aborted || stoppedRef.current) return;
       setDraft("");
-      setMessages((x) => [
-        ...x,
+      setMessages((current) => [
+        ...current,
         {
           role: "assistant",
-          content: `I couldn't complete that request: ${e instanceof Error ? e.message : "Unknown error"}`,
+          source: "serversense",
+          content: `I couldn't complete that request: ${error instanceof Error ? error.message : "Unknown error"}`,
         },
       ]);
     } finally {
       if (controllerRef.current === controller) {
         controllerRef.current = undefined;
         requestIdRef.current = undefined;
+        setActiveStreamJob(undefined);
         setBusy(false);
       }
-      void loadConversations();
+      void Promise.all([loadConversations(), loadBackgroundState()]);
     }
   };
   const stop = () => {
     if (!busy) return;
     stoppedRef.current = true;
-    const requestId = requestIdRef.current;
-    if (requestId) {
-      void fetch(`/api/ai/requests/${requestId}`, {
+    if (requestIdRef.current) {
+      void fetch(`/api/ai/requests/${requestIdRef.current}`, {
         method: "DELETE",
         credentials: "include",
       });
     }
     controllerRef.current?.abort();
+    setLongRunningJob(undefined);
+    setActiveStreamJob(undefined);
     setDraft("");
     setBusy(false);
     setMessages((current) => [
       ...current,
-      { role: "assistant", content: "Request stopped." },
+      { role: "assistant", source: "serversense", content: "Request stopped." },
     ]);
   };
-  const submit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const field =
-      new FormData(e.currentTarget).get("message")?.toString() ?? "";
-    e.currentTarget.reset();
-    ask(field);
+  const cancelJob = async (job: Job) => {
+    await api(`/api/ai/requests/${job.id}`, { method: "DELETE" });
+    await loadBackgroundState();
   };
+  const retryJob = async (job: Job) => {
+    await api(`/api/ai/jobs/${job.id}/retry`, { method: "POST" });
+    await loadBackgroundState();
+  };
+  const setJobNotification = async (jobId: string, enabled: boolean) => {
+    const updated = await api<Job>(`/api/ai/jobs/${jobId}/notification`, {
+      method: "PATCH",
+      body: JSON.stringify({ notify_on_completion: enabled }),
+    });
+    setJobs((current) => current.map((job) => (job.id === jobId ? updated : job)));
+    if (jobId === longRunningJob) setForegroundNotify(enabled);
+  };
+  const askQuickTelemetry = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const question = new FormData(form).get("quick_message")?.toString().trim() ?? "";
+    if (!question) return;
+    setQuickTelemetryError("");
+    try {
+      const result = await api<{
+        conversation_id: number;
+        message: string;
+        tools_used: string[];
+      }>("/api/ai/direct", {
+        method: "POST",
+        body: JSON.stringify({ message: question, conversation_id: conversation }),
+      });
+      setConversation(result.conversation_id);
+      setMessages((current) => [
+        ...current,
+        { role: "user", content: question, source: "user" },
+        {
+          role: "assistant",
+          content: result.message,
+          tools: result.tools_used,
+          source: "serversense",
+        },
+      ]);
+      form.reset();
+      void loadConversations();
+    } catch (error) {
+      setQuickTelemetryError(error instanceof Error ? error.message : "Direct telemetry failed");
+    }
+  };
+  const openNotice = async (notice: Notice) => {
+    await api(`/api/ai/notifications/${notice.id}/read`, { method: "POST" });
+    if (notice.conversation_id) await openConversation(notice.conversation_id);
+    await loadBackgroundState();
+  };
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const field = new FormData(event.currentTarget).get("message")?.toString() ?? "";
+    event.currentTarget.reset();
+    void ask(field);
+  };
+  const conversationJobs = jobs.filter(
+    (job) => (!conversation || job.conversation_id === conversation) && !terminal.has(job.status),
+  );
+  const retryableJobs = jobs.filter(
+    (job) =>
+      (!conversation || job.conversation_id === conversation) &&
+      ["failed", "cancelled", "timed_out", "interrupted"].includes(job.status),
+  );
+
   return (
     <div className="page sense-page">
       <PageHeader eyebrow="SERVER INTELLIGENCE" title="Ask SENSE">
-        <span className="powered">
-          <i /> Powered by your telemetry
-        </span>
+        <button className="notice-button" onClick={() => setShowNotices((value) => !value)}>
+          <Bell size={17} /> Notifications {unread > 0 && <b>{unread}</b>}
+        </button>
       </PageHeader>
+      {showNotices && (
+        <section className="sense-notifications">
+          <header><b>SENSE job notifications</b><button onClick={() => setShowNotices(false)}><X size={15} /></button></header>
+          {notices.map((notice) => (
+            <button className={notice.read_at ? "" : "unread"} key={notice.id} onClick={() => void openNotice(notice)}>
+              <b>{notice.title}</b><small>{notice.preview}</small>
+            </button>
+          ))}
+          {!notices.length && <p>No SENSE job notifications yet.</p>}
+        </section>
+      )}
       <div className="sense-layout">
         <aside className="conversation-list">
-          <div>
-            <span className="eyebrow">CONVERSATIONS</span>
-            <button
-              onClick={() => {
-                setConversation(undefined);
-                setMessages([]);
-              }}
-            >
-              New
-            </button>
-          </div>
+          <div><span className="eyebrow">CONVERSATIONS</span><button onClick={() => { setConversation(undefined); setMessages([]); }}>New</button></div>
+          <label className="conversation-search"><Search size={14} /><input aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label>
           {conversations.map((item) => (
             <div className="conversation-item" key={item.id}>
-              <button
-                className={conversation === item.id ? "active" : ""}
-                onClick={() => openConversation(item.id)}
-              >
-                <b>{item.title}</b>
-                <small>{formatDate(item.updated_at, timeZone)}</small>
+              <button className={conversation === item.id ? "active" : ""} onClick={() => void openConversation(item.id)}>
+                <b>{item.title}</b><small>{formatDate(item.updated_at, timeZone)}</small>
               </button>
-              <button
-                className="conversation-delete"
-                type="button"
-                aria-label={`Delete conversation: ${item.title}`}
-                title="Delete conversation"
-                disabled={busy}
-                onClick={() => void deleteConversation(item)}
-              >
-                <Trash2 size={13} />
-              </button>
+              <button className="conversation-edit" aria-label={`Rename conversation: ${item.title}`} onClick={() => void renameConversation(item)}><Pencil size={12} /></button>
+              <button className="conversation-delete" aria-label={`Delete conversation: ${item.title}`} disabled={busy} onClick={() => void deleteConversation(item)}><Trash2 size={13} /></button>
             </div>
           ))}
-          {!conversations.length && (
-            <p>Your SENSE conversations will appear here.</p>
-          )}
+          {!conversations.length && <p>Your SENSE conversations will appear here.</p>}
         </aside>
         <div className="chat-panel">
-          {messages.length === 0 ? (
-            <div className="chat-welcome">
-              <span>
-                <Sparkles />
-              </span>
-              <h2>What would you like to understand?</h2>
-              <p>
-                SENSE uses read-only ServerSense tools to answer from measured
-                data. It cannot run commands or modify your server.
-              </p>
-              <div className="prompt-grid">
-                {prompts.map((p) => (
-                  <button key={p} onClick={() => ask(p)}>
-                    {p}
-                    <Send size={14} />
-                  </button>
-                ))}
-              </div>
-            </div>
+          {messages.length === 0 && conversationJobs.length === 0 ? (
+            <div className="chat-welcome"><span><Sparkles /></span><h2>What would you like to understand?</h2><p>ServerSense answers current factual telemetry directly. SENSE AI handles explanations and deeper analysis using bounded, read-only context.</p><div className="prompt-grid">{prompts.map((prompt) => <button key={prompt} onClick={() => void ask(prompt)}>{prompt}<Send size={14} /></button>)}</div></div>
           ) : (
             <div className="messages">
-              {messages.map((m, i) => (
-                <article key={i} className={m.role}>
-                  <span>{m.role === "assistant" ? <Bot /> : <User />}</span>
-                  <div>
-                    {m.tools?.map((t) => (
-                      <small className="tool" key={t}>
-                        Checked {t.replace("get_", "").replaceAll("_", " ")}
-                      </small>
-                    ))}
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
-                    {m.model && (
-                      <small className="model">SENSE · {m.model}</small>
-                    )}
-                  </div>
+              {messages.map((message, index) => (
+                <article key={message.id ?? index} className={message.role}>
+                  <span>{message.role === "assistant" ? message.source === "serversense" ? <Server /> : <Bot /> : <User />}</span>
+                  <div>{message.tools?.map((tool) => <small className="tool" key={tool}>Checked {tool.replace("get_", "").replaceAll("_", " ")}</small>)}<ReactMarkdown>{message.content}</ReactMarkdown>{message.role === "assistant" && <small className={`model ${message.source ?? "sense_ai"}`}>{message.source === "serversense" ? "ServerSense · live telemetry" : `SENSE AI · ${message.model ?? "configured model"}`}</small>}</div>
                 </article>
               ))}
               {busy && (
                 <article className="assistant">
-                  <span>
-                    <Bot />
-                  </span>
+                  <span><Bot /></span>
                   {draft ? (
                     <div>
                       <ReactMarkdown>{draft}</ReactMarkdown>
-                      <small className="streaming-label">SENSE is responding…</small>
+                      <small className="streaming-label">SENSE AI · Streaming</small>
                     </div>
                   ) : (
-                    <div className="thinking">
-                      <i />
-                      <i />
-                      <i /> {activity}
-                    </div>
+                    <div className="thinking"><i /><i /><i /> {activity}</div>
                   )}
                 </article>
               )}
+              {longRunningJob && (
+                <section className="long-running-panel" aria-live="polite">
+                  <div className="long-running-status">
+                    <div>
+                      <b>SENSE AI is still working.</b>
+                      <p>You can stay here and continue watching, or leave this page and return later.</p>
+                    </div>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={foregroundNotify}
+                        onChange={(event) => void setJobNotification(longRunningJob, event.target.checked)}
+                      />
+                      Notify me when complete
+                    </label>
+                  </div>
+                  <form className="quick-telemetry" onSubmit={(event) => void askQuickTelemetry(event)}>
+                    <input name="quick_message" placeholder="Ask a current telemetry question while SENSE AI works…" />
+                    <button>Ask ServerSense</button>
+                  </form>
+                  {quickTelemetryError && <small className="quick-telemetry-error">{quickTelemetryError}</small>}
+                </section>
+              )}
+              {conversationJobs.filter((job) => job.id !== activeStreamJob).map((job) => (
+                <article className="job-card" key={job.id}>
+                  <span><Clock3 /></span>
+                  <div>
+                    <b>SENSE AI · {job.status.replaceAll("_", " ")}</b>
+                    <small>
+                      {job.model}
+                      {job.queue_position ? ` · queue #${job.queue_position}` : ""}
+                      {job.queue_wait_seconds != null ? ` · waited ${Math.floor(job.queue_wait_seconds)}s` : ""}
+                      {job.time_to_first_token_seconds != null ? ` · first token ${job.time_to_first_token_seconds.toFixed(1)}s` : ""}
+                      {job.inference_seconds != null ? ` · runtime ${Math.floor(job.inference_seconds)}s` : ""}
+                      {job.generated_tokens != null ? ` · ~${job.generated_tokens} tokens` : ""}
+                    </small>
+                    {job.partial_response && <ReactMarkdown>{job.partial_response}</ReactMarkdown>}
+                    {job.backgrounded && (
+                      <label className="job-notify-toggle">
+                        <input
+                          type="checkbox"
+                          checked={job.notify_on_completion}
+                          onChange={(event) => void setJobNotification(job.id, event.target.checked)}
+                        />
+                        Notify me when complete
+                      </label>
+                    )}
+                    <div><button onClick={() => void cancelJob(job)}><Square size={12} /> Cancel analysis</button></div>
+                  </div>
+                </article>
+              ))}
+              {retryableJobs.slice(0, 3).map((job) => (
+                <article className="job-card failed" key={job.id}>
+                  <span><Bot /></span>
+                  <div>
+                    <b>SENSE job {job.status.replaceAll("_", " ")}</b>
+                    <small>{job.error}</small>
+                    <button onClick={() => void retryJob(job)}><RotateCcw size={12} /> Retry</button>
+                  </div>
+                </article>
+              ))}
             </div>
           )}
-          <form className="chat-input" onSubmit={submit}>
-            <input
-              name="message"
-              placeholder="Ask about storage, health, disks, containers…"
-              autoComplete="off"
-              disabled={busy}
-            />
-            {busy ? (
-              <button
-                type="button"
-                className="stop"
-                aria-label="Stop response"
-                onClick={stop}
-              >
-                <Square />
-              </button>
-            ) : (
-              <button aria-label="Send">
-                <Send />
-              </button>
-            )}
-          </form>
+          <form className="chat-input" onSubmit={submit}><input name="message" placeholder="Ask about telemetry or request deeper analysis…" autoComplete="off" disabled={busy} />{busy ? <button type="button" className="stop" aria-label="Stop response" onClick={stop}><Square /></button> : <button aria-label="Send"><Send /></button>}</form>
         </div>
       </div>
     </div>

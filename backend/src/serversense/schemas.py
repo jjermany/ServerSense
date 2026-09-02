@@ -59,6 +59,16 @@ class AISettings(BaseModel):
     timeout_seconds: int = Field(default=120, ge=5, le=600)
     max_tool_calls: int = Field(default=3, ge=1, le=12)
     max_output_tokens: int = Field(default=512, ge=64, le=4096)
+    tool_calling: str = Field(default="auto", pattern="^(auto|native|curated_context)$")
+    background_threshold_seconds: int = Field(default=30, ge=5, le=600)
+    max_runtime_seconds: int = Field(default=300, ge=30, le=3600)
+    max_concurrent_jobs: int = Field(default=1, ge=1, le=4)
+    max_queued_jobs: int = Field(default=10, ge=1, le=100)
+    max_context_chars: int = Field(default=30000, ge=12000, le=200000)
+    max_telemetry_chars: int = Field(default=20000, ge=2000, le=100000)
+    conversation_retention_days: int = Field(default=30, ge=1, le=365)
+    notify_long_running_jobs: bool = True
+    browser_notifications: bool = False
     proactive_insights: bool = False
     dashboard_summaries: bool = False
 
@@ -103,6 +113,16 @@ class ChatResponse(BaseModel):
     message: str
     tools_used: list[str]
     model: str
+    source: str = "serversense"
+    job_id: str | None = None
+
+
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class JobNotificationPreference(BaseModel):
+    notify_on_completion: bool
 
 
 class MediaIntegrationRequest(BaseModel):

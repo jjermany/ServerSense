@@ -36,6 +36,26 @@ def test_follow_up_prompt_makes_history_context_only() -> None:
     assert messages[-1]["content"] == "Yes, list the recently upgraded titles."
 
 
+def test_provider_messages_enforce_total_context_budget_and_keep_current_request() -> None:
+    question = "Explain the storage trend from the current measurements."
+    messages = _provider_messages(
+        question,
+        [
+            {"role": "user", "content": "old question " * 1000},
+            {"role": "assistant", "content": "old answer " * 1000},
+            {"role": "user", "content": "recent question"},
+            {"role": "assistant", "content": "recent answer"},
+        ],
+        curated_context={"telemetry": {"large": "x" * 20_000}},
+        max_context_chars=12_000,
+    )
+
+    assert messages[-1] == {"role": "user", "content": question}
+    assert messages[-2] == {"role": "system", "content": FOLLOW_UP_PROMPT}
+    assert "recent answer" in [item["content"] for item in messages]
+    assert sum(len(item["content"]) for item in messages) <= 12_000
+
+
 def test_upcoming_media_follow_up_requires_calendar_tool() -> None:
     history = [
         {"role": "user", "content": "What's being added this week?"},

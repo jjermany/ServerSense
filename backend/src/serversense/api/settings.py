@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,6 +16,51 @@ from serversense.services.secrets import decrypt_secret, encrypt_secret
 from serversense.services.timezones import time_zone_details, validate_time_zone
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
+
+
+def _ai_headers(config: dict[str, Any]) -> dict[str, str]:
+    return {"Authorization": f"Bearer {config['api_key']}"} if config.get("api_key") else {}
+
+
+def _discover_models(config: dict[str, Any]) -> dict[str, Any]:
+    if config.get("provider") == "disabled":
+        return {"models": [], "selected_exists": False, "provider": "disabled"}
+    endpoint = str(config.get("endpoint", "")).rstrip("/")
+    if not endpoint.startswith(("http://", "https://")):
+        raise ValueError("AI endpoint must use HTTP or HTTPS")
+    response = httpx.get(
+        f"{endpoint}/v1/models",
+        headers=_ai_headers(config),
+        timeout=float(config.get("timeout_seconds", 60)),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    records = payload.get("data", []) if isinstance(payload, dict) else []
+    models = []
+    for record in records[:500]:
+        if not isinstance(record, dict) or not record.get("id"):
+            continue
+        capabilities = record.get("capabilities") or []
+        supports_tools = record.get("supports_tools")
+        if supports_tools is None and isinstance(capabilities, list):
+            supports_tools = any(
+                str(item).lower() in {"tools", "tool_use", "function_calling"}
+                for item in capabilities
+            )
+        models.append(
+            {
+                "id": str(record["id"]),
+                "owned_by": record.get("owned_by"),
+                "supports_tools": supports_tools,
+            }
+        )
+    selected = str(config.get("model", ""))
+    return {
+        "models": models,
+        "selected_exists": any(row["id"] == selected for row in models),
+        "provider": config.get("provider"),
+        "selected": selected,
+    }
 
 
 @router.get("/ai")
@@ -45,16 +91,36 @@ def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
         return {"healthy": True, "detail": "SENSE is using built-in deterministic mode"}
     endpoint = str(config.get("endpoint", "")).rstrip("/")
     try:
-        headers = {"Authorization": f"Bearer {config['api_key']}"} if config.get("api_key") else {}
-        response = httpx.get(
-            f"{endpoint}/v1/models",
-            headers=headers,
+        discovery = _discover_models(config)
+        if discovery["models"] and not discovery["selected_exists"]:
+            raise ValueError("The selected model was not returned by the provider")
+        response = httpx.post(
+            f"{endpoint}/v1/chat/completions",
+            headers=_ai_headers(config),
+            json={
+                "model": config.get("model"),
+                "messages": [{"role": "user", "content": "Reply with OK."}],
+                "temperature": 0,
+                "max_tokens": 8,
+                "stream": False,
+            },
             timeout=float(config.get("timeout_seconds", 60)),
         )
         response.raise_for_status()
+        body = response.json()
+        if not (body.get("choices") if isinstance(body, dict) else None):
+            raise ValueError("The model returned no completion choices")
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(502, f"Model endpoint is unavailable: {type(exc).__name__}") from exc
     return {"healthy": True, "detail": f"Connected to {config.get('model')}"}
+
+
+@router.get("/ai/models")
+def discover_ai_models(db: Session = Depends(get_db)) -> dict[str, Any]:
+    try:
+        return _discover_models(read_ai_config(db, include_secret=True))
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(502, f"Could not discover models: {type(exc).__name__}") from exc
 
 
 @router.get("/general")

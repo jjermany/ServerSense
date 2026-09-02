@@ -8,11 +8,13 @@ from serversense.config import get_settings
 from serversense.db import SessionLocal
 from serversense.models import (
     AIConversation,
+    AIJob,
     AIMessage,
     AIToolCall,
     DiskSample,
     DockerSample,
     Event,
+    InAppNotification,
     MediaActivity,
     MediaSchedule,
     MetricSample,
@@ -84,8 +86,10 @@ def cleanup_cycle() -> None:
     now = datetime.now(UTC)
     cutoff = now - timedelta(days=get_settings().retention_days)
     downsample_cutoff = now - timedelta(days=90)
-    conversation_cutoff = now - timedelta(days=30)
     with SessionLocal() as db:
+        conversation_cutoff = now - timedelta(
+            days=int(read_ai_config(db).get("conversation_retention_days", 30))
+        )
         db.execute(delete(MetricSample).where(MetricSample.timestamp < cutoff))
         db.execute(delete(DockerSample).where(DockerSample.timestamp < cutoff))
         db.execute(delete(DiskSample).where(DiskSample.timestamp < cutoff))
@@ -121,6 +125,9 @@ def cleanup_cycle() -> None:
             AIConversation.updated_at < conversation_cutoff
         )
         old_messages = select(AIMessage.id).where(AIMessage.conversation_id.in_(old_conversations))
+        old_jobs = select(AIJob.id).where(AIJob.conversation_id.in_(old_conversations))
+        db.execute(delete(InAppNotification).where(InAppNotification.job_id.in_(old_jobs)))
+        db.execute(delete(AIJob).where(AIJob.conversation_id.in_(old_conversations)))
         db.execute(delete(AIToolCall).where(AIToolCall.message_id.in_(old_messages)))
         db.execute(delete(AIMessage).where(AIMessage.conversation_id.in_(old_conversations)))
         db.execute(delete(AIConversation).where(AIConversation.id.in_(old_conversations)))

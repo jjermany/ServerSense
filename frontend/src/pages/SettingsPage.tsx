@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   Plus,
   Plug,
+  RefreshCw,
   Save,
   SlidersHorizontal,
   Trash2,
@@ -25,6 +26,16 @@ type AIConfig = {
   timeout_seconds: number;
   max_tool_calls: number;
   max_output_tokens: number;
+  tool_calling: "auto" | "native" | "curated_context";
+  background_threshold_seconds: number;
+  max_runtime_seconds: number;
+  max_concurrent_jobs: number;
+  max_queued_jobs: number;
+  max_context_chars: number;
+  max_telemetry_chars: number;
+  conversation_retention_days: number;
+  notify_long_running_jobs: boolean;
+  browser_notifications: boolean;
   proactive_insights: boolean;
   dashboard_summaries: boolean;
 };
@@ -150,6 +161,7 @@ export default function SettingsPage() {
   const [general, setGeneral] = useState<GeneralConfig>();
   const [integrations, setIntegrations] = useState<IntegrationsConfig>();
   const [actions, setActions] = useState<Record<string, ActionStatus>>({});
+  const [models, setModels] = useState<Array<{ id: string; supports_tools?: boolean | null }>>([]);
   useEffect(() => {
     Promise.all([
       api<AIConfig>("/api/settings/ai"),
@@ -201,6 +213,9 @@ export default function SettingsPage() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const raw = Object.fromEntries(form);
+    if (form.get("browser_notifications") === "on" && "Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
     await runAction(
       "ai-save",
       "Saving AI settings…",
@@ -214,6 +229,15 @@ export default function SettingsPage() {
             timeout_seconds: Number(raw.timeout_seconds),
             max_tool_calls: Number(raw.max_tool_calls),
             max_output_tokens: Number(raw.max_output_tokens),
+            background_threshold_seconds: Number(raw.background_threshold_seconds),
+            max_runtime_seconds: Number(raw.max_runtime_seconds),
+            max_concurrent_jobs: Number(raw.max_concurrent_jobs),
+            max_queued_jobs: Number(raw.max_queued_jobs),
+            max_context_chars: Number(raw.max_context_chars),
+            max_telemetry_chars: Number(raw.max_telemetry_chars),
+            conversation_retention_days: Number(raw.conversation_retention_days),
+            notify_long_running_jobs: form.get("notify_long_running_jobs") === "on",
+            browser_notifications: form.get("browser_notifications") === "on",
             proactive_insights: form.get("proactive_insights") === "on",
             dashboard_summaries: form.get("dashboard_summaries") === "on",
           }),
@@ -227,6 +251,20 @@ export default function SettingsPage() {
       "Testing model connection…",
       () => api<{ detail: string }>("/api/settings/ai/test", { method: "POST" }),
       (result) => result.detail,
+    );
+  };
+  const discoverModels = async () => {
+    await runAction(
+      "ai-models",
+      "Discovering provider models…",
+      async () => {
+        const result = await api<{ models: Array<{ id: string; supports_tools?: boolean | null }> }>(
+          "/api/settings/ai/models",
+        );
+        setModels(result.models);
+        return result;
+      },
+      (result) => `Found ${result.models.length} model${result.models.length === 1 ? "" : "s"}.`,
     );
   };
   const saveAlerts = async (e: FormEvent<HTMLFormElement>) => {
@@ -454,8 +492,13 @@ export default function SettingsPage() {
                   <input
                     name="model"
                     defaultValue={config.model}
+                    list="ai-model-list"
                     placeholder="e.g. llama3.2:3b"
                   />
+                  <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist>
+                  <button type="button" className="secondary inline-action" onClick={() => void discoverModels()} disabled={actions["ai-models"]?.phase === "pending"}>
+                    <RefreshCw size={13} /> Refresh models
+                  </button>
                 </label>
               </div>
               <label>
@@ -535,6 +578,60 @@ export default function SettingsPage() {
                   defaultValue={config.max_output_tokens}
                 />
                 <small>Limits model output so local requests cannot reason indefinitely.</small>
+              </label>
+              <div className="field-grid three">
+                <label>
+                  Tool compatibility
+                  <select name="tool_calling" defaultValue={config.tool_calling}>
+                    <option value="auto">Auto fallback</option>
+                    <option value="native">Require native tools</option>
+                    <option value="curated_context">Curated context only</option>
+                  </select>
+                </label>
+                <label>
+                  Background after (seconds)
+                  <input name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} />
+                  <small>After this time, SENSE AI keeps working and lets you safely leave. This does not stop the analysis.</small>
+                </label>
+                <label>
+                  Maximum runtime (seconds)
+                  <input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} />
+                  <small>Stops an individual inference at this hard wall-clock limit to protect server resources.</small>
+                </label>
+              </div>
+              <div className="field-grid three">
+                <label>
+                  Concurrent AI jobs
+                  <input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} />
+                </label>
+                <label>
+                  Maximum queued jobs
+                  <input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} />
+                </label>
+                <label>
+                  Conversation retention (days)
+                  <input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} />
+                </label>
+              </div>
+              <div className="field-grid">
+                <label>
+                  Maximum AI context (characters)
+                  <input name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} />
+                  <small>Bounds summaries, recent messages, and gathered context sent to a model.</small>
+                </label>
+                <label>
+                  Maximum telemetry payload (characters)
+                  <input name="max_telemetry_chars" type="number" min="2000" max="100000" step="1000" defaultValue={config.max_telemetry_chars} />
+                  <small>Prevents complex analysis from attaching unlimited telemetry or log-like data.</small>
+                </label>
+              </div>
+              <label className="check">
+                <input name="notify_long_running_jobs" type="checkbox" defaultChecked={config.notify_long_running_jobs} />
+                <span><b>Notify when long SENSE AI requests finish</b><small>Used as the default for each new job. The long-running chat control can override it for one request.</small></span>
+              </label>
+              <label className="check">
+                <input name="browser_notifications" type="checkbox" defaultChecked={config.browser_notifications} />
+                <span><b>Allow browser completion notifications</b><small>Eligible long-running jobs use their saved notification preference. Your browser will still ask for permission before showing system notifications.</small></span>
               </label>
               <label className="check">
                 <input

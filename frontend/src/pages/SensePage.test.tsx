@@ -67,6 +67,67 @@ describe("SENSE requests", () => {
     );
   });
 
+  it("keeps streaming after the long-running threshold and allows notification control", async () => {
+    const encoder = new TextEncoder();
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let requestSignal: AbortSignal | null | undefined;
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/ai/jobs/job-456/notification") {
+        return Promise.resolve({ id: "job-456", notify_on_completion: false });
+      }
+      return Promise.resolve([]);
+    });
+    const fetchMock = vi.fn((_path: string | URL | Request, init?: RequestInit) => {
+      requestSignal = init?.signal;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          streamController = controller;
+          controller.enqueue(
+            encoder.encode(
+              'event: status\ndata: {"message":"","request_id":"job-456","status":"analyzing"}\n\n' +
+                'event: backgrounded\ndata: {"message":"SENSE AI is still working.","job_id":"job-456","notify_on_completion":true}\n\n',
+            ),
+          );
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SensePage />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "How long until I run out of storage?",
+      }),
+    );
+
+    expect((await screen.findAllByText("SENSE AI is still working.")).length).toBeGreaterThan(0);
+    expect(requestSignal?.aborted).toBe(false);
+    const notify = screen.getByRole("checkbox", { name: "Notify me when complete" });
+    fireEvent.click(notify);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/ai/jobs/job-456/notification", {
+        method: "PATCH",
+        body: JSON.stringify({ notify_on_completion: false }),
+      }),
+    );
+
+    if (!streamController) throw new Error("Expected the response stream to be initialized");
+    streamController.enqueue(
+      encoder.encode(
+        'event: message\ndata: {"message":"Finished after the threshold.","job_id":"job-456","source":"sense_ai","model":"test-model"}\n\n',
+      ),
+    );
+    streamController.close();
+    expect(await screen.findByText("Finished after the threshold.")).toBeInTheDocument();
+    expect(requestSignal?.aborted).toBe(false);
+  });
+
   it("deletes a conversation and clears it when active", async () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     vi.mocked(api).mockImplementation((path, options) => {

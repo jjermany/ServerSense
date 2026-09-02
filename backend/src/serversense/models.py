@@ -125,6 +125,8 @@ class AIConversation(TimestampMixin, Base):
     __tablename__ = "ai_conversations"
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(200), default="New conversation")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     messages: Mapped[list["AIMessage"]] = relationship(cascade="all, delete-orphan")
 
 
@@ -135,6 +137,10 @@ class AIMessage(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(40), default="user")
+    provider: Mapped[str | None] = mapped_column(String(80))
+    model: Mapped[str | None] = mapped_column(String(200))
+    references: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class AIToolCall(Base):
@@ -145,6 +151,63 @@ class AIToolCall(Base):
     tool_name: Mapped[str] = mapped_column(String(100))
     arguments: Mapped[dict] = mapped_column(JSON, default=dict)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class AIJob(TimestampMixin, Base):
+    __tablename__ = "ai_jobs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_conversations.id", ondelete="CASCADE"), index=True
+    )
+    user_message_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_messages.id", ondelete="CASCADE"), index=True
+    )
+    response_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_messages.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    intent: Mapped[str] = mapped_column(String(40), default="analysis")
+    provider: Mapped[str] = mapped_column(String(80))
+    model: Mapped[str] = mapped_column(String(200))
+    config_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    context_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    partial_response: Mapped[str] = mapped_column(Text, default="")
+    tools_used: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_on_completion: Mapped[bool] = mapped_column(Boolean, default=True)
+    completion_notification_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    notification_id: Mapped[int | None] = mapped_column(Integer)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_token_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    backgrounded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    timed_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    interrupted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    generated_tokens: Mapped[int | None] = mapped_column(Integer)
+
+
+class InAppNotification(Base):
+    __tablename__ = "in_app_notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_jobs.id", ondelete="CASCADE"), index=True
+    )
+    conversation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_conversations.id", ondelete="CASCADE")
+    )
+    message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_messages.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(40), default="ai_job_complete")
+    title: Mapped[str] = mapped_column(String(200))
+    preview: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class Integration(TimestampMixin, Base):

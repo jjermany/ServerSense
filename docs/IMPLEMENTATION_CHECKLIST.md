@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-08-26
+Last updated: 2026-09-02
 
 ## Foundation
 
@@ -55,6 +55,13 @@ Last updated: 2026-08-26
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name
 - [x] provider-confirmed quality-upgrade pairing and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
 - [x] additive opt-in cached AI dashboard summary with isolated scheduling, deterministic fallback, 12-hour local times, and validated storage/media claims
+- [x] deterministic intent router with explicit ServerSense/SENSE AI provenance and no-model factual telemetry responses
+- [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery
+- [x] provider model discovery, minimal-generation health test, native-tool capability hints, and curated-context fallback
+- [x] conversation summaries, structured references, model/provider message provenance, rename, search, configurable retention, and cascade deletion
+- [x] separate background and hard-runtime settings, total context/telemetry budgets, retention/tool compatibility, timing diagnostics, and Ask SENSE job UI
+- [x] partial-response preservation for timeout/cancel/failure/interruption plus deduplicated global/per-job long-running notifications
+- [x] direct read-only telemetry access while a long SENSE AI analysis remains active
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 
 ## Production readiness

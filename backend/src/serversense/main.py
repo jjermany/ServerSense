@@ -16,6 +16,7 @@ from serversense.db import SessionLocal, initialize_database
 from serversense.logging import configure_logging
 from serversense.services.demo import seed_demo_data
 from serversense.services.jobs import dashboard_summary_loop, monitoring_loop
+from serversense.services.sense_jobs import sense_job_loop, stop_sense_jobs
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(monitoring_loop()),
         asyncio.create_task(dashboard_summary_loop()),
+        asyncio.create_task(sense_job_loop()),
     ]
     try:
         yield
@@ -38,6 +40,7 @@ async def lifespan(app: FastAPI):
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
+        await stop_sense_jobs()
 
 
 app = FastAPI(title="ServerSense API", version="1.0.0", lifespan=lifespan)

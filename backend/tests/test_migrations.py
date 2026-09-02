@@ -76,3 +76,47 @@ def test_media_schedule_migration_upgrades_existing_database(tmp_path: Path) -> 
         assert "last_collected_at" not in config
         title = connection.execute("SELECT title FROM media_activities").fetchone()[0]
         assert title == "Unknown title"
+
+
+def test_durable_sense_migration_preserves_and_labels_existing_messages(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    _alembic(backend, tmp_path, "3d4e5f607182")
+    database = tmp_path / "serversense.db"
+    now = "2026-09-02 12:00:00"
+    with sqlite3.connect(database) as connection:
+        cursor = connection.execute(
+            "INSERT INTO ai_conversations (title, created_at, updated_at) VALUES (?, ?, ?)",
+            ("Existing conversation", now, now),
+        )
+        conversation_id = int(cursor.lastrowid)
+        connection.execute(
+            "INSERT INTO ai_messages (conversation_id, timestamp, role, content) "
+            "VALUES (?, ?, ?, ?)",
+            (conversation_id, now, "assistant", "Existing answer"),
+        )
+        connection.commit()
+
+    _alembic(backend, tmp_path, "head")
+
+    with sqlite3.connect(database) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert {"ai_jobs", "in_app_notifications"}.issubset(tables)
+        job_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info('ai_jobs')").fetchall()
+        }
+        assert {
+            "notify_on_completion",
+            "completion_notification_sent",
+            "notification_id",
+            "queued_at",
+            "first_token_at",
+            "cancelled_at",
+            "timed_out_at",
+            "interrupted_at",
+            "generated_tokens",
+        }.issubset(job_columns)
+        source = connection.execute("SELECT source FROM ai_messages").fetchone()[0]
+        assert source == "sense_ai"

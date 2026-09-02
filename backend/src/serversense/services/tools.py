@@ -75,6 +75,7 @@ def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
             "cpu_percent": metric.cpu_percent,
             "memory_percent": metric.memory_percent,
             "load_1m": metric.load_1m,
+            "uptime_seconds": metric.uptime_seconds,
             "network_rx_bytes_per_second": network["rx_bytes_per_second"],
             "network_tx_bytes_per_second": network["tx_bytes_per_second"],
             "network_sample_interval_seconds": network["sample_interval_seconds"],
