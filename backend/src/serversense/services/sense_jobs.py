@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -30,6 +31,7 @@ RUNNING_STATUSES = {"gathering_context", "analyzing", "streaming"}
 _active: dict[str, asyncio.Task[None]] = {}
 _shutting_down = False
 logger = logging.getLogger(__name__)
+NOTIFICATION_SUMMARY_LIMIT = 200
 
 
 def public_job(job: AIJob, queue_position: int | None = None) -> dict[str, Any]:
@@ -233,6 +235,28 @@ def _safe_error(exc: Exception) -> str:
     return f"SENSE failed: {type(exc).__name__}."
 
 
+def _notification_summary(value: str) -> str:
+    """Create a useful plain-text notification body without another model call."""
+    text = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", value)
+    text = re.sub(r"```(?:[^\n]*)\n?|```", " ", text)
+    text = re.sub(r"(?m)^\s{0,3}(?:#{1,6}|[-*+]|\d+[.)])\s+", "", text)
+    text = re.sub(r"[*_`~]", "", text)
+    text = " ".join(text.split())
+    if len(text) <= NOTIFICATION_SUMMARY_LIMIT:
+        return text
+
+    available = NOTIFICATION_SUMMARY_LIMIT - 1
+    excerpt = text[:available]
+    sentence_ends = [excerpt.rfind(mark) for mark in (". ", "! ", "? ")]
+    sentence_end = max(sentence_ends)
+    if sentence_end >= 80:
+        return excerpt[: sentence_end + 1]
+    word_end = excerpt.rfind(" ")
+    if word_end >= 80:
+        excerpt = excerpt[:word_end]
+    return excerpt.rstrip(" ,;:-") + "…"
+
+
 def _add_notification(
     db: Session,
     job: AIJob,
@@ -245,6 +269,7 @@ def _add_notification(
 ) -> Alert | None:
     if not job.notify_on_completion or job.completion_notification_sent:
         return None
+    summary = _notification_summary(preview)
     notification = InAppNotification(
         user_id=job.user_id,
         job_id=job.id,
@@ -252,7 +277,7 @@ def _add_notification(
         message_id=message_id,
         kind=kind,
         title=title,
-        preview=preview[:500],
+        preview=summary,
         created_at=now,
     )
     db.add(notification)
@@ -263,11 +288,7 @@ def _add_notification(
         alert_type="sense_job",
         severity="info" if kind == "ai_job_complete" else "warning",
         title=title,
-        message=(
-            "The long-running SENSE AI analysis is complete. Open ServerSense to view the result."
-            if kind == "ai_job_complete"
-            else "The long-running SENSE AI analysis ended before completion. Open ServerSense to review its status and any preserved partial response."
-        ),
+        message=summary,
         fingerprint=f"sense-job:{job.id}",
         data={
             "job_id": job.id,

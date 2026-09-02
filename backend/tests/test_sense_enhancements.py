@@ -12,12 +12,15 @@ from serversense.models import (
     AIConversation,
     AIJob,
     AIMessage,
+    Alert,
     InAppNotification,
     User,
 )
 from serversense.schemas import ChatRequest
 from serversense.services.ai import ChatEvent
 from serversense.services.sense_jobs import (
+    NOTIFICATION_SUMMARY_LIMIT,
+    _notification_summary,
     _run_job,
     cancel_job,
     config_snapshot,
@@ -42,6 +45,19 @@ def test_intent_router_distinguishes_facts_reasoning_and_actions() -> None:
     assert classify_intent("Why is that disk hot?") == "analysis"
     assert classify_intent("What changed over time?") == "historical"
     assert classify_intent("Restart Plex") == "action"
+
+
+def test_notification_summary_is_plain_text_and_capped() -> None:
+    answer = "## Result\n\n[Storage](https://example.invalid) is healthy. " + (
+        "Capacity remains stable. " * 20
+    )
+
+    summary = _notification_summary(answer)
+
+    assert len(summary) <= NOTIFICATION_SUMMARY_LIMIT
+    assert "##" not in summary
+    assert "https://" not in summary
+    assert summary.startswith("Result Storage is healthy.")
 
 
 def test_direct_response_has_serversense_provenance_and_never_needs_ai(
@@ -281,18 +297,19 @@ async def test_fast_completed_job_persists_ai_provenance_without_notification(mo
 
 
 async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkeypatch) -> None:
-    delivered: list[str] = []
+    delivered: list[Alert] = []
 
     def fake_dispatch(db, alerts):
-        delivered.extend(alert.alert_type for alert in alerts)
+        delivered.extend(alerts)
         return []
 
     monkeypatch.setattr("serversense.services.sense_jobs.dispatch_notifications", fake_dispatch)
 
     async def fake_stream(db, question, config, history):
         await asyncio.sleep(0.02)
-        yield ChatEvent("delta", "Long answer")
-        yield ChatEvent("complete", message="Long answer", model=str(config["model"]))
+        answer = "Storage is healthy. " + ("Capacity remains stable. " * 20)
+        yield ChatEvent("delta", answer)
+        yield ChatEvent("complete", message=answer, model=str(config["model"]))
 
     monkeypatch.setattr("serversense.services.sense_jobs.chat_stream", fake_stream)
     job_ids: list[str] = []
@@ -348,7 +365,11 @@ async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkey
         assert notified is not None
         assert notified.completion_notification_sent is True
         assert notified.notification_id == notices[0].id
-        assert delivered == ["sense_job"]
+        assert len(notices[0].preview) <= NOTIFICATION_SUMMARY_LIMIT
+        assert len(delivered) == 1
+        assert delivered[0].alert_type == "sense_job"
+        assert delivered[0].message == notices[0].preview
+        assert len(delivered[0].message) <= NOTIFICATION_SUMMARY_LIMIT
 
 
 async def test_runtime_limit_preserves_partial_response(monkeypatch) -> None:
