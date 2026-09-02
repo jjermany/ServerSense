@@ -23,7 +23,7 @@ from serversense.services.storage import (
     latest_storage_sample,
     storage_scope,
 )
-from serversense.services.timezones import local_time, time_zone_details
+from serversense.services.timezones import format_local_datetime, local_time, time_zone_details
 
 ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
 
@@ -450,6 +450,7 @@ def upcoming_media(db: Session, args: dict[str, Any]) -> dict[str, Any]:
             {
                 "scheduled_at": _aware_datetime(row.scheduled_at).isoformat(),
                 "scheduled_at_local": local_time(db, row.scheduled_at).isoformat(),
+                "scheduled_at_local_display": format_local_datetime(db, row.scheduled_at),
                 "provider": row.provider,
                 "instance": row.instance_name,
                 "media_type": row.media_type,

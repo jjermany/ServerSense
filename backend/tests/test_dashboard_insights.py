@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import httpx
+import pytest
 from pytest import MonkeyPatch
 from sqlalchemy import delete
 
@@ -38,6 +39,8 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         assert payload["temperature"] == 0.3
         assert "untrusted JSON data" in payload["messages"][0]["content"]
         assert "combined_array_data_disks" in payload["messages"][0]["content"]
+        assert "12-hour format with AM or PM" in payload["messages"][0]["content"]
+        assert "never call them scheduled imports" in payload["messages"][0]["content"]
         return httpx.Response(
             200,
             request=httpx.Request("POST", url),
@@ -151,3 +154,64 @@ def test_failed_refresh_preserves_recent_cached_summary(monkeypatch: MonkeyPatch
         assert latest_dashboard_summary(db, now + timedelta(hours=6)) is None
         db.delete(cached)
         db.commit()
+
+
+def test_dashboard_summary_rejects_military_time_and_guaranteed_import_claims(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    now = datetime.now(UTC) + timedelta(days=1)
+
+    def invalid_post(url: str, **_: object) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "Mayday is scheduled for import at 19:00 local time, "
+                                "with no immediate risk of exhaustion."
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(httpx, "post", invalid_post)
+    with SessionLocal() as db:
+        db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
+        sample = StorageSample(
+            timestamp=now,
+            total_bytes=10_000,
+            used_bytes=9_760,
+            free_bytes=240,
+            source="summary-policy-test",
+        )
+        db.add(sample)
+        db.commit()
+        try:
+            with pytest.raises(ValueError, match="presentation policy"):
+                refresh_dashboard_summary(db, _config(), now)
+
+            cached = Event(
+                timestamp=now,
+                event_type="sense_dashboard_summary",
+                severity="info",
+                title="Current server summary",
+                message="Mayday is scheduled for import at 19:00 local time.",
+                data={
+                    "source": "model",
+                    "model": "small-local-model",
+                    "storage_source": "summary-policy-test",
+                    "storage_forecast_days": None,
+                },
+            )
+            db.add(cached)
+            db.commit()
+            assert latest_dashboard_summary(db, now) is None
+            db.delete(cached)
+        finally:
+            db.delete(sample)
+            db.commit()

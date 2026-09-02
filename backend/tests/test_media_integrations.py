@@ -284,6 +284,11 @@ def test_upcoming_media_is_normalized_and_not_described_as_guaranteed() -> None:
             db, "get_upcoming_media", {"days": 1, "provider": "sonarr", "limit": 10}
         )
         assert any(item["title"] == "Tonight's Episode" for item in result["items"])
+        assert any(
+            " AM " in item["scheduled_at_local_display"]
+            or " PM " in item["scheduled_at_local_display"]
+            for item in result["items"]
+        )
         assert "not guaranteed scheduled downloads" in result["terminology_note"]
 
 

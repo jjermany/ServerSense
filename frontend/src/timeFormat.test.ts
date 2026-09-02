@@ -11,6 +11,7 @@ describe("configured timezone formatting", () => {
     );
     expect(formatDate(timestamp, "UTC")).toContain("Sep 2, 2026");
     expect(formatDateTime(timestamp, "America/Chicago")).toContain("CDT");
+    expect(formatDateTime(timestamp, "America/Chicago")).toMatch(/9:00 PM/);
     expect(localHour(new Date(timestamp), "America/Chicago")).toBe(21);
   });
 });

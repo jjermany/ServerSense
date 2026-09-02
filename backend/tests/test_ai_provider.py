@@ -31,6 +31,7 @@ def test_follow_up_prompt_makes_history_context_only() -> None:
 
     assert "Current date and time in the configured UTC timezone:" in messages[0]["content"]
     assert "combined_array_data_disks" in messages[0]["content"]
+    assert "12-hour format with AM or PM" in messages[0]["content"]
     assert messages[-2] == {"role": "system", "content": FOLLOW_UP_PROMPT}
     assert messages[-1]["content"] == "Yes, list the recently upgraded titles."
 

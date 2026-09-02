@@ -54,3 +54,14 @@ def local_time(db: Session, value: datetime | None = None) -> datetime:
     value = value or datetime.now(UTC)
     aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return aware.astimezone(ZoneInfo(time_zone_details(db).name))
+
+
+def format_local_datetime(db: Session, value: datetime | None = None) -> str:
+    localized = local_time(db, value)
+    hour = localized.hour % 12 or 12
+    suffix = "AM" if localized.hour < 12 else "PM"
+    zone = localized.tzname() or time_zone_details(db).name
+    return (
+        f"{localized.strftime('%B')} {localized.day}, {localized.year} at "
+        f"{hour}:{localized.minute:02d} {suffix} {zone}"
+    )

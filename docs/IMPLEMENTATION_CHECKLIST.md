@@ -54,7 +54,7 @@ Last updated: 2026-08-26
 - [x] AI-only, multi-instance Sonarr/Radarr history collection with encrypted keys and normalized records
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name
 - [x] provider-confirmed quality-upgrade pairing and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
-- [x] additive opt-in cached AI dashboard summary with isolated scheduling and deterministic fallback
+- [x] additive opt-in cached AI dashboard summary with isolated scheduling, deterministic fallback, 12-hour local times, and validated storage/media claims
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 
 ## Production readiness

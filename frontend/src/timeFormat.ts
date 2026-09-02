@@ -11,6 +11,7 @@ export function formatDateTime(value: string | Date, timeZone: string) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
     timeZone,
     timeZoneName: "short",
   }).format(parseTimestamp(value));
@@ -30,6 +31,7 @@ export function formatTime(value: string | Date, timeZone: string) {
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
+    hour12: true,
     timeZone,
     timeZoneName: "short",
   }).format(parseTimestamp(value));
