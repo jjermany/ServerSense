@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import {
   Bell,
   Bot,
+  ChevronDown,
   Clock3,
   Pencil,
   RotateCcw,
@@ -75,6 +76,7 @@ export default function SensePage() {
   const [unread, setUnread] = useState(0);
   const [showNotices, setShowNotices] = useState(false);
   const [search, setSearch] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
   const [longRunningJob, setLongRunningJob] = useState<string>();
   const [activeStreamJob, setActiveStreamJob] = useState<string>();
   const [foregroundNotify, setForegroundNotify] = useState(true);
@@ -126,6 +128,7 @@ export default function SensePage() {
 
   const openConversation = async (id: number) => {
     await loadConversation(id);
+    setShowHistory(false);
     setShowNotices(false);
   };
   const deleteConversation = async (item: Conversation) => {
@@ -345,6 +348,14 @@ export default function SensePage() {
     if (notice.conversation_id) await openConversation(notice.conversation_id);
     await loadBackgroundState();
   };
+  const dismissNotice = async (notice: Notice) => {
+    await api<void>(`/api/ai/notifications/${notice.id}`, { method: "DELETE" });
+    await loadBackgroundState();
+  };
+  const clearNotices = async () => {
+    await api<void>("/api/ai/notifications", { method: "DELETE" });
+    await loadBackgroundState();
+  };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const field = new FormData(event.currentTarget).get("message")?.toString() ?? "";
@@ -369,29 +380,34 @@ export default function SensePage() {
       </PageHeader>
       {showNotices && (
         <section className="sense-notifications">
-          <header><b>SENSE job notifications</b><button onClick={() => setShowNotices(false)}><X size={15} /></button></header>
+          <header><b>SENSE job notifications</b><span>{notices.length > 0 && <button onClick={() => void clearNotices()}>Clear all</button>}<button aria-label="Close notifications" onClick={() => setShowNotices(false)}><X size={15} /></button></span></header>
           {notices.map((notice) => (
-            <button className={notice.read_at ? "" : "unread"} key={notice.id} onClick={() => void openNotice(notice)}>
-              <b>{notice.title}</b><small>{notice.preview}</small>
-            </button>
+            <div className={`sense-notification ${notice.read_at ? "" : "unread"}`} key={notice.id}>
+              <button className="notice-content" onClick={() => void openNotice(notice)}>
+                <b>{notice.title}</b><small>{notice.preview}</small>
+              </button>
+              <button className="notice-dismiss" aria-label={`Dismiss notification: ${notice.title}`} onClick={() => void dismissNotice(notice)}><X size={14} /></button>
+            </div>
           ))}
           {!notices.length && <p>No SENSE job notifications yet.</p>}
         </section>
       )}
       <div className="sense-layout">
         <aside className="conversation-list">
-          <div><span className="eyebrow">CONVERSATIONS</span><button onClick={() => { setConversation(undefined); setMessages([]); }}>New</button></div>
-          <label className="conversation-search"><Search size={14} /><input aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label>
-          {conversations.map((item) => (
-            <div className="conversation-item" key={item.id}>
-              <button className={conversation === item.id ? "active" : ""} onClick={() => void openConversation(item.id)}>
-                <b>{item.title}</b><small>{formatDate(item.updated_at, timeZone)}</small>
-              </button>
-              <button className="conversation-edit" aria-label={`Rename conversation: ${item.title}`} onClick={() => void renameConversation(item)}><Pencil size={12} /></button>
-              <button className="conversation-delete" aria-label={`Delete conversation: ${item.title}`} disabled={busy} onClick={() => void deleteConversation(item)}><Trash2 size={13} /></button>
-            </div>
-          ))}
-          {!conversations.length && <p>Your SENSE conversations will appear here.</p>}
+          <div className="conversation-list-header"><div className="conversation-heading"><span className="eyebrow">CONVERSATIONS</span></div><button className="history-toggle" aria-expanded={showHistory} onClick={() => setShowHistory((value) => !value)}><span><span className="eyebrow">CONVERSATIONS</span><small>{conversation ? conversations.find((item) => item.id === conversation)?.title : "Start or open a chat"}</small></span><ChevronDown size={16} /></button><button onClick={() => { setConversation(undefined); setMessages([]); setShowHistory(false); }}>New</button></div>
+          <div className={`conversation-list-body ${showHistory ? "open" : ""}`}>
+            <label className="conversation-search"><Search size={14} /><input aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label>
+            {conversations.map((item) => (
+              <div className="conversation-item" key={item.id}>
+                <button className={conversation === item.id ? "active" : ""} onClick={() => void openConversation(item.id)}>
+                  <b>{item.title}</b><small>{formatDate(item.updated_at, timeZone)}</small>
+                </button>
+                <button className="conversation-edit" aria-label={`Rename conversation: ${item.title}`} onClick={() => void renameConversation(item)}><Pencil size={12} /></button>
+                <button className="conversation-delete" aria-label={`Delete conversation: ${item.title}`} disabled={busy} onClick={() => void deleteConversation(item)}><Trash2 size={13} /></button>
+              </div>
+            ))}
+            {!conversations.length && <p>Your SENSE conversations will appear here.</p>}
+          </div>
         </aside>
         <div className="chat-panel">
           {messages.length === 0 && conversationJobs.length === 0 ? (
@@ -440,7 +456,7 @@ export default function SensePage() {
                   {quickTelemetryError && <small className="quick-telemetry-error">{quickTelemetryError}</small>}
                 </section>
               )}
-              {conversationJobs.filter((job) => job.id !== activeStreamJob).map((job) => (
+              {conversationJobs.filter((job) => job.id !== activeStreamJob && job.id !== longRunningJob).map((job) => (
                 <article className="job-card" key={job.id}>
                   <span><Clock3 /></span>
                   <div>

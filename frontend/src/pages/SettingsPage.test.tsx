@@ -28,6 +28,7 @@ const alertConfig = {
   notify_disk_smart: true,
   notify_disk_temperature: true,
   notify_container_stopped: true,
+  notify_sense_jobs: true,
   webhook_enabled: false,
   webhook_configured: false,
   discord_enabled: false,
@@ -260,6 +261,7 @@ describe("AI settings", () => {
       expect(payload.notify_forecast_low).toBe(false);
       expect(payload.notify_storage_low).toBe(true);
       expect(payload.notify_container_stopped).toBe(true);
+      expect(payload.notify_sense_jobs).toBe(true);
     });
   });
 

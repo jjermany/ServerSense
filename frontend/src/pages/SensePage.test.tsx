@@ -71,9 +71,24 @@ describe("SENSE requests", () => {
     const encoder = new TextEncoder();
     let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
     let requestSignal: AbortSignal | null | undefined;
+    let backgrounded = false;
     vi.mocked(api).mockImplementation((path) => {
       if (path === "/api/ai/jobs/job-456/notification") {
         return Promise.resolve({ id: "job-456", notify_on_completion: false });
+      }
+      if (path === "/api/ai/jobs") {
+        return Promise.resolve(backgrounded ? [{
+          id: "job-456",
+          conversation_id: 4,
+          status: "streaming",
+          model: "test-model",
+          partial_response: "",
+          backgrounded: true,
+          notify_on_completion: true,
+        }] : []);
+      }
+      if (path === "/api/ai/notifications") {
+        return Promise.resolve({ unread: 0, items: [] });
       }
       return Promise.resolve([]);
     });
@@ -82,10 +97,10 @@ describe("SENSE requests", () => {
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           streamController = controller;
+          backgrounded = true;
           controller.enqueue(
             encoder.encode(
-              'event: status\ndata: {"message":"","request_id":"job-456","status":"analyzing"}\n\n' +
-                'event: backgrounded\ndata: {"message":"SENSE AI is still working.","job_id":"job-456","notify_on_completion":true}\n\n',
+              'event: backgrounded\ndata: {"message":"SENSE AI is still working.","job_id":"job-456","notify_on_completion":true}\n\n',
             ),
           );
         },
@@ -108,7 +123,9 @@ describe("SENSE requests", () => {
 
     expect((await screen.findAllByText("SENSE AI is still working.")).length).toBeGreaterThan(0);
     expect(requestSignal?.aborted).toBe(false);
-    const notify = screen.getByRole("checkbox", { name: "Notify me when complete" });
+    const notifyControls = screen.getAllByRole("checkbox", { name: "Notify me when complete" });
+    expect(notifyControls).toHaveLength(1);
+    const [notify] = notifyControls;
     fireEvent.click(notify);
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith("/api/ai/jobs/job-456/notification", {
@@ -126,6 +143,50 @@ describe("SENSE requests", () => {
     streamController.close();
     expect(await screen.findByText("Finished after the threshold.")).toBeInTheDocument();
     expect(requestSignal?.aborted).toBe(false);
+  });
+
+  it("collapses conversation history behind a mobile-friendly toggle", async () => {
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/ai/conversations") {
+        return Promise.resolve([
+          { id: 7, title: "Storage forecast", updated_at: "2026-08-26T00:00:00Z" },
+        ]);
+      }
+      if (path === "/api/ai/notifications") {
+        return Promise.resolve({ unread: 0, items: [] });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<SensePage />);
+    const toggle = await screen.findByRole("button", { name: /CONVERSATIONS/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("dismisses individual notifications", async () => {
+    let notices = [{ id: 12, title: "Analysis complete", preview: "Ready", read_at: null }];
+    vi.mocked(api).mockImplementation((path, options) => {
+      if (path === "/api/ai/notifications" && options?.method === "DELETE") {
+        notices = [];
+        return Promise.resolve(undefined);
+      }
+      if (path === "/api/ai/notifications/12" && options?.method === "DELETE") {
+        notices = [];
+        return Promise.resolve(undefined);
+      }
+      if (path === "/api/ai/notifications") {
+        return Promise.resolve({ unread: notices.length, items: notices });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<SensePage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss notification: Analysis complete" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/ai/notifications/12", { method: "DELETE" }));
+    expect(screen.queryByText("Analysis complete")).not.toBeInTheDocument();
   });
 
   it("deletes a conversation and clears it when active", async () => {

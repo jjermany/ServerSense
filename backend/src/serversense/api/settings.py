@@ -176,6 +176,7 @@ ALERT_DEFAULTS: dict[str, Any] = {
     "notify_disk_smart": True,
     "notify_disk_temperature": True,
     "notify_container_stopped": True,
+    "notify_sense_jobs": True,
     "webhook_enabled": False,
     "discord_enabled": False,
     "pushover_enabled": False,

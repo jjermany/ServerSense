@@ -189,3 +189,33 @@ def test_dispatch_filters_disabled_notification_categories(
 
     assert failures == []
     assert delivered == ["storage_low"]
+
+
+def test_dispatch_filters_sense_job_notifications(monkeypatch: MonkeyPatch) -> None:
+    setting = Setting(
+        key="alerts",
+        secret=True,
+        value={
+            "webhook_enabled": True,
+            "webhook_url_encrypted": encrypt_secret("https://notifications.test/hook"),
+            "notify_sense_jobs": False,
+        },
+    )
+
+    class FakeSession:
+        def get(self, model: type[Setting], key: str) -> Setting | None:
+            return setting if model is Setting and key == "alerts" else None
+
+    sense_notice = sample_alert()
+    sense_notice.alert_type = "sense_job"
+    delivered: list[str] = []
+    monkeypatch.setattr(
+        WebhookProvider,
+        "send",
+        lambda self, alert: delivered.append(alert.alert_type),
+    )
+
+    failures = dispatch_notifications(FakeSession(), [sense_notice])  # type: ignore[arg-type]
+
+    assert failures == []
+    assert delivered == []

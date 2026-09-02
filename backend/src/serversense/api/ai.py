@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, desc, func, or_, select
+from sqlalchemy import delete, desc, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from serversense.db import SessionLocal, get_db
@@ -625,3 +625,33 @@ def read_all_notifications(
         row.read_at = now
     db.commit()
     return {"read": True}
+
+
+@router.delete("/notifications/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_notification(
+    notification_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> Response:
+    row = db.get(InAppNotification, notification_id)
+    if not row or row.user_id != user.id:
+        raise HTTPException(404, "Notification not found")
+    job = db.get(AIJob, row.job_id) if row.job_id else None
+    if job and job.notification_id == row.id:
+        job.notification_id = None
+    db.delete(row)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/notifications", status_code=status.HTTP_204_NO_CONTENT)
+def clear_notifications(
+    db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> Response:
+    notice_ids = select(InAppNotification.id).where(InAppNotification.user_id == user.id)
+    db.execute(
+        update(AIJob)
+        .where(AIJob.user_id == user.id, AIJob.notification_id.in_(notice_ids))
+        .values(notification_id=None)
+    )
+    db.execute(delete(InAppNotification).where(InAppNotification.user_id == user.id))
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

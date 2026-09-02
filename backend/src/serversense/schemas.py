@@ -86,6 +86,7 @@ class AlertSettings(BaseModel):
     notify_disk_smart: bool = True
     notify_disk_temperature: bool = True
     notify_container_stopped: bool = True
+    notify_sense_jobs: bool = True
     webhook_enabled: bool = False
     webhook_url: str | None = Field(default=None, max_length=2000)
     discord_enabled: bool = False

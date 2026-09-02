@@ -11,7 +11,9 @@ from serversense.models import (
     Alert,
     DiskSample,
     Event,
+    InAppNotification,
     Setting,
+    User,
 )
 
 
@@ -194,6 +196,35 @@ def test_conversation_can_be_deleted_with_messages_and_tool_calls(
         assert not list(db.scalars(select(AIToolCall).where(AIToolCall.id.in_(tool_call_ids))))
 
 
+def test_sense_notifications_can_be_dismissed_or_cleared(
+    authenticated_client: TestClient,
+) -> None:
+    username = authenticated_client.get("/api/auth/me").json()["username"]
+    with SessionLocal() as db:
+        user_id = db.scalar(select(User.id).where(User.username == username))
+        assert user_id is not None
+        notices = [
+            InAppNotification(
+                user_id=user_id,
+                kind="ai_job_complete",
+                title=f"Completed {index}",
+                preview="Ready",
+                created_at=datetime.now(UTC),
+            )
+            for index in range(2)
+        ]
+        db.add_all(notices)
+        db.commit()
+        first_id = notices[0].id
+
+    assert authenticated_client.delete(f"/api/ai/notifications/{first_id}").status_code == 204
+    remaining = authenticated_client.get("/api/ai/notifications").json()["items"]
+    assert all(row["id"] != first_id for row in remaining)
+
+    assert authenticated_client.delete("/api/ai/notifications").status_code == 204
+    assert authenticated_client.get("/api/ai/notifications").json()["items"] == []
+
+
 def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
     authenticated_client: TestClient,
 ) -> None:
@@ -213,6 +244,7 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
             "notify_disk_smart": True,
             "notify_disk_temperature": False,
             "notify_container_stopped": True,
+            "notify_sense_jobs": True,
             "webhook_enabled": True,
             "webhook_url": secret_url,
             "discord_enabled": True,
@@ -251,6 +283,7 @@ def test_alert_settings_hide_secrets_and_diagnostics_are_sanitized(
             "notify_disk_smart": True,
             "notify_disk_temperature": False,
             "notify_container_stopped": True,
+            "notify_sense_jobs": True,
             "webhook_enabled": True,
             "discord_enabled": True,
             "pushover_enabled": True,

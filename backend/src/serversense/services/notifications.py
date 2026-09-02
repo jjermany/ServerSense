@@ -212,6 +212,7 @@ NOTIFICATION_PREFERENCES = {
     "disk_smart": "notify_disk_smart",
     "disk_temperature": "notify_disk_temperature",
     "container_stopped": "notify_container_stopped",
+    "sense_job": "notify_sense_jobs",
 }
 
 

@@ -885,6 +885,29 @@ button {
   justify-content: space-between;
   padding: 4px 3px 8px;
 }
+.conversation-list-header {
+  gap: 8px;
+}
+.conversation-list-header .history-toggle {
+  display: none;
+  min-width: 0;
+  padding: 0;
+}
+.conversation-list-header .history-toggle > span {
+  display: grid;
+  min-width: 0;
+}
+.conversation-list-header .history-toggle small {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-list-body {
+  display: grid;
+  gap: 6px;
+}
 .conversation-list button {
   border: 1px solid transparent;
   background: transparent;
@@ -1064,6 +1087,17 @@ button {
   border-radius: 3px 12px 12px 12px;
   font-size: 12px;
   line-height: 1.7;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.messages article pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.messages article table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .messages article.user > div {
   background: #29335f;
@@ -1213,7 +1247,23 @@ button {
   justify-content: space-between;
   padding: 5px;
 }
-.sense-notifications button {
+.sense-notifications header > span {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+.sense-notifications header button {
+  align-items: center;
+  color: #8995a6;
+  display: flex;
+  font-size: 9px;
+  padding: 5px;
+}
+.sense-notification {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.sense-notification .notice-content {
   background: transparent;
   border: 0;
   color: #9ba7b8;
@@ -1221,9 +1271,21 @@ button {
   padding: 9px;
   text-align: left;
 }
-.sense-notifications button.unread {
+.sense-notification.unread {
   background: #1a2335;
   border-left: 2px solid #6575e7;
+}
+.sense-notification .notice-dismiss {
+  align-self: center;
+  background: transparent;
+  border: 0;
+  color: #657186;
+  display: grid;
+  padding: 8px;
+  place-items: center;
+}
+.sense-notification .notice-dismiss:hover {
+  color: #dce2ec;
 }
 .sense-notifications small {
   color: #657186;
@@ -2005,17 +2067,75 @@ button.danger {
     grid-template-columns: 1fr;
   }
   .conversation-list {
+    display: grid;
+    overflow: hidden;
+  }
+  .conversation-list-header .history-toggle {
+    align-items: center;
+    cursor: pointer;
     display: flex;
-    overflow-x: auto;
+    flex: 1;
+    justify-content: space-between;
+    text-align: left;
   }
-  .conversation-list > div {
-    min-width: 110px;
+  .conversation-list-header .conversation-heading {
+    display: none;
   }
-  .conversation-item {
-    min-width: 150px;
+  .conversation-list-header .history-toggle[aria-expanded="true"] > svg {
+    transform: rotate(180deg);
+  }
+  .conversation-list-body {
+    display: none;
+    max-height: min(420px, 55vh);
+    overflow-y: auto;
+    padding-top: 4px;
+  }
+  .conversation-list-body.open {
+    display: grid;
+  }
+  .chat-panel {
+    min-height: calc(100dvh - 230px);
+  }
+  .messages {
+    gap: 16px;
+    padding: 18px 12px;
   }
   .messages article {
-    max-width: 95%;
+    gap: 8px;
+    max-width: 100%;
+  }
+  .messages article > span {
+    height: 27px;
+    width: 27px;
+  }
+  .messages article > span svg {
+    height: 15px;
+    width: 15px;
+  }
+  .messages article > div {
+    max-width: calc(100% - 35px);
+    padding: 10px 12px;
+  }
+  .long-running-status {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .long-running-panel {
+    max-width: 100%;
+  }
+  .chat-input {
+    margin: auto 10px 10px;
+  }
+  .chat-input input {
+    min-width: 0;
+  }
+  .sense-notifications {
+    left: 12px;
+    position: fixed;
+    right: 12px;
+    top: 76px;
+    width: auto;
   }
   .alerts-page article {
     align-items: flex-start;

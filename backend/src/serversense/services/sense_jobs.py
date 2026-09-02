@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -15,10 +16,12 @@ from serversense.models import (
     AIJob,
     AIMessage,
     AIToolCall,
+    Alert,
     InAppNotification,
 )
 from serversense.services.ai import chat_stream
 from serversense.services.ai_config import read_ai_config
+from serversense.services.notifications import dispatch_notifications
 from serversense.services.sense_router import Intent
 from serversense.services.tools import execute_tool
 
@@ -26,6 +29,7 @@ TERMINAL_STATUSES = {"completed", "failed", "cancelled", "timed_out", "interrupt
 RUNNING_STATUSES = {"gathering_context", "analyzing", "streaming"}
 _active: dict[str, asyncio.Task[None]] = {}
 _shutting_down = False
+logger = logging.getLogger(__name__)
 
 
 def public_job(job: AIJob, queue_position: int | None = None) -> dict[str, Any]:
@@ -238,9 +242,9 @@ def _add_notification(
     preview: str,
     message_id: int | None,
     now: datetime,
-) -> None:
+) -> Alert | None:
     if not job.notify_on_completion or job.completion_notification_sent:
-        return
+        return None
     notification = InAppNotification(
         user_id=job.user_id,
         job_id=job.id,
@@ -255,6 +259,39 @@ def _add_notification(
     db.flush()
     job.completion_notification_sent = True
     job.notification_id = notification.id
+    external_notice = Alert(
+        alert_type="sense_job",
+        severity="info" if kind == "ai_job_complete" else "warning",
+        title=title,
+        message=(
+            "The long-running SENSE AI analysis is complete. Open ServerSense to view the result."
+            if kind == "ai_job_complete"
+            else "The long-running SENSE AI analysis ended before completion. Open ServerSense to review its status and any preserved partial response."
+        ),
+        fingerprint=f"sense-job:{job.id}",
+        data={
+            "job_id": job.id,
+            "conversation_id": job.conversation_id,
+            "status": kind.removeprefix("ai_job_"),
+        },
+    )
+    external_notice.created_at = now
+    return external_notice
+
+
+def _deliver_external_notification(db: Session, notice: Alert | None) -> None:
+    if notice is None:
+        return
+    try:
+        failures = dispatch_notifications(db, [notice])
+        if failures:
+            logger.warning(
+                "SENSE completion notification delivery failed for %d provider(s)",
+                len(failures),
+            )
+    except Exception as exc:
+        # Notification delivery is isolated from durable job completion.
+        logger.warning("SENSE completion notification delivery failed: %s", type(exc).__name__)
 
 
 def _persist_partial_terminal(
@@ -298,6 +335,7 @@ def _persist_partial_terminal(
         job.timed_out_at = now
     elif status == "interrupted":
         job.interrupted_at = now
+    external_notice: Alert | None = None
     if notify:
         label = {
             "timed_out": "SENSE AI analysis timed out",
@@ -305,7 +343,7 @@ def _persist_partial_terminal(
             "interrupted": "SENSE AI analysis interrupted",
         }.get(status, "SENSE AI analysis stopped")
         title = conversation.title if conversation else "AI request"
-        _add_notification(
+        external_notice = _add_notification(
             db,
             job,
             conversation,
@@ -316,6 +354,7 @@ def _persist_partial_terminal(
             now,
         )
     db.commit()
+    _deliver_external_notification(db, external_notice)
 
 
 async def _run_job(job_id: str) -> None:
@@ -443,8 +482,9 @@ async def _run_job(job_id: str) -> None:
             job.tools_used = {"names": list(used)}
             job.status = "completed"
             job.completed_at = now
+            external_notice: Alert | None = None
             if job.backgrounded_at is not None:
-                _add_notification(
+                external_notice = _add_notification(
                     db,
                     job,
                     conversation,
@@ -455,6 +495,7 @@ async def _run_job(job_id: str) -> None:
                     now,
                 )
             db.commit()
+            _deliver_external_notification(db, external_notice)
     except TimeoutError:
         with SessionLocal() as db:
             job = db.get(AIJob, job_id)

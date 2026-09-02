@@ -48,6 +48,7 @@ type AlertConfig = {
   notify_disk_smart: boolean;
   notify_disk_temperature: boolean;
   notify_container_stopped: boolean;
+  notify_sense_jobs: boolean;
   webhook_enabled: boolean;
   webhook_configured: boolean;
   discord_enabled: boolean;
@@ -94,6 +95,7 @@ const alertProviderValues = (alerts: AlertConfig) => ({
   notify_disk_smart: alerts.notify_disk_smart,
   notify_disk_temperature: alerts.notify_disk_temperature,
   notify_container_stopped: alerts.notify_container_stopped,
+  notify_sense_jobs: alerts.notify_sense_jobs,
   webhook_enabled: alerts.webhook_enabled,
   discord_enabled: alerts.discord_enabled,
   pushover_enabled: alerts.pushover_enabled,
@@ -310,6 +312,7 @@ export default function SettingsPage() {
               form.get("notify_disk_temperature") === "on",
             notify_container_stopped:
               form.get("notify_container_stopped") === "on",
+            notify_sense_jobs: form.get("notify_sense_jobs") === "on",
             webhook_enabled: alerts.webhook_enabled,
           }),
         });
@@ -689,8 +692,8 @@ export default function SettingsPage() {
                 <p>
                   <b>Notification categories</b>
                   <br />
-                  Alerts are always recorded. Uncheck a category to keep it out of
-                  webhook, Discord, Pushover, and email delivery.
+                  Monitoring alerts are always recorded. Uncheck a category to keep
+                  it out of webhook, Discord, Pushover, and email delivery.
                 </p>
                 <div className="field-grid">
                   <label className="check">
@@ -732,6 +735,14 @@ export default function SettingsPage() {
                       defaultChecked={alerts.notify_container_stopped}
                     />
                     <span>Containers stopped over 10 minutes</span>
+                  </label>
+                  <label className="check">
+                    <input
+                      name="notify_sense_jobs"
+                      type="checkbox"
+                      defaultChecked={alerts.notify_sense_jobs}
+                    />
+                    <span>Long-running SENSE job results</span>
                   </label>
                 </div>
               </div>

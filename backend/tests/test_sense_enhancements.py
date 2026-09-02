@@ -28,6 +28,14 @@ from serversense.services.sense_jobs import (
 from serversense.services.sense_router import RoutedRequest, classify_intent
 
 
+@pytest.fixture(autouse=True)
+def isolate_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "serversense.services.sense_jobs.dispatch_notifications",
+        lambda db, alerts: [],
+    )
+
+
 def test_intent_router_distinguishes_facts_reasoning_and_actions() -> None:
     assert classify_intent("How much storage is free?") == "telemetry"
     assert classify_intent("Is Plex running?") == "status"
@@ -273,6 +281,14 @@ async def test_fast_completed_job_persists_ai_provenance_without_notification(mo
 
 
 async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkeypatch) -> None:
+    delivered: list[str] = []
+
+    def fake_dispatch(db, alerts):
+        delivered.extend(alert.alert_type for alert in alerts)
+        return []
+
+    monkeypatch.setattr("serversense.services.sense_jobs.dispatch_notifications", fake_dispatch)
+
     async def fake_stream(db, question, config, history):
         await asyncio.sleep(0.02)
         yield ChatEvent("delta", "Long answer")
@@ -332,6 +348,7 @@ async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkey
         assert notified is not None
         assert notified.completion_notification_sent is True
         assert notified.notification_id == notices[0].id
+        assert delivered == ["sense_job"]
 
 
 async def test_runtime_limit_preserves_partial_response(monkeypatch) -> None:
