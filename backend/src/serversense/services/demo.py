@@ -65,6 +65,7 @@ def seed_demo_data(db: Session) -> None:
         ("disk1", "Disk 1", "data", 18, 14.8, 39, "healthy"),
         ("disk2", "Disk 2", "data", 18, 16.2, 43, "warning"),
         ("disk3", "Disk 3", "data", 18, 15.9, 38, "healthy"),
+        ("disk4", "Disk 4", "data", 18, 14.3, 37, "healthy"),
         ("cache", "Cache Pool", "pool", 2, 1.4, 41, "healthy"),
     ]
     for disk_id, name, role, size, used_tb, temp, health in disks:

@@ -30,11 +30,12 @@ Last updated: 2026-08-26
 - [x] dashboard with timezone-aware overall/source update times, storage chart/ranges, disk cards, Docker table
 - [x] metric-driven storage, forecast, SMART, temperature, and container rules with a 10-minute stopped-container grace period
 - [x] Unraid array/parity state, disk/cache inventory, and available APC UPS data
+- [x] combined array capacity from assigned data disks only, with explicit SENSE scope and incompatible legacy-source isolation
 - [x] persisted per-container CPU, memory, health, restarts, and uptime
 - [x] configurable alert thresholds, persistent acknowledgement/dismissal, and per-category encrypted generic webhook, Discord, Pushover, and SMTP email delivery
 - [x] daily retention cleanup and old storage sample downsampling
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
-- [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware UI refresh, and independent Docker, SMART, and storage cadences
+- [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware refresh across monitoring pages, source sample timestamps, and independent Docker, SMART, and storage cadences
 - [x] container `TZ` precedence with validated Settings fallback and shared timezone-aware frontend formatting
 
 ## SENSE

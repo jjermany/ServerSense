@@ -1,7 +1,8 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { LIVE_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
 import type { Dashboard, StoragePoint } from "../types";
 import DashboardPage from "./DashboardPage";
 
@@ -42,6 +43,7 @@ const dashboard: Dashboard = {
   disks: [
     {
       id: "disk-1",
+      sampled_at: "2026-08-26T05:00:00Z",
       name: "Disk 1",
       role: "data",
       manufacturer: "Example",
@@ -98,7 +100,35 @@ describe("dashboard", () => {
       Promise.resolve(path === "/api/dashboard" ? dashboard : history),
     );
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("refreshes overview metrics on the live interval", async () => {
+    vi.useFakeTimers();
+    let dashboardCalls = 0;
+    vi.mocked(api).mockImplementation((path: string) => {
+      if (path !== "/api/dashboard") return Promise.resolve(history);
+      dashboardCalls += 1;
+      return Promise.resolve({
+        ...dashboard,
+        system: {
+          ...dashboard.system,
+          cpu_percent: dashboardCalls === 1 ? 12 : 24,
+        },
+      });
+    });
+
+    render(<DashboardPage />);
+    await act(async () => undefined);
+    expect(screen.getByText("12.0% CPU")).toBeVisible();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_REFRESH_INTERVAL_MS);
+    });
+    expect(screen.getByText("24.0% CPU")).toBeVisible();
+  });
 
   it("renders measured demo telemetry without detectable accessibility violations", async () => {
     const { container } = render(<DashboardPage />);

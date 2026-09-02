@@ -41,6 +41,7 @@ class ForecastWindow(BaseModel):
 
 
 class ForecastResponse(BaseModel):
+    sampled_at: datetime
     current_total_bytes: int
     current_used_bytes: int
     current_free_bytes: int

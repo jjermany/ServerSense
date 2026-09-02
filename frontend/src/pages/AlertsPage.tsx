@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { AlertTriangle, Check, Info, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
@@ -6,20 +5,18 @@ import type { Alert } from "../types";
 import { Card, Empty, PageHeader } from "../components/UI";
 import { formatDateTime } from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
+import { useLiveQuery } from "../hooks/useLiveQuery";
 export default function AlertsPage() {
   const { timeZone } = useTimeZone();
-  const [rows, setRows] = useState<Alert[]>([]);
-  const load = () => api<Alert[]>("/api/alerts").then(setRows);
-  useEffect(() => {
-    void load();
-  }, []);
+  const { data: rows = [], error, refresh, setData } =
+    useLiveQuery<Alert[]>("/api/alerts");
   const ack = async (id: number) => {
     await api(`/api/alerts/${id}/acknowledge`, { method: "POST" });
-    await load();
+    refresh();
   };
   const dismiss = async (id: number) => {
     await api(`/api/alerts/${id}/dismiss`, { method: "POST" });
-    setRows((current) => current.filter((row) => row.id !== id));
+    setData((current) => current?.filter((row) => row.id !== id));
   };
   return (
     <div className="page">
@@ -28,6 +25,7 @@ export default function AlertsPage() {
           Alert settings
         </Link>
       </PageHeader>
+      {error && <div className="form-error">{error}</div>}
       <Card className="alerts-page">
         {rows.length ? (
           rows.map((row) => (

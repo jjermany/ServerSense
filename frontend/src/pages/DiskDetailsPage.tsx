@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { ArrowLeft, HardDrive, Thermometer } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -10,10 +9,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, formatBytes } from "../api";
+import { formatBytes } from "../api";
 import type { Disk } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
-import { formatDate } from "../timeFormat";
+import { SLOW_REFRESH_INTERVAL_MS, useLiveQuery } from "../hooks/useLiveQuery";
+import { formatDate, formatDateTime } from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
 
 type DiskDetails = Disk & {
@@ -23,12 +23,16 @@ type DiskDetails = Disk & {
 export default function DiskDetailsPage() {
   const { timeZone } = useTimeZone();
   const { diskId } = useParams();
-  const [disk, setDisk] = useState<DiskDetails>();
-  useEffect(() => {
-    api<DiskDetails>(`/api/disks/${encodeURIComponent(diskId ?? "")}`).then(
-      setDisk,
+  const { data: disk, error } = useLiveQuery<DiskDetails>(
+    `/api/disks/${encodeURIComponent(diskId ?? "")}`,
+    SLOW_REFRESH_INTERVAL_MS,
+  );
+  if (error)
+    return (
+      <div className="page">
+        <div className="form-error">{error}</div>
+      </div>
     );
-  }, [diskId]);
   if (!disk) return <div className="page" />;
   const allocated = disk.total_bytes
     ? (disk.used_bytes / disk.total_bytes) * 100
@@ -40,6 +44,9 @@ export default function DiskDetailsPage() {
         All disks
       </Link>
       <PageHeader eyebrow={disk.role.toUpperCase()} title={disk.name}>
+        <span className="muted">
+          Sampled {formatDateTime(disk.sampled_at, timeZone)}
+        </span>
         <Status value={disk.smart_status} />
       </PageHeader>
       <div className="metrics-grid three">

@@ -93,11 +93,17 @@ def test_first_run_setup_and_dashboard(client: TestClient) -> None:
     body = dashboard.json()
     assert body["demo_mode"] is True
     assert body["storage"]["used_bytes"] > 0
+    assert body["storage"]["scope"] == "combined_array_data_disks"
+    assert body["storage"]["includes_named_pools"] is False
     assert len(body["disks"]) >= 4
     assert body["system"]["network_rx_bytes_per_second"] == 1_500_000
     assert body["system"]["network_tx_bytes_per_second"] == 300_000
     assert body["system"]["sampled_at"] is not None
     assert body["updated_at"] is not None
+    assert all(item["sampled_at"] for item in body["disks"])
+    disks = client.get("/api/disks").json()
+    assert all(item["sampled_at"] for item in disks)
+    assert client.get(f"/api/disks/{disks[0]['id']}").json()["sampled_at"]
     assert body["timezone"]
     assert all(item.get("generated_at") for item in body["insights"])
     assert body["server"]["pools"][0]["name"] == "cache"
@@ -130,6 +136,7 @@ def test_persistence_and_login_after_client_restart(client: TestClient) -> None:
 def test_forecast_and_safe_chat(authenticated_client: TestClient) -> None:
     forecast = authenticated_client.get("/api/storage/forecast")
     assert forecast.status_code == 200
+    assert forecast.json()["sampled_at"] is not None
     window = next(item for item in forecast.json()["forecasts"] if item["window_days"] == 30)
     assert window["bytes_per_day"] > 0
     response = authenticated_client.post(

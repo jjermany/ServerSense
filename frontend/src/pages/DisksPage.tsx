@@ -1,43 +1,43 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { HardDrive, Thermometer } from "lucide-react";
 import { Link } from "react-router-dom";
-import { api, formatBytes } from "../api";
+import { formatBytes } from "../api";
 import type { Disk } from "../types";
 import { Card, PageHeader, Status } from "../components/UI";
+import {
+  SLOW_REFRESH_INTERVAL_MS,
+  useLiveQuery,
+} from "../hooks/useLiveQuery";
+import { formatDateTime } from "../timeFormat";
+import { useTimeZone } from "../timeZoneContext";
 
 export default function DisksPage() {
-  const [disks, setDisks] = useState<Disk[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { timeZone } = useTimeZone();
+  const { data: disks, error, refresh } = useLiveQuery<Disk[]>(
+    "/api/disks",
+    SLOW_REFRESH_INTERVAL_MS,
+  );
   useEffect(() => {
-    let active = true;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const load = () => {
-      api<Disk[]>("/api/disks").then((items) => {
-        if (!active) return;
-        setDisks(items);
-        setLoading(false);
-        if (items.length === 0) retry = setTimeout(load, 3000);
-      });
-    };
-    load();
-    return () => {
-      active = false;
-      if (retry) clearTimeout(retry);
-    };
-  }, []);
+    if (!disks || disks.length > 0) return;
+    const retry = window.setTimeout(refresh, 3_000);
+    return () => window.clearTimeout(retry);
+  }, [disks, refresh]);
+  const loading = disks === undefined;
+  const rows = disks ?? [];
   return (
     <div className="page">
       <PageHeader eyebrow="DISK INTELLIGENCE" title="Physical disks">
         <span className="muted">
           {loading
             ? "Loading disk telemetryâ€¦"
-            : disks.length
-              ? `${disks.length} devices observed`
+            : rows.length
+              ? `${rows.length} devices observed · sampled ${formatDateTime(rows[0].sampled_at, timeZone)}`
               : "Waiting for the first telemetry sampleâ€¦"}
         </span>
       </PageHeader>
+      {error && <div className="form-error">{error}</div>}
       <div className="disk-cards">
-        {disks.map((d) => (
+        {rows.map((d) => (
           <Link
             className="disk-card-link"
             to={`/disks/${encodeURIComponent(d.id)}`}

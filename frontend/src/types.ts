@@ -1,5 +1,6 @@
 export type Disk = {
   id: string;
+  sampled_at: string;
   name: string;
   role: string;
   manufacturer: string | null;

@@ -14,11 +14,15 @@ from serversense.models import (
     MediaSchedule,
     MetricSample,
     Setting,
-    StorageSample,
 )
 from serversense.services.forecasting import calculate_all
 from serversense.services.metrics import calculate_network_rates
 from serversense.services.permissions import ActionRequest, ActionRisk, policy
+from serversense.services.storage import (
+    current_storage_samples,
+    latest_storage_sample,
+    storage_scope,
+)
 from serversense.services.timezones import local_time, time_zone_details
 
 ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
@@ -43,22 +47,27 @@ def _elapsed_since(value: datetime | None) -> int | None:
 
 
 def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
-    storage = db.scalar(select(StorageSample).order_by(desc(StorageSample.timestamp)))
+    storage = latest_storage_sample(db)
     metrics = list(db.scalars(select(MetricSample).order_by(desc(MetricSample.timestamp)).limit(2)))
     metric = metrics[0] if metrics else None
     network = calculate_network_rates(metrics[1] if len(metrics) > 1 else None, metric)
     state = db.get(Setting, "monitoring_state")
+    platform_state = (
+        {key: value for key, value in state.value.items() if key != "pools"} if state else {}
+    )
     return {
         "array_status": state.value.get("array_status")
         if state
         else "started"
         if storage
         else "unknown",
-        "platform_state": state.value if state else {},
+        "platform_state": platform_state,
         "storage": {
             "total_bytes": storage.total_bytes,
             "used_bytes": storage.used_bytes,
             "free_bytes": storage.free_bytes,
+            "sampled_at": storage.timestamp.isoformat(),
+            **storage_scope(storage),
         }
         if storage
         else None,
@@ -75,23 +84,39 @@ def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def array_capacity(db: Session, _: dict[str, Any]) -> dict[str, Any]:
+    return {"storage": server_overview(db, {})["storage"]}
+
+
+def array_status(db: Session, _: dict[str, Any]) -> dict[str, Any]:
+    overview = server_overview(db, {})
+    return {
+        "array_status": overview["array_status"],
+        "platform_state": overview["platform_state"],
+        "storage": overview["storage"],
+    }
+
+
+def system_resources(db: Session, _: dict[str, Any]) -> dict[str, Any]:
+    return {"resources": server_overview(db, {})["resources"]}
+
+
 def pools(db: Session, _: dict[str, Any]) -> dict[str, Any]:
     state = db.get(Setting, "monitoring_state")
     value = state.value.get("pools", []) if state else []
-    return {"pools": value if isinstance(value, list) else []}
+    return {
+        "scope": "named_pools_separate_from_array_capacity",
+        "included_in_array_capacity": False,
+        "pools": value if isinstance(value, list) else [],
+    }
 
 
 def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     days = min(max(int(args.get("days", 30)), 1), 3650)
-    rows = list(
-        db.scalars(
-            select(StorageSample)
-            .where(StorageSample.timestamp >= datetime.now(UTC) - timedelta(days=days))
-            .order_by(StorageSample.timestamp)
-        )
-    )
+    rows = current_storage_samples(db, since=datetime.now(UTC) - timedelta(days=days))
     return {
         "days": days,
+        "storage_scope": storage_scope(rows[-1]) if rows else None,
         "samples": [
             {
                 "timestamp": x.timestamp.isoformat(),
@@ -105,13 +130,15 @@ def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def storage_forecast(db: Session, _: dict[str, Any]) -> dict[str, Any]:
-    rows = list(db.scalars(select(StorageSample).order_by(StorageSample.timestamp)))
+    rows = current_storage_samples(db)
     latest = rows[-1] if rows else None
     return {
         "current": {
             "total_bytes": latest.total_bytes,
             "used_bytes": latest.used_bytes,
             "free_bytes": latest.free_bytes,
+            "sampled_at": latest.timestamp.isoformat(),
+            **storage_scope(latest),
         }
         if latest
         else None,
@@ -138,6 +165,8 @@ def disks(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "disks": [
             {
                 "id": x.disk_id,
+                "scope": "physical_device",
+                "included_in_array_capacity": x.role == "data",
                 "name": x.name,
                 "role": x.role,
                 "manufacturer": x.manufacturer,
@@ -285,13 +314,7 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         elif row.event_type == "imported" and row.is_upgrade and row.id not in upgrade_pairs:
             group["explicit_upgrades"] += 1
     cutoff = datetime.now(UTC) - timedelta(days=days)
-    storage = list(
-        db.scalars(
-            select(StorageSample)
-            .where(StorageSample.timestamp >= cutoff)
-            .order_by(StorageSample.timestamp)
-        )
-    )
+    storage = current_storage_samples(db, since=cutoff)
     measured_change = storage[-1].used_bytes - storage[0].used_bytes if len(storage) >= 2 else None
     return {
         "days": days,
@@ -453,22 +476,22 @@ def quality_upgrades(db: Session, args: dict[str, Any]) -> dict[str, Any]:
 
 TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
     "get_server_overview": (
-        "Get current array, capacity, and resource summary.",
+        "Get current combined Unraid array capacity (data disks only, excluding named pools), array status, and resource summary.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         server_overview,
     ),
     "get_array_status": (
-        "Get current array status and capacity.",
+        "Get current array status and combined data-disk capacity, excluding named pools.",
         {"type": "object", "properties": {}, "additionalProperties": False},
-        server_overview,
+        array_status,
     ),
     "get_array_capacity": (
-        "Get current array capacity.",
+        "Get combined Unraid array data-disk capacity. Never substitute a physical disk or named pool value.",
         {"type": "object", "properties": {}, "additionalProperties": False},
-        server_overview,
+        array_capacity,
     ),
     "get_storage_history": (
-        "Get measured storage history.",
+        "Get measured combined array history for the current measurement source, excluding incompatible older sources.",
         {
             "type": "object",
             "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 3650}},
@@ -477,22 +500,22 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         storage_history,
     ),
     "get_storage_growth_rate": (
-        "Get deterministic 7/30/90-day storage rates.",
+        "Get deterministic combined-array 7/30/90-day storage rates, excluding named pools.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         storage_forecast,
     ),
     "get_storage_forecast": (
-        "Get deterministic storage exhaustion forecasts.",
+        "Get deterministic combined-array storage exhaustion forecasts, excluding named pools.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         storage_forecast,
     ),
     "get_pool_status": (
-        "Get normalized Unraid pool capacity, devices, and status.",
+        "Get named Unraid pool capacity, devices, and status separately from combined array capacity.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         pools,
     ),
     "get_disk_list": (
-        "List current physical disks and health.",
+        "List individual physical disks and health. Per-device capacity is not combined array capacity.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         disks,
     ),
@@ -533,7 +556,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
     "get_system_resources": (
         "Get current CPU, memory, load, and measured network transfer rates.",
         {"type": "object", "properties": {}, "additionalProperties": False},
-        server_overview,
+        system_resources,
     ),
     "get_media_activity_summary": (
         "Summarize normalized Sonarr/Radarr activity by configurable instance. ServerSense does track quality upgrades: use this before answering questions about TV/movie upgrades, downloads, imports, or storage changes; heed its evidence note.",

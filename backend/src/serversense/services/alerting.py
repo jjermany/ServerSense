@@ -4,8 +4,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from serversense.models import Alert, DiskSample, DockerSample, StorageSample
+from serversense.models import Alert, DiskSample, DockerSample
 from serversense.services.forecasting import calculate_forecast
+from serversense.services.storage import current_storage_samples
 
 CONTAINER_STOPPED_GRACE_PERIOD = timedelta(minutes=10)
 RUNNING_CONTAINER_STATES = {"running", "created"}
@@ -81,7 +82,7 @@ def evaluate_alerts(
     forecast_days_threshold: int = 90,
 ) -> list[Alert]:
     created: list[Alert] = []
-    storage = list(db.scalars(select(StorageSample).order_by(StorageSample.timestamp)))
+    storage = current_storage_samples(db)
     if storage:
         latest = storage[-1]
         free_percent = latest.free_bytes / latest.total_bytes * 100 if latest.total_bytes else 0

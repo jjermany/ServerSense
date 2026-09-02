@@ -10,6 +10,7 @@ from serversense.services.dashboard_insights import (
     latest_dashboard_summary,
     refresh_dashboard_summary,
 )
+from serversense.services.storage import latest_storage_sample
 
 
 def _config(enabled: bool = True) -> dict[str, object]:
@@ -36,6 +37,7 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         assert payload["max_tokens"] == 200
         assert payload["temperature"] == 0.3
         assert "untrusted JSON data" in payload["messages"][0]["content"]
+        assert "combined_array_data_disks" in payload["messages"][0]["content"]
         return httpx.Response(
             200,
             request=httpx.Request("POST", url),
@@ -74,6 +76,7 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
             "Storage remains healthy. Recent activity is measured and no active issue needs attention."
         )
         assert event.data["model"] == "small-local-model"
+        assert event.data["storage_source"] == "test"
         assert refresh_dashboard_summary(db, _config(), now + timedelta(minutes=1)) is None
         assert len(calls) == 1
 
@@ -94,7 +97,19 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         assert refreshed.severity == "warning"
         assert len(calls) == 2
 
+        replacement = StorageSample(
+            timestamp=now + timedelta(minutes=17),
+            total_bytes=20_000,
+            used_bytes=8_000,
+            free_bytes=12_000,
+            source="unraid_array",
+        )
+        db.add(replacement)
+        db.commit()
+        assert latest_dashboard_summary(db, now + timedelta(minutes=17)) is None
+
         db.delete(alert)
+        db.delete(replacement)
         db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
         db.commit()
 
@@ -108,13 +123,18 @@ def test_failed_refresh_preserves_recent_cached_summary(monkeypatch: MonkeyPatch
     monkeypatch.setattr(httpx, "post", fail_post)
     with SessionLocal() as db:
         db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
+        storage = latest_storage_sample(db)
         cached = Event(
             timestamp=now - timedelta(hours=7),
             event_type="sense_dashboard_summary",
             severity="info",
             title="Current server summary",
             message="The last successful cached summary.",
-            data={"source": "model", "model": "small-local-model"},
+            data={
+                "source": "model",
+                "model": "small-local-model",
+                "storage_source": storage.source if storage else None,
+            },
         )
         db.add(cached)
         db.commit()

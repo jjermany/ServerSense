@@ -14,7 +14,6 @@ from serversense.models import (
     Event,
     MetricSample,
     Setting,
-    StorageSample,
     User,
 )
 from serversense.schemas import DashboardResponse, ForecastResponse, ForecastWindow, StoragePoint
@@ -26,6 +25,11 @@ from serversense.services.dashboard_insights import latest_dashboard_summary
 from serversense.services.forecasting import calculate_all
 from serversense.services.maintenance import create_backup, diagnostic_bundle
 from serversense.services.metrics import calculate_network_rates
+from serversense.services.storage import (
+    current_storage_samples,
+    latest_storage_sample,
+    storage_scope,
+)
 from serversense.services.timezones import time_zone_details
 
 router = APIRouter(prefix="/api", tags=["monitoring"], dependencies=[Depends(current_user)])
@@ -106,7 +110,7 @@ def container_change_times(db: Session, rows: list[DockerSample]) -> dict[str, d
 
 
 def get_storage_forecast(db: Session) -> ForecastResponse:
-    samples = list(db.scalars(select(StorageSample).order_by(StorageSample.timestamp)))
+    samples = current_storage_samples(db)
     if not samples:
         raise HTTPException(404, "No storage samples are available")
     forecasts = calculate_all(samples)
@@ -116,6 +120,7 @@ def get_storage_forecast(db: Session) -> ForecastResponse:
         (item for item in valid if item.window_days == 30), valid[0] if valid else None
     )
     return ForecastResponse(
+        sampled_at=latest.timestamp,
         current_total_bytes=latest.total_bytes,
         current_used_bytes=latest.used_bytes,
         current_free_bytes=latest.free_bytes,
@@ -126,7 +131,7 @@ def get_storage_forecast(db: Session) -> ForecastResponse:
 
 @router.get("/dashboard", response_model=DashboardResponse)
 def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
-    storage = db.scalar(select(StorageSample).order_by(desc(StorageSample.timestamp)))
+    storage = latest_storage_sample(db)
     metrics = list(db.scalars(select(MetricSample).order_by(desc(MetricSample.timestamp)).limit(2)))
     metric = metrics[0] if metrics else None
     network = calculate_network_rates(metrics[1] if len(metrics) > 1 else None, metric)
@@ -257,6 +262,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
             "total_bytes": storage.total_bytes if storage else 0,
             "used_bytes": storage.used_bytes if storage else 0,
             "free_bytes": storage.free_bytes if storage else 0,
+            **(storage_scope(storage) if storage else {}),
             "days_remaining": selected.days_remaining if selected else None,
             "growth_bytes_per_day": selected.bytes_per_day if selected else None,
         },
@@ -332,9 +338,7 @@ def storage_history(
         "90d": timedelta(days=90),
         "1y": timedelta(days=365),
     }
-    statement = select(StorageSample).order_by(StorageSample.timestamp)
-    if range != "all":
-        statement = statement.where(StorageSample.timestamp >= datetime.now(UTC) - durations[range])
+    since = datetime.now(UTC) - durations[range] if range != "all" else None
     return [
         StoragePoint(
             timestamp=x.timestamp,
@@ -342,7 +346,7 @@ def storage_history(
             used_bytes=x.used_bytes,
             free_bytes=x.free_bytes,
         )
-        for x in db.scalars(statement)
+        for x in current_storage_samples(db, since=since)
     ]
 
 
@@ -364,6 +368,7 @@ def disk_list(db: Session = Depends(get_db)) -> list[dict]:
     return [
         {
             "id": x.disk_id,
+            "sampled_at": x.timestamp.isoformat(),
             "name": x.name,
             "role": x.role,
             "manufacturer": x.manufacturer,
@@ -397,6 +402,7 @@ def disk_details(disk_id: str, db: Session = Depends(get_db)) -> dict:
     )
     return {
         "id": row.disk_id,
+        "sampled_at": row.timestamp.isoformat(),
         "name": row.name,
         "role": row.role,
         "manufacturer": row.manufacturer,

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import docker
 import psutil
@@ -19,6 +19,12 @@ from serversense.config import Settings
 from serversense.models import DiskSample, DockerSample, MetricSample, Setting, StorageSample
 
 logger = logging.getLogger(__name__)
+
+
+class DiskUsage(Protocol):
+    total: int
+    used: int
+    free: int
 
 
 @dataclass
@@ -59,7 +65,14 @@ class LinuxCollector(Collector):
         }
 
     def _array_path(self) -> Path:
-        return self.settings.array_path if self.settings.array_path.exists() else Path("/")
+        return self.settings.array_path
+
+    def _storage_usage(self) -> DiskUsage | None:
+        path = self._array_path()
+        if not path.exists():
+            logger.warning("Configured storage path is unavailable: %s", path)
+            return None
+        return cast(DiskUsage, shutil.disk_usage(path))
 
     def collect(
         self,
@@ -71,7 +84,7 @@ class LinuxCollector(Collector):
         now = datetime.now(UTC)
         memory = psutil.virtual_memory()
         network = psutil.net_io_counters()
-        disk = shutil.disk_usage(self._array_path()) if include_storage else None
+        disk = self._storage_usage() if include_storage else None
         return Snapshot(
             timestamp=now,
             metric={
@@ -187,13 +200,19 @@ class UnraidCollector(LinuxCollector):
         include_state: bool = True,
     ) -> Snapshot:
         snapshot = super().collect(
-            include_storage=include_storage,
+            include_storage=False,
             include_disks=include_disks,
             include_containers=include_containers,
             include_state=include_state,
         )
         snapshot.platform = "unraid"
-        sections = self._unraid_disk_sections() if include_disks or include_state else []
+        sections = (
+            self._unraid_disk_sections()
+            if include_storage or include_disks or include_state
+            else []
+        )
+        if include_storage:
+            snapshot.storage = self._unraid_array_storage(sections)
         if include_disks:
             snapshot.disks = self._unraid_disks(snapshot.timestamp, sections)
         if include_state:
@@ -368,6 +387,28 @@ class UnraidCollector(LinuxCollector):
                 }
             )
         return sorted(pools, key=lambda item: str(item["name"]).lower())
+
+    def _unraid_array_storage(self, sections: list[dict[str, str]]) -> dict[str, Any] | None:
+        data_disks = [
+            item
+            for item in sections
+            if self._disk_role(item) == "data" and self._is_assigned_disk(item)
+        ]
+        sizes = [self._number(item.get("fsSize")) * 1024 for item in data_disks]
+        if not sizes or any(size <= 0 for size in sizes):
+            logger.warning("Unraid array capacity metadata is incomplete; keeping last sample")
+            return None
+        total = sum(sizes)
+        free = sum(
+            min(self._number(item.get("fsFree")) * 1024, size)
+            for item, size in zip(data_disks, sizes, strict=True)
+        )
+        return {
+            "total_bytes": total,
+            "used_bytes": max(0, total - free),
+            "free_bytes": free,
+            "source": "unraid_array",
+        }
 
     def _normalize_disk(self, data: dict[str, str], timestamp: datetime) -> dict[str, Any]:
         device = data.get("device", "")

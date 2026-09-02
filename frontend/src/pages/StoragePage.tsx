@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Area,
   ComposedChart,
@@ -9,13 +9,15 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { api, formatBytes } from "../api";
+import { formatBytes } from "../api";
 import type { Pool, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
-import { formatDate, parseTimestamp } from "../timeFormat";
+import { SLOW_REFRESH_INTERVAL_MS, useLiveQuery } from "../hooks/useLiveQuery";
+import { formatDate, formatDateTime, parseTimestamp } from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
 
 type Forecast = {
+  sampled_at: string;
   current_total_bytes: number;
   current_used_bytes: number;
   current_free_bytes: number;
@@ -42,14 +44,19 @@ const ranges = ["24h", "7d", "30d", "90d", "1y", "all"];
 export default function StoragePage() {
   const { timeZone } = useTimeZone();
   const [range, setRange] = useState("90d");
-  const [history, setHistory] = useState<StoragePoint[]>([]);
-  const [forecast, setForecast] = useState<Forecast>();
-  const [pools, setPools] = useState<Pool[]>([]);
-  useEffect(() => {
-    api<StoragePoint[]>(`/api/storage/history?range=${range}`).then(setHistory);
-    api<Forecast>("/api/storage/forecast").then(setForecast);
-    api<Pool[]>("/api/storage/pools").then(setPools);
-  }, [range]);
+  const { data: history = [], error: historyError } = useLiveQuery<StoragePoint[]>(
+    `/api/storage/history?range=${range}`,
+    SLOW_REFRESH_INTERVAL_MS,
+  );
+  const { data: forecast, error: forecastError } = useLiveQuery<Forecast>(
+    "/api/storage/forecast",
+    SLOW_REFRESH_INTERVAL_MS,
+  );
+  const { data: pools = [], error: poolsError } = useLiveQuery<Pool[]>(
+    "/api/storage/pools",
+    SLOW_REFRESH_INTERVAL_MS,
+  );
+  const error = historyError || forecastError || poolsError;
   const preferred = forecast?.forecasts.find((x) => x.window_days === 30);
   const chartData: ChartPoint[] = history.map((point, index) => ({
     ...point,
@@ -83,7 +90,14 @@ export default function StoragePage() {
   }
   return (
     <div className="page">
-      <PageHeader eyebrow="STORAGE INTELLIGENCE" title="Array capacity" />
+      <PageHeader eyebrow="STORAGE INTELLIGENCE" title="Array capacity">
+        {forecast && (
+          <span className="muted">
+            Sampled {formatDateTime(forecast.sampled_at, timeZone)}
+          </span>
+        )}
+      </PageHeader>
+      {error && <div className="form-error">{error}</div>}
       <div className="metrics-grid three">
         <Metric
           label="Available"

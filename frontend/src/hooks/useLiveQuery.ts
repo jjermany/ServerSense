@@ -1,11 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 
 export const LIVE_REFRESH_INTERVAL_MS = 5_000;
+export const DOCKER_REFRESH_INTERVAL_MS = 15_000;
+export const SLOW_REFRESH_INTERVAL_MS = 60_000;
 
-export function useLiveQuery<T>(path: string) {
+export function useLiveQuery<T>(
+  path: string,
+  intervalMs = LIVE_REFRESH_INTERVAL_MS,
+) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refresh = useCallback(() => setRefreshVersion((value) => value + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -36,14 +43,14 @@ export function useLiveQuery<T>(path: string) {
     };
 
     void refresh();
-    const timer = window.setInterval(() => void refresh(), LIVE_REFRESH_INTERVAL_MS);
+    const timer = window.setInterval(() => void refresh(), intervalMs);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [path]);
+  }, [intervalMs, path, refreshVersion]);
 
-  return { data, error };
+  return { data, error, refresh, setData };
 }

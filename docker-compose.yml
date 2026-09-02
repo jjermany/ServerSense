@@ -9,10 +9,8 @@ services:
       SERVERSENSE_SECRET_KEY: ${SERVERSENSE_SECRET_KEY:?Set SERVERSENSE_SECRET_KEY in .env}
       SERVERSENSE_DEMO_MODE: ${SERVERSENSE_DEMO_MODE:-false}
       SERVERSENSE_LOG_LEVEL: ${SERVERSENSE_LOG_LEVEL:-INFO}
-      SERVERSENSE_ARRAY_PATH: /mnt/user
     volumes:
       - ./config:/config
-      - /mnt/user:/mnt/user:ro
       - /var/local/emhttp:/var/local/emhttp:ro
       - /etc/unraid-version:/etc/unraid-version:ro
       - /dev:/dev:ro

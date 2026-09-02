@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -15,10 +14,13 @@ import {
   HardDrive,
   Server,
 } from "lucide-react";
-import { api, formatBytes, formatRate } from "../api";
+import { formatBytes, formatRate } from "../api";
 import type { Dashboard, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
-import { useLiveQuery } from "../hooks/useLiveQuery";
+import {
+  SLOW_REFRESH_INTERVAL_MS,
+  useLiveQuery,
+} from "../hooks/useLiveQuery";
 import {
   formatDate,
   formatDateTime,
@@ -30,23 +32,10 @@ import { useTimeZone } from "../timeZoneContext";
 export default function DashboardPage() {
   const { timeZone: configuredTimeZone } = useTimeZone();
   const { data, error: liveError } = useLiveQuery<Dashboard>("/api/dashboard");
-  const [history, setHistory] = useState<StoragePoint[]>([]);
-  const [historyError, setHistoryError] = useState("");
-  useEffect(() => {
-    let active = true;
-    api<StoragePoint[]>("/api/storage/history?range=90d")
-      .then((points) => {
-        if (active) setHistory(points);
-      })
-      .catch((reason) => {
-        if (active) {
-          setHistoryError(reason instanceof Error ? reason.message : "Unable to load history");
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { data: history = [], error: historyError } = useLiveQuery<StoragePoint[]>(
+    "/api/storage/history?range=90d",
+    SLOW_REFRESH_INTERVAL_MS,
+  );
   const error = liveError || historyError;
   if (error)
     return (

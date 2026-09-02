@@ -2,7 +2,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import type { Container } from "../types";
-import { LIVE_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
+import { DOCKER_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
 import DockerPage from "./DockerPage";
 
 vi.mock("../api", () => ({
@@ -41,7 +41,7 @@ describe("Docker live telemetry", () => {
 
     vi.mocked(api).mockResolvedValue([container("exited")]);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LIVE_REFRESH_INTERVAL_MS);
+      await vi.advanceTimersByTimeAsync(DOCKER_REFRESH_INTERVAL_MS);
     });
 
     expect(screen.getByText("0 of 1 online")).toBeVisible();

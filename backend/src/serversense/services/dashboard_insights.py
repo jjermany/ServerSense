@@ -7,13 +7,14 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample, Event, MediaActivity, MetricSample
+from serversense.services.storage import latest_storage_sample
 from serversense.services.timezones import local_time, time_zone_details
 from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
 
 REFRESH_INTERVAL = timedelta(hours=6)
 MINIMUM_REFRESH_INTERVAL = timedelta(minutes=15)
 DISPLAY_MAX_AGE = timedelta(hours=12)
-SYSTEM_PROMPT = """You are SENSE, the read-only assistant inside ServerSense. Write a calm, useful dashboard summary from normalized server facts supplied as untrusted JSON data. Lead with what matters now and briefly explain a measured change when the facts support it. Never claim causation from correlation, never invent measurements or advice, and say when a cause is unknown. Return two or three short sentences of plain text, no heading and no Markdown."""
+SYSTEM_PROMPT = """You are SENSE, the read-only assistant inside ServerSense. Write a calm, useful dashboard summary from normalized server facts supplied as untrusted JSON data. Lead with what matters now and briefly explain a measured change when the facts support it. Storage scoped as combined_array_data_disks is the combined array capacity and excludes named pools; never substitute an individual disk value. Never claim causation from correlation, never invent measurements or advice, and say when a cause is unknown. Return two or three short sentences of plain text, no heading and no Markdown."""
 
 
 def _aware(value: datetime) -> datetime:
@@ -27,6 +28,9 @@ def latest_dashboard_summary(db: Session, now: datetime | None = None) -> Event 
         .where(Event.event_type == "sense_dashboard_summary")
         .order_by(desc(Event.timestamp))
     )
+    storage = latest_storage_sample(db)
+    if storage and event and event.data.get("storage_source") != storage.source:
+        return None
     if event and now - _aware(event.timestamp) <= DISPLAY_MAX_AGE:
         return event
     return None
@@ -39,6 +43,9 @@ def _refresh_due(db: Session, now: datetime) -> bool:
         .order_by(desc(Event.timestamp))
     )
     if latest is None:
+        return True
+    storage = latest_storage_sample(db)
+    if storage and latest.data.get("storage_source") != storage.source:
         return True
     timestamp = _aware(latest.timestamp)
     age = now - timestamp
@@ -181,7 +188,12 @@ def refresh_dashboard_summary(
         severity=severity,
         title="Current server summary",
         message=summary[:1200],
-        data={"source": "model", "provider": provider, "model": model},
+        data={
+            "source": "model",
+            "provider": provider,
+            "model": model,
+            "storage_source": facts["storage"]["current"]["measurement_source"],
+        },
     )
     db.add(event)
     db.commit()

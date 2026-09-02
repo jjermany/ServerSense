@@ -2,7 +2,10 @@ import { Box } from "lucide-react";
 import { formatBytes } from "../api";
 import type { Container } from "../types";
 import { Card, PageHeader, Status } from "../components/UI";
-import { useLiveQuery } from "../hooks/useLiveQuery";
+import {
+  DOCKER_REFRESH_INTERVAL_MS,
+  useLiveQuery,
+} from "../hooks/useLiveQuery";
 import { formatDateTime, formatTime } from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
 const formatUptime = (seconds: number | null) => {
@@ -13,7 +16,10 @@ const formatUptime = (seconds: number | null) => {
 };
 export default function DockerPage() {
   const { timeZone } = useTimeZone();
-  const { data: rows = [], error } = useLiveQuery<Container[]>("/api/docker");
+  const { data: rows = [], error } = useLiveQuery<Container[]>(
+    "/api/docker",
+    DOCKER_REFRESH_INTERVAL_MS,
+  );
   return (
     <div className="page">
       <PageHeader eyebrow="CONTAINER MONITORING" title="Docker">

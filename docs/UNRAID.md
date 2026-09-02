@@ -2,20 +2,20 @@
 
 ServerSense is designed to run as one Docker container. The Community Applications template is a draft pending submission; it uses the public GitHub Container Registry image.
 
+Array capacity comes from `/var/local/emhttp/disks.ini`: ServerSense sums assigned data-disk filesystem totals and free space while excluding parity, boot, and named pools. `/mnt/user` is intentionally not mounted because Unraid user shares can combine array and pool content.
+
 ## Manual Docker setup
 
 Build or pull the ServerSense image, then create a container with:
 
 - Web UI port: container `8080`, host `8080` or another free port.
 - `/config` → `/mnt/user/appdata/serversense` read/write.
-- `/mnt/user` → `/mnt/user` read-only.
 - `/var/local/emhttp` → `/var/local/emhttp` read-only.
 - `/etc/unraid-version` → `/etc/unraid-version` read-only.
 - `/dev` → `/dev` read-only for SMART access.
 - Extra Parameters: `--cap-add=SYS_RAWIO --device-cgroup-rule='b 8:* r' --device-cgroup-rule='b 259:* r'` for read-only SATA/SAS and NVMe access, including SAT passthrough.
 - `/var/run/docker.sock` → `/var/run/docker.sock` read-only for container inventory.
 - `SERVERSENSE_SECRET_KEY` → a stable random 64-character hex string.
-- `SERVERSENSE_ARRAY_PATH=/mnt/user`.
 - `TZ=America/Chicago` (or another valid IANA timezone) for every displayed date and time.
 
 Example command:
@@ -28,10 +28,8 @@ docker run -d \
   --cap-add SYS_RAWIO \
   -p 8080:8080 \
   -e SERVERSENSE_SECRET_KEY="$(openssl rand -hex 32)" \
-  -e SERVERSENSE_ARRAY_PATH=/mnt/user \
   -e TZ=America/Chicago \
   -v /mnt/user/appdata/serversense:/config \
-  -v /mnt/user:/mnt/user:ro \
   -v /var/local/emhttp:/var/local/emhttp:ro \
   -v /etc/unraid-version:/etc/unraid-version:ro \
   -v /dev:/dev:ro \

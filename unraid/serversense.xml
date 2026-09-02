@@ -21,12 +21,10 @@
   <Requires>Unraid 6.12+; x86-64. Keep the Docker socket and host paths read-only.</Requires>
   <Config Name="Web UI" Target="8080" Default="8080" Mode="tcp" Description="ServerSense web interface" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
   <Config Name="Application Data" Target="/config" Default="/mnt/user/appdata/serversense" Mode="rw" Description="Persistent database, settings, models, logs, and backups" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/serversense</Config>
-  <Config Name="Unraid Shares" Target="/mnt/user" Default="/mnt/user" Mode="ro" Description="Read-only array capacity source" Type="Path" Display="always" Required="true" Mask="false">/mnt/user</Config>
   <Config Name="Unraid Runtime Data" Target="/var/local/emhttp" Default="/var/local/emhttp" Mode="ro" Description="Read-only array and disk metadata" Type="Path" Display="advanced" Required="true" Mask="false">/var/local/emhttp</Config>
   <Config Name="Unraid Version" Target="/etc/unraid-version" Default="/etc/unraid-version" Mode="ro" Description="Platform detection" Type="Path" Display="advanced" Required="true" Mask="false">/etc/unraid-version</Config>
   <Config Name="Devices" Target="/dev" Default="/dev" Mode="ro" Description="Read-only SMART nodes; Extra Parameters grant block-device access and the SYS_RAWIO capability required for SAT passthrough" Type="Path" Display="advanced" Required="true" Mask="false">/dev</Config>
   <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="ro" Description="Sensitive: used only for read-only container inventory" Type="Path" Display="advanced" Required="true" Mask="false">/var/run/docker.sock</Config>
   <Config Name="Installation Secret" Target="SERVERSENSE_SECRET_KEY" Default="" Mode="" Description="Stable random secret, e.g. openssl rand -hex 32" Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode="" Description="IANA timezone used for all ServerSense date and time displays, for example America/Chicago" Type="Variable" Display="always" Required="true" Mask="false">Etc/UTC</Config>
-  <Config Name="Array Path" Target="SERVERSENSE_ARRAY_PATH" Default="/mnt/user" Mode="" Description="Capacity source inside the container" Type="Variable" Display="advanced" Required="true" Mask="false">/mnt/user</Config>
 </Container>

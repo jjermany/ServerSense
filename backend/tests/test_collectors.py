@@ -6,7 +6,83 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from serversense.config import Settings
-from serversense.services.collectors import UnraidCollector
+from serversense.services.collectors import LinuxCollector, UnraidCollector
+
+
+def test_missing_configured_storage_path_does_not_fall_back_to_container_root(
+    tmp_path: Path,
+) -> None:
+    collector = LinuxCollector(
+        Settings(
+            array_path=tmp_path / "missing-array",
+            config_dir=tmp_path,
+            secret_key="collector-test-secret-key",
+        )
+    )
+    snapshot = collector.collect(
+        include_storage=True,
+        include_disks=False,
+        include_containers=False,
+        include_state=False,
+    )
+    assert snapshot.storage is None
+
+
+def test_unraid_array_capacity_sums_data_disks_and_excludes_parity_and_pools(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    collector = UnraidCollector(
+        Settings(config_dir=tmp_path, secret_key="collector-test-secret-key")
+    )
+    sections = [
+        {
+            "name": "parity",
+            "device": "sda",
+            "id": "parity-id",
+            "size": "1000",
+            "fsSize": "0",
+            "fsFree": "0",
+        },
+        {
+            "name": "disk1",
+            "device": "sdb",
+            "id": "disk-1-id",
+            "size": "1000",
+            "fsSize": "900",
+            "fsFree": "300",
+        },
+        {
+            "name": "disk2",
+            "device": "sdc",
+            "id": "disk-2-id",
+            "size": "2000",
+            "fsSize": "1800",
+            "fsFree": "500",
+        },
+        {
+            "name": "cache",
+            "device": "nvme0n1",
+            "id": "cache-id",
+            "size": "4000",
+            "fsSize": "3500",
+            "fsFree": "2500",
+        },
+    ]
+    monkeypatch.setattr(collector, "_unraid_disk_sections", lambda: sections)
+
+    snapshot = collector.collect(
+        include_storage=True,
+        include_disks=False,
+        include_containers=False,
+        include_state=False,
+    )
+
+    assert snapshot.storage == {
+        "total_bytes": 2700 * 1024,
+        "used_bytes": 1900 * 1024,
+        "free_bytes": 800 * 1024,
+        "source": "unraid_array",
+    }
 
 
 def test_smart_json_is_normalized_without_shell(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

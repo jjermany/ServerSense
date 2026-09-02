@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { LIVE_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
 import AlertsPage from "./AlertsPage";
 
 vi.mock("../api", () => ({ api: vi.fn() }));
@@ -11,7 +12,38 @@ describe("AlertsPage", () => {
     vi.mocked(api).mockReset();
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("shows newly recorded alerts on the live refresh interval", async () => {
+    vi.useFakeTimers();
+    const newAlert = {
+      id: 41,
+      type: "container_stopped",
+      severity: "warning",
+      title: "Container stopped",
+      message: "Plex has remained stopped.",
+      created_at: "2026-08-18T12:00:00Z",
+      active: true,
+      acknowledged_at: null,
+    };
+    vi.mocked(api).mockResolvedValueOnce([]).mockResolvedValueOnce([newAlert]);
+
+    render(
+      <MemoryRouter>
+        <AlertsPage />
+      </MemoryRouter>,
+    );
+    await act(async () => undefined);
+    expect(screen.getByText("No alerts have been recorded.")).toBeVisible();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_REFRESH_INTERVAL_MS);
+    });
+    expect(screen.getByText("Container stopped")).toBeVisible();
+  });
 
   it("replaces the acknowledge button with the persisted acknowledgement", async () => {
     const activeAlert = {

@@ -216,6 +216,10 @@ button {
   border-radius: 50%;
   margin-right: 6px;
 }
+.live.offline i {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn);
+}
 .page {
   max-width: 1480px;
   margin: auto;
