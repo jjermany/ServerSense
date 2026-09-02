@@ -211,7 +211,8 @@ export default function SettingsPage() {
   };
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
+    const formElement = e.currentTarget;
+    const form = new FormData(formElement);
     const raw = Object.fromEntries(form);
     if (form.get("browser_notifications") === "on" && "Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission();
@@ -219,8 +220,8 @@ export default function SettingsPage() {
     await runAction(
       "ai-save",
       "Saving AI settings…",
-      () =>
-        api("/api/settings/ai", {
+      async () => {
+        const updated = await api<AIConfig>("/api/settings/ai", {
           method: "PUT",
           body: JSON.stringify({
             ...raw,
@@ -241,8 +242,28 @@ export default function SettingsPage() {
             proactive_insights: form.get("proactive_insights") === "on",
             dashboard_summaries: form.get("dashboard_summaries") === "on",
           }),
-        }),
+        });
+        setConfig(updated);
+        const apiKeyInput = formElement.elements.namedItem("api_key");
+        if (apiKeyInput instanceof HTMLInputElement) apiKeyInput.value = "";
+        return updated;
+      },
       "AI settings saved securely.",
+    );
+  };
+  const clearApiKey = async () => {
+    if (!window.confirm("Clear the saved AI API key? Other AI settings will be kept.")) return;
+    await runAction(
+      "ai-key-clear",
+      "Clearing saved API key…",
+      async () => {
+        const updated = await api<AIConfig>("/api/settings/ai/api-key", {
+          method: "DELETE",
+        });
+        setConfig(updated);
+        return updated;
+      },
+      "Saved AI API key cleared.",
     );
   };
   const test = async () => {
@@ -433,11 +454,14 @@ export default function SettingsPage() {
     );
   };
   return (
-    <div className="page">
-      <PageHeader eyebrow="CONFIGURATION" title="Settings" />
+    <div className="page settings-page">
+      <PageHeader eyebrow="CONFIGURATION" title="Settings">
+        <p className="page-header-note">Server, alerts, AI, and integrations</p>
+      </PageHeader>
       <div className="settings-layout">
-        <aside>
-          <a className="active" href="#ai">
+        <aside aria-label="Settings sections">
+          <small>SETTINGS</small>
+          <a href="#ai">
             <Bot />
             AI
           </a>
@@ -473,196 +497,101 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-            <form onSubmit={submit}>
-              <div className="field-grid">
-                <label>
-                  Provider
-                  <select name="provider" defaultValue={config.provider}>
-                    <option value="disabled">
-                      Built-in deterministic mode
-                    </option>
-                    <option value="ollama">Ollama-compatible</option>
-                    <option value="openai_compatible">
-                      OpenAI-compatible API
-                    </option>
-                  </select>
-                </label>
-                <label>
-                  Model
-                  <input
-                    name="model"
-                    defaultValue={config.model}
-                    list="ai-model-list"
-                    placeholder="e.g. llama3.2:3b"
-                  />
-                  <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist>
-                  <button type="button" className="secondary inline-action" onClick={() => void discoverModels()} disabled={actions["ai-models"]?.phase === "pending"}>
-                    <RefreshCw size={13} /> Refresh models
-                  </button>
-                </label>
-              </div>
-              <label>
-                Endpoint
-                <input
-                  name="endpoint"
-                  type="url"
-                  defaultValue={config.endpoint}
-                  placeholder="http://host.docker.internal:11434"
-                />
-                <small>
-                  ServerSense adds /v1/chat/completions when sending requests.
-                </small>
-              </label>
-              <label>
-                API key
-                <input
-                  name="api_key"
-                  type="password"
-                  placeholder={
-                    config.api_key_configured
-                      ? "Configured — leave blank to keep"
-                      : "Optional for local endpoints"
-                  }
-                  autoComplete="new-password"
-                />
-              </label>
-              <div className="field-grid three">
-                <label>
-                  Context window
-                  <input
-                    name="context_window"
-                    type="number"
-                    min="1024"
-                    defaultValue={config.context_window}
-                  />
-                </label>
-                <label>
-                  Temperature
-                  <input
-                    name="temperature"
-                    type="number"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    defaultValue={config.temperature}
-                  />
-                </label>
-                <label>
-                  Max tool calls
-                  <input
-                    name="max_tool_calls"
-                    type="number"
-                    min="1"
-                    max="12"
-                    defaultValue={config.max_tool_calls}
-                  />
-                </label>
-              </div>
-              <label>
-                Timeout (seconds)
-                <input
-                  name="timeout_seconds"
-                  type="number"
-                  min="5"
-                  max="600"
-                  defaultValue={config.timeout_seconds}
-                />
-              </label>
-              <label>
-                Maximum response tokens
-                <input
-                  name="max_output_tokens"
-                  type="number"
-                  min="64"
-                  max="4096"
-                  defaultValue={config.max_output_tokens}
-                />
-                <small>Limits model output so local requests cannot reason indefinitely.</small>
-              </label>
-              <div className="field-grid three">
-                <label>
-                  Tool compatibility
-                  <select name="tool_calling" defaultValue={config.tool_calling}>
-                    <option value="auto">Auto fallback</option>
-                    <option value="native">Require native tools</option>
-                    <option value="curated_context">Curated context only</option>
-                  </select>
-                </label>
-                <label>
-                  Background after (seconds)
-                  <input name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} />
-                  <small>After this time, SENSE AI keeps working and lets you safely leave. This does not stop the analysis.</small>
-                </label>
-                <label>
-                  Maximum runtime (seconds)
-                  <input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} />
-                  <small>Stops an individual inference at this hard wall-clock limit to protect server resources.</small>
-                </label>
-              </div>
-              <div className="field-grid three">
-                <label>
-                  Concurrent AI jobs
-                  <input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} />
-                </label>
-                <label>
-                  Maximum queued jobs
-                  <input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} />
-                </label>
-                <label>
-                  Conversation retention (days)
-                  <input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} />
-                </label>
-              </div>
-              <div className="field-grid">
-                <label>
-                  Maximum AI context (characters)
-                  <input name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} />
-                  <small>Bounds summaries, recent messages, and gathered context sent to a model.</small>
-                </label>
-                <label>
-                  Maximum telemetry payload (characters)
-                  <input name="max_telemetry_chars" type="number" min="2000" max="100000" step="1000" defaultValue={config.max_telemetry_chars} />
-                  <small>Prevents complex analysis from attaching unlimited telemetry or log-like data.</small>
-                </label>
-              </div>
-              <label className="check">
-                <input name="notify_long_running_jobs" type="checkbox" defaultChecked={config.notify_long_running_jobs} />
-                <span><b>Notify when long SENSE AI requests finish</b><small>Used as the default for each new job. The long-running chat control can override it for one request.</small></span>
-              </label>
-              <label className="check">
-                <input name="browser_notifications" type="checkbox" defaultChecked={config.browser_notifications} />
-                <span><b>Allow browser completion notifications</b><small>Eligible long-running jobs use their saved notification preference. Your browser will still ask for permission before showing system notifications.</small></span>
-              </label>
-              <label className="check">
-                <input
-                  name="proactive_insights"
-                  type="checkbox"
-                  defaultChecked={config.proactive_insights}
-                />
-                <span>
-                  <b>Explain new alerts with SENSE</b>
-                  <small>
-                    Send each new deterministic alert batch to the configured
-                    model once for a concise explanation. Monitoring and alerts
-                    continue normally if the model is unavailable.
-                  </small>
-                </span>
-              </label>
-              <label className="check">
-                <input
-                  name="dashboard_summaries"
-                  type="checkbox"
-                  defaultChecked={config.dashboard_summaries}
-                />
-                <span>
-                  <b>Add a cached AI dashboard summary</b>
-                  <small>
-                    Generate a short background summary at most every six hours
-                    or after meaningful alert and media activity. Existing
-                    measured insights remain unchanged if the model is unavailable.
-                  </small>
-                </span>
-              </label>
+            <form className="settings-form" onSubmit={submit}>
+              <section className="settings-form-section">
+                <div className="settings-section-heading">
+                  <div><span>01</span><h3>Model connection</h3></div>
+                  <p>Select the provider, model, and credentials SENSE should use.</p>
+                </div>
+                <div className="field-grid">
+                  <label>
+                    Provider
+                    <select name="provider" defaultValue={config.provider}>
+                      <option value="disabled">Built-in deterministic mode</option>
+                      <option value="ollama">Ollama-compatible</option>
+                      <option value="openai_compatible">OpenAI-compatible API</option>
+                    </select>
+                  </label>
+                  <label>
+                    Model
+                    <span className="input-action">
+                      <input name="model" defaultValue={config.model} list="ai-model-list" placeholder="e.g. llama3.2:3b" />
+                      <button type="button" className="secondary" onClick={() => void discoverModels()} disabled={actions["ai-models"]?.phase === "pending"}>
+                        <RefreshCw size={14} /> Refresh
+                      </button>
+                    </span>
+                    <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist>
+                  </label>
+                </div>
+                <div className="field-grid">
+                  <label>
+                    Endpoint
+                    <input name="endpoint" type="url" defaultValue={config.endpoint} placeholder="http://host.docker.internal:11434" />
+                    <small>ServerSense adds /v1/chat/completions when sending requests.</small>
+                  </label>
+                  <div className="credential-field">
+                    <label>
+                      API key
+                      <input name="api_key" type="password" placeholder={config.api_key_configured ? "Configured — leave blank to keep" : "Optional for local endpoints"} autoComplete="new-password" />
+                    </label>
+                    {config.api_key_configured && (
+                      <button type="button" className="secondary" onClick={() => void clearApiKey()} disabled={actions["ai-key-clear"]?.phase === "pending"}>
+                        {actions["ai-key-clear"]?.phase === "pending" ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+                        {actions["ai-key-clear"]?.phase === "pending" ? "Clearing…" : "Clear saved key"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <ActionFeedback status={actions["ai-models"]} />
+              </section>
+
+              <section className="settings-form-section">
+                <div className="settings-section-heading">
+                  <div><span>02</span><h3>Generation behavior</h3></div>
+                  <p>Control response size, model behavior, and provider timeouts.</p>
+                </div>
+                <div className="settings-control-grid">
+                  <label>Context window<input name="context_window" type="number" min="1024" defaultValue={config.context_window} /></label>
+                  <label>Temperature<input name="temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.temperature} /></label>
+                  <label>Maximum tool calls<input name="max_tool_calls" type="number" min="1" max="12" defaultValue={config.max_tool_calls} /></label>
+                  <label>Provider timeout (seconds)<input name="timeout_seconds" type="number" min="5" max="600" defaultValue={config.timeout_seconds} /></label>
+                  <label>Maximum response tokens<input name="max_output_tokens" type="number" min="64" max="4096" defaultValue={config.max_output_tokens} /></label>
+                  <label>Tool compatibility<select name="tool_calling" defaultValue={config.tool_calling}><option value="auto">Auto fallback</option><option value="native">Require native tools</option><option value="curated_context">Curated context only</option></select></label>
+                </div>
+              </section>
+
+              <section className="settings-form-section">
+                <div className="settings-section-heading">
+                  <div><span>03</span><h3>Jobs, context, and retention</h3></div>
+                  <p>Set hard resource boundaries for interactive model work.</p>
+                </div>
+                <div className="settings-control-grid">
+                  <label>Background after (seconds)<input name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} /><small>Changes presentation only; processing continues.</small></label>
+                  <label>Maximum runtime (seconds)<input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Hard wall-clock limit for one inference.</small></label>
+                  <label>Concurrent AI jobs<input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} /></label>
+                  <label>Maximum queued jobs<input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} /></label>
+                  <label>Conversation retention (days)<input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} /></label>
+                  <label>Maximum AI context (characters)<input name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} /></label>
+                  <label>Maximum telemetry (characters)<input name="max_telemetry_chars" type="number" min="2000" max="100000" step="1000" defaultValue={config.max_telemetry_chars} /></label>
+                </div>
+              </section>
+
+              <section className="settings-form-section">
+                <div className="settings-section-heading">
+                  <div><span>04</span><h3>Automation and notifications</h3></div>
+                  <p>These optional features run separately from deterministic monitoring.</p>
+                </div>
+                <div className="settings-toggle-grid">
+                  <label className="check"><input name="notify_long_running_jobs" type="checkbox" defaultChecked={config.notify_long_running_jobs} /><span><b>Long-running job notifications</b><small>Use notifications by default when a long SENSE request finishes.</small></span></label>
+                  <label className="check"><input name="browser_notifications" type="checkbox" defaultChecked={config.browser_notifications} /><span><b>Browser notifications</b><small>Allow eligible completed jobs to show a system notification.</small></span></label>
+                  <label className="check"><input name="proactive_insights" type="checkbox" defaultChecked={config.proactive_insights} /><span><b>Explain new alerts with SENSE</b><small>Request a model explanation after deterministic alerts are safely recorded.</small></span></label>
+                  <label className="check"><input name="dashboard_summaries" type="checkbox" defaultChecked={config.dashboard_summaries} /><span><b>Add a cached AI dashboard summary</b><small>First attempt occurs within about five minutes. It needs a configured model and one storage sample; a forecast may still be learning.</small></span></label>
+                </div>
+                <div className="summary-timing-note">
+                  <RefreshCw size={16} />
+                  <p><b>Summary timing</b><span>Refreshes every six hours, or after new alert/media activity once the prior summary is at least 15 minutes old. Cached summaries are shown for up to 12 hours.</span></p>
+                </div>
+              </section>
               <div className="permission-box">
                 <CheckCircle2 />
                 <div>
@@ -677,6 +606,7 @@ export default function SettingsPage() {
               <div className="form-feedback">
                 <ActionFeedback status={actions["ai-test"]} />
                 <ActionFeedback status={actions["ai-save"]} />
+                <ActionFeedback status={actions["ai-key-clear"]} />
               </div>
               <div className="form-actions">
                 <button

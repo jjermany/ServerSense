@@ -4,7 +4,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from serversense.db import SessionLocal
-from serversense.models import AIConversation, AIMessage, AIToolCall, Alert, DiskSample, Event
+from serversense.models import (
+    AIConversation,
+    AIMessage,
+    AIToolCall,
+    Alert,
+    DiskSample,
+    Event,
+    Setting,
+)
 
 
 def test_health_and_authentication_required(client: TestClient) -> None:
@@ -316,6 +324,34 @@ def test_proactive_ai_setting_and_dashboard_provenance(
         "/api/settings/ai",
         json={"provider": "disabled", "proactive_insights": False},
     )
+    assert reset.status_code == 200
+
+
+def test_saved_ai_api_key_can_be_cleared(authenticated_client: TestClient) -> None:
+    saved = authenticated_client.put(
+        "/api/settings/ai",
+        json={
+            "provider": "openai_compatible",
+            "model": "private-model",
+            "endpoint": "https://model.example.invalid",
+            "api_key": "secret-model-key",
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["api_key_configured"] is True
+
+    cleared = authenticated_client.delete("/api/settings/ai/api-key")
+    assert cleared.status_code == 200
+    assert cleared.json()["api_key_configured"] is False
+    assert cleared.json()["provider"] == "openai_compatible"
+    assert cleared.json()["model"] == "private-model"
+
+    with SessionLocal() as db:
+        row = db.get(Setting, "ai")
+        assert row is not None
+        assert "api_key_encrypted" not in row.value
+
+    reset = authenticated_client.put("/api/settings/ai", json={"provider": "disabled"})
     assert reset.status_code == 200
 
 

@@ -16,6 +16,7 @@ Last updated: 2026-09-02
 - [x] guided welcome, administrator, monitoring mode, and optional-AI setup flow
 - [x] live-mode first-launch default with a browser-verified, non-bypassable monitoring selection step
 - [x] functional Monitoring and Integrations settings navigation with mode status and webhook controls
+- [x] consistent full-width responsive Settings layout with grouped AI controls, sticky section navigation, and inline summary timing guidance
 
 ## Monitoring and intelligence
 
@@ -45,6 +46,7 @@ Last updated: 2026-09-02
 - [x] OpenAI-compatible tool-calling provider
 - [x] Ollama-compatible `/v1` endpoint configuration
 - [x] encrypted provider key, health test, context/temperature/timeout/tool settings UI
+- [x] explicit removal of a previously saved AI provider API key without resetting other AI settings
 - [x] conversation/message/tool-call persistence
 - [x] user-initiated conversation deletion and current-turn-grounded follow-ups that avoid prior-answer repetition
 - [x] prompt-injection boundary and no arbitrary shell/action tools
@@ -74,6 +76,7 @@ Last updated: 2026-09-02
 - [x] checked-in fresh-container Chromium E2E for setup, routes, SENSE, and mobile navigation
 - [x] sanitized diagnostics bundle, SQLite backup endpoint/UI, and individually testable alert integrations with visible progress and results
 - [x] production Docker build, health, setup, route, stream, and recreation verification
+- [x] quiet production access logging that suppresses successful polling while retaining failed requests and operational warnings/errors
 - [x] GitHub Actions verification gate and GitHub Container Registry publishing on push
 - [x] migration upgrade/downgrade/upgrade round trip
 - [x] Python and npm dependency audits report no known vulnerabilities

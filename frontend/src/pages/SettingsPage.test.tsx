@@ -191,6 +191,32 @@ describe("AI settings", () => {
     expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
   });
 
+  it("clears a previously saved AI API key without changing other settings", async () => {
+    const configured = { ...aiConfig, api_key_configured: true };
+    vi.mocked(api).mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "/api/settings/ai/api-key" && options?.method === "DELETE") {
+        return Promise.resolve(aiConfig);
+      }
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path.endsWith("/general")) return Promise.resolve(generalConfig);
+      if (path === "/api/integrations") return Promise.resolve(integrationsConfig);
+      return Promise.resolve(configured);
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<SettingsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Clear saved key" }));
+
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith("/api/settings/ai/api-key", {
+        method: "DELETE",
+      }),
+    );
+    expect(await screen.findByText("Saved AI API key cleared.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear saved key" })).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
   it("shows notification test progress and errors at the clicked provider", async () => {
     vi.mocked(api).mockImplementation((path: string, options?: RequestInit) => {
       if (path === "/api/settings/alerts/test/webhook" && options?.method === "POST") {

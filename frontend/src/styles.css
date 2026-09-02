@@ -1287,13 +1287,36 @@ button {
 }
 .settings-layout {
   display: grid;
-  grid-template-columns: 190px minmax(0, 780px);
-  gap: 18px;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.settings-page .page-header {
+  margin-bottom: 22px;
+}
+.page-header-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 .settings-layout aside {
+  position: sticky;
+  top: 82px;
   display: grid;
   align-content: start;
   gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0d121bcc;
+  backdrop-filter: blur(12px);
+}
+.settings-layout aside > small {
+  padding: 8px 10px 6px;
+  color: #59667b;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
 }
 .settings-layout aside a {
   display: flex;
@@ -1302,7 +1325,14 @@ button {
   color: #718096;
   padding: 10px;
   font-size: 12px;
+  font-weight: 600;
   text-decoration: none;
+  border-radius: 8px;
+  transition: background 140ms ease, color 140ms ease;
+}
+.settings-layout aside a:hover {
+  color: #c6ceff;
+  background: #151c2a;
 }
 .settings-layout aside svg {
   width: 16px;
@@ -1313,7 +1343,8 @@ button {
   color: #aeb8ff;
 }
 .settings-card {
-  padding: 28px;
+  padding: clamp(22px, 3vw, 34px);
+  box-shadow: 0 18px 50px #02040a2e;
 }
 .settings-card > span[id] {
   display: block;
@@ -1321,19 +1352,26 @@ button {
 }
 .settings-stack {
   display: grid;
-  gap: 18px;
+  gap: 22px;
+  min-width: 0;
 }
 .settings-title {
   display: flex;
   gap: 14px;
+  align-items: center;
   border-bottom: 1px solid var(--line);
   padding-bottom: 20px;
 }
 .settings-title > span {
   display: grid;
   place-items: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
   padding: 11px;
-  background: #283476;
+  color: #b8c1ff;
+  background: linear-gradient(145deg, #303d86, #20295f);
+  border: 1px solid #4656a5;
   border-radius: 10px;
 }
 .settings-title h2 {
@@ -1348,6 +1386,51 @@ button {
 .settings-card form {
   padding-top: 20px;
 }
+.settings-form {
+  display: grid;
+  gap: 26px;
+}
+.settings-form-section {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.settings-section-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.settings-section-heading > div > span {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  color: #aeb8ff;
+  background: #20294f;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+}
+.settings-section-heading h3 {
+  margin: 0;
+  color: #dfe4ee;
+  font-size: 13px;
+}
+.settings-section-heading p {
+  max-width: 430px;
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: right;
+}
 .settings-card label,
 .auth-card label {
   display: grid;
@@ -1356,6 +1439,7 @@ button {
   font-size: 10px;
   font-weight: 700;
   margin-bottom: 14px;
+  min-width: 0;
 }
 .settings-card input,
 .settings-card select,
@@ -1366,6 +1450,8 @@ button {
   color: #e5e9f1;
   border-radius: 7px;
   padding: 10px;
+  min-width: 0;
+  min-height: 42px;
   outline: none;
 }
 .settings-card input:focus,
@@ -1379,11 +1465,78 @@ button {
 }
 .field-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
 }
 .field-grid.three {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.settings-control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.settings-control-grid > label,
+.settings-form-section .field-grid > label,
+.settings-form-section .credential-field > label {
+  margin-bottom: 0;
+}
+.input-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.input-action > button {
+  white-space: nowrap;
+}
+.credential-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: end;
+}
+.credential-field > button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+.settings-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.settings-toggle-grid > .check {
+  align-content: start;
+  min-height: 82px;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #0b1018;
+}
+.summary-timing-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px;
+  color: #94a2ff;
+  border: 1px solid #2c396d;
+  border-radius: 9px;
+  background: #10172a;
+}
+.summary-timing-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+.summary-timing-note p {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  font-size: 10px;
+}
+.summary-timing-note span {
+  color: #7f8ba5;
+  line-height: 1.5;
 }
 .notification-preferences {
   border-top: 1px solid var(--line);
@@ -1422,7 +1575,8 @@ button {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
-  margin-top: 20px;
+  margin-top: -6px;
+  padding-top: 20px;
 }
 .form-feedback {
   display: grid;
@@ -1443,9 +1597,10 @@ button {
   color: #ff9ca7;
 }
 .advanced-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: flex-start;
-  gap: 9px;
+  gap: 12px;
   padding-top: 20px;
 }
 .advanced-action {
@@ -1454,6 +1609,8 @@ button {
 }
 .advanced-actions a {
   text-decoration: none;
+  min-height: 42px;
+  justify-content: center;
 }
 .save-message {
   color: var(--good);
@@ -1499,8 +1656,8 @@ button {
   border: 1px solid var(--line);
   background: #0b1018;
   border-radius: 9px;
-  padding: 16px;
-  margin-bottom: 12px;
+  padding: 18px;
+  margin-bottom: 14px;
 }
 .notification-option .check {
   margin-bottom: 14px;
@@ -1525,7 +1682,7 @@ button {
   border: 1px solid var(--line);
   background: #0b1018;
   border-radius: 9px;
-  padding: 16px;
+  padding: 18px;
   margin-top: 12px;
 }
 .media-integration-editor.add {
@@ -1743,6 +1900,13 @@ button.danger {
   .auth-art {
     display: none;
   }
+  .settings-layout {
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .settings-control-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 720px) {
   .app-shell {
@@ -1807,12 +1971,32 @@ button.danger {
     grid-template-columns: 1fr;
   }
   .settings-layout aside {
+    position: sticky;
+    top: 68px;
+    z-index: 5;
     display: flex;
     overflow: auto;
   }
+  .settings-layout aside > small {
+    display: none;
+  }
   .field-grid,
-  .field-grid.three {
+  .field-grid.three,
+  .credential-field,
+  .settings-control-grid,
+  .settings-toggle-grid,
+  .advanced-actions {
     grid-template-columns: 1fr;
+  }
+  .settings-section-heading {
+    display: grid;
+    gap: 6px;
+  }
+  .settings-section-heading p {
+    text-align: left;
+  }
+  .credential-field > button {
+    justify-self: start;
   }
   .prompt-grid {
     grid-template-columns: 1fr;
@@ -1850,6 +2034,18 @@ button.danger {
   }
   .page-header h1 {
     font-size: 25px;
+  }
+  .page-header-note {
+    display: none;
+  }
+  .settings-card {
+    padding: 20px 16px;
+  }
+  .input-action {
+    grid-template-columns: 1fr;
+  }
+  .input-action > button {
+    justify-self: start;
   }
   .topbar > div {
     display: none;

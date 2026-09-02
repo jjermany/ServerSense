@@ -84,6 +84,17 @@ def update_ai_settings(payload: AISettings, db: Session = Depends(get_db)) -> di
     return read_ai_config(db)
 
 
+@router.delete("/ai/api-key")
+def clear_ai_api_key(db: Session = Depends(get_db)) -> dict[str, Any]:
+    current = db.get(Setting, "ai")
+    if current and current.value.get("api_key_encrypted"):
+        value = dict(current.value)
+        value.pop("api_key_encrypted", None)
+        current.value = value
+        db.commit()
+    return read_ai_config(db)
+
+
 @router.post("/ai/test")
 def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
     config = read_ai_config(db, include_secret=True)
