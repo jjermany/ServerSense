@@ -22,7 +22,7 @@ def _config(enabled: bool = True, max_runtime_seconds: int = 300) -> dict[str, o
         "temperature": 0.8,
         "timeout_seconds": 120,
         "max_runtime_seconds": max_runtime_seconds,
-        "max_output_tokens": 200,
+        "max_output_tokens": 512,
         "dashboard_summaries": enabled,
     }
 
@@ -40,7 +40,8 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         read_timeouts.append(request_timeout.read)
         assert url == "http://ollama.test:11434/v1/chat/completions"
         assert "tools" not in payload
-        assert payload["max_tokens"] == 200
+        assert payload["max_tokens"] == 512
+        assert payload["reasoning_effort"] == "none"
         assert payload["temperature"] == 0.3
         assert "untrusted JSON data" in payload["messages"][0]["content"]
         assert "combined_array_data_disks" in payload["messages"][0]["content"]

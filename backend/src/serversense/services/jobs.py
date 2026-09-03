@@ -219,7 +219,8 @@ def dashboard_summary_cycle() -> None:
             refresh_dashboard_summary(db, read_ai_config(db, include_secret=True))
         except Exception as exc:
             db.rollback()
-            logger.warning("Cached SENSE dashboard summary failed: %s", type(exc).__name__)
+            detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+            logger.warning("Cached SENSE dashboard summary failed: %s", detail)
 
 
 async def dashboard_summary_loop() -> None:

@@ -191,22 +191,28 @@ def refresh_dashboard_summary(
     # Dashboard generation is one complete inference, so it uses the same
     # configurable hard runtime as interactive SENSE inference.
     timeout = min(max(float(config.get("max_runtime_seconds", 300)), 30.0), 3600.0)
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": "Normalized ServerSense facts follow as JSON data:\n"
+                + json.dumps(facts, default=str),
+            },
+        ],
+        "temperature": min(float(config.get("temperature", 0.2)), 0.3),
+        "max_tokens": min(max(int(config.get("max_output_tokens", 512)), 64), 4096),
+    }
+    if provider == "ollama":
+        # Dashboard summaries need only a short final answer. Disabling the
+        # separate reasoning trace prevents thinking-capable models from
+        # consuming the output budget before message.content is produced.
+        payload["reasoning_effort"] = "none"
     response = httpx.post(
         f"{endpoint}/v1/chat/completions",
         headers=headers,
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": "Normalized ServerSense facts follow as JSON data:\n"
-                    + json.dumps(facts, default=str),
-                },
-            ],
-            "temperature": min(float(config.get("temperature", 0.2)), 0.3),
-            "max_tokens": min(int(config.get("max_output_tokens", 512)), 240),
-        },
+        json=payload,
         timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
     )
     response.raise_for_status()
