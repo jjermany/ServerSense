@@ -186,7 +186,11 @@ def refresh_dashboard_summary(
     headers = {"Content-Type": "application/json"}
     if config.get("api_key"):
         headers["Authorization"] = f"Bearer {config['api_key']}"
-    timeout = min(float(config.get("timeout_seconds", 120)), 90.0)
+    # AISettings constrains this value for normal writes. Keep the defensive
+    # bounds here as well for legacy or directly seeded configuration rows.
+    # Dashboard generation is one complete inference, so it uses the same
+    # configurable hard runtime as interactive SENSE inference.
+    timeout = min(max(float(config.get("max_runtime_seconds", 300)), 30.0), 3600.0)
     response = httpx.post(
         f"{endpoint}/v1/chat/completions",
         headers=headers,

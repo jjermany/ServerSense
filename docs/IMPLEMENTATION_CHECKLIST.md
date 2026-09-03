@@ -56,7 +56,7 @@ Last updated: 2026-09-02
 - [x] AI-only, multi-instance Sonarr/Radarr history collection with encrypted keys and normalized records
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name
 - [x] provider-confirmed quality-upgrade pairing and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
-- [x] additive opt-in cached AI dashboard summary with isolated scheduling, deterministic fallback, 12-hour local times, and validated storage/media claims
+- [x] additive opt-in cached AI dashboard summary with isolated scheduling, configured 30-to-3600-second maximum runtime, deterministic fallback, 12-hour local times, and validated storage/media claims
 - [x] deterministic intent router with explicit ServerSense/SENSE AI provenance and no-model factual telemetry responses
 - [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery
 - [x] provider model discovery, minimal-generation health test, native-tool capability hints, and curated-context fallback

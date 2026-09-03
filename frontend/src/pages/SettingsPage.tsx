@@ -566,11 +566,11 @@ export default function SettingsPage() {
               <section className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>03</span><h3>Jobs, context, and retention</h3></div>
-                  <p>Set hard resource boundaries for interactive model work.</p>
+                  <p>Set hard resource boundaries for model work.</p>
                 </div>
                 <div className="settings-control-grid">
                   <label>Background after (seconds)<input name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} /><small>Changes presentation only; processing continues.</small></label>
-                  <label>Maximum runtime (seconds)<input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Hard wall-clock limit for one inference.</small></label>
+                  <label>Maximum runtime (seconds)<input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Hard wall-clock limit for one inference, including dashboard summaries.</small></label>
                   <label>Concurrent AI jobs<input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} /></label>
                   <label>Maximum queued jobs<input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} /></label>
                   <label>Conversation retention (days)<input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} /></label>

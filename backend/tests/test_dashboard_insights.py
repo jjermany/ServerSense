@@ -14,13 +14,14 @@ from serversense.services.dashboard_insights import (
 from serversense.services.storage import latest_storage_sample
 
 
-def _config(enabled: bool = True) -> dict[str, object]:
+def _config(enabled: bool = True, max_runtime_seconds: int = 300) -> dict[str, object]:
     return {
         "provider": "ollama",
         "model": "small-local-model",
         "endpoint": "http://ollama.test:11434",
         "temperature": 0.8,
         "timeout_seconds": 120,
+        "max_runtime_seconds": max_runtime_seconds,
         "max_output_tokens": 200,
         "dashboard_summaries": enabled,
     }
@@ -28,11 +29,15 @@ def _config(enabled: bool = True) -> dict[str, object]:
 
 def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch) -> None:
     calls: list[dict] = []
+    read_timeouts: list[float | None] = []
 
     def fake_post(url: str, **kwargs: object) -> httpx.Response:
         payload = kwargs["json"]
         assert isinstance(payload, dict)
         calls.append(payload)
+        request_timeout = kwargs["timeout"]
+        assert isinstance(request_timeout, httpx.Timeout)
+        read_timeouts.append(request_timeout.read)
         assert url == "http://ollama.test:11434/v1/chat/completions"
         assert "tools" not in payload
         assert payload["max_tokens"] == 200
@@ -73,13 +78,14 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         assert refresh_dashboard_summary(db, _config(False), now) is None
         assert calls == []
 
-        event = refresh_dashboard_summary(db, _config(), now)
+        event = refresh_dashboard_summary(db, _config(max_runtime_seconds=600), now)
         assert event is not None
         assert event.message == (
             "Storage remains healthy. Recent activity is measured and no active issue needs attention."
         )
         assert event.data["model"] == "small-local-model"
         assert event.data["storage_source"] == "test"
+        assert read_timeouts == [600.0]
         assert refresh_dashboard_summary(db, _config(), now + timedelta(minutes=1)) is None
         assert len(calls) == 1
 
@@ -99,6 +105,7 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         assert refreshed is not None
         assert refreshed.severity == "warning"
         assert len(calls) == 2
+        assert read_timeouts == [600.0, 300.0]
 
         replacement = StorageSample(
             timestamp=now + timedelta(minutes=17),
