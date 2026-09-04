@@ -120,3 +120,43 @@ def test_durable_sense_migration_preserves_and_labels_existing_messages(tmp_path
         }.issubset(job_columns)
         source = connection.execute("SELECT source FROM ai_messages").fetchone()[0]
         assert source == "sense_ai"
+
+
+def test_docker_state_change_migration_seeds_only_the_current_snapshot(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    _alembic(backend, tmp_path, "d4a91c28f6b2")
+    database = tmp_path / "serversense.db"
+    old_time = "2026-09-04 11:59:45"
+    current_time = "2026-09-04 12:00:00"
+    started_at = "2026-09-01 08:00:00"
+    with sqlite3.connect(database) as connection:
+        for timestamp in (old_time, current_time):
+            connection.execute(
+                "INSERT INTO docker_samples "
+                "(timestamp, container_id, name, image, status, health, started_at, "
+                "cpu_percent, memory_bytes, restart_count) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    timestamp,
+                    "plex",
+                    "Plex",
+                    "plexinc/pms-docker",
+                    "running",
+                    "healthy",
+                    started_at,
+                    1.0,
+                    1024,
+                    0,
+                ),
+            )
+        connection.commit()
+
+    _alembic(backend, tmp_path, "head")
+
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info('docker_samples')")}
+        values = connection.execute(
+            "SELECT timestamp, state_changed_at FROM docker_samples ORDER BY timestamp"
+        ).fetchall()
+    assert "state_changed_at" in columns
+    assert values == [(old_time, None), (current_time, started_at)]

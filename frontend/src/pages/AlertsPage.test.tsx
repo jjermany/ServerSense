@@ -2,7 +2,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
-import { LIVE_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
+import {
+  LIVE_REFRESH_INTERVAL_MS,
+  clearLiveQueryCache,
+} from "../hooks/useLiveQuery";
 import AlertsPage from "./AlertsPage";
 
 vi.mock("../api", () => ({ api: vi.fn() }));
@@ -10,6 +13,7 @@ vi.mock("../api", () => ({ api: vi.fn() }));
 describe("AlertsPage", () => {
   beforeEach(() => {
     vi.mocked(api).mockReset();
+    clearLiveQueryCache();
   });
 
   afterEach(() => {

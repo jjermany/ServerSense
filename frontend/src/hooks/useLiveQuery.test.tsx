@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
-import { useLiveQuery } from "./useLiveQuery";
+import { clearLiveQueryCache, useLiveQuery } from "./useLiveQuery";
 
 vi.mock("../api", () => ({ api: vi.fn() }));
 
@@ -14,6 +14,7 @@ describe("useLiveQuery", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.mocked(api).mockReset();
+    clearLiveQueryCache();
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -57,5 +58,18 @@ describe("useLiveQuery", () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
     expect(screen.getByText("3")).toBeVisible();
+  });
+
+  it("keeps the latest data visible when a page remounts", async () => {
+    vi.mocked(api).mockResolvedValueOnce({ value: 1 });
+    const first = render(<Probe intervalMs={60_000} />);
+    await act(async () => undefined);
+    expect(screen.getByText("1")).toBeVisible();
+    first.unmount();
+
+    vi.mocked(api).mockImplementationOnce(() => new Promise(() => undefined));
+    render(<Probe intervalMs={60_000} />);
+
+    expect(screen.getByText("1")).toBeVisible();
   });
 });

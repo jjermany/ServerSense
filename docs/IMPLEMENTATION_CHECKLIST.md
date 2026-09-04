@@ -39,6 +39,8 @@ Last updated: 2026-09-02
 - [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware refresh across monitoring pages, source sample timestamps, and independent Docker, SMART, and storage cadences
 - [x] container `TZ` precedence with validated Settings fallback and shared timezone-aware frontend formatting
 - [x] bounded browser API requests and recoverable startup authentication retries after temporary backend stalls
+- [x] collection-time Docker state-change tracking with constant-size Overview and Docker reads independent of retained history
+- [x] stale-while-refresh monitoring-page data across sidebar navigation with cache clearing on logout
 - [x] authenticated-shell route boundary that recovers a stale-build lazy chunk load failure with one automatic reload, falling back to a manual reload prompt if the failure persists
 
 ## SENSE

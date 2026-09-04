@@ -6,7 +6,46 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from serversense.config import Settings
-from serversense.services.collectors import LinuxCollector, UnraidCollector
+from serversense.models import DockerSample
+from serversense.services.collectors import (
+    LinuxCollector,
+    UnraidCollector,
+    _container_state_changed_at,
+)
+
+
+def test_container_state_change_time_is_carried_forward_without_history_scan() -> None:
+    started_at = datetime(2026, 9, 1, 12, tzinfo=UTC)
+    previous_sampled_at = datetime(2026, 9, 4, 12, tzinfo=UTC)
+    original_change = datetime(2026, 9, 3, 8, tzinfo=UTC)
+    sampled_at = datetime(2026, 9, 4, 12, 0, 15, tzinfo=UTC)
+    container = {
+        "container_id": "performance-test",
+        "status": "running",
+        "health": "healthy",
+        "started_at": started_at,
+        "restart_count": 0,
+    }
+    previous = DockerSample(
+        timestamp=previous_sampled_at,
+        container_id="performance-test",
+        name="Performance test",
+        image="example/test",
+        status="running",
+        health="healthy",
+        started_at=started_at,
+        state_changed_at=original_change,
+        cpu_percent=0,
+        memory_bytes=0,
+        restart_count=0,
+    )
+
+    assert _container_state_changed_at(container, previous, sampled_at) == original_change
+    assert (
+        _container_state_changed_at({**container, "health": "unhealthy"}, previous, sampled_at)
+        == sampled_at
+    )
+    assert _container_state_changed_at(container, None, sampled_at) == started_at
 
 
 def test_missing_configured_storage_path_does_not_fall_back_to_container_root(

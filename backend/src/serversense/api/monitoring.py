@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import and_, desc, or_, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from serversense.config import get_settings
@@ -79,36 +79,6 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-def container_change_times(db: Session, rows: list[DockerSample]) -> dict[str, datetime | None]:
-    if not rows:
-        return {}
-    changed = set(
-        db.scalars(
-            select(DockerSample.container_id)
-            .where(
-                or_(
-                    *(
-                        and_(
-                            DockerSample.container_id == row.container_id,
-                            DockerSample.timestamp < row.timestamp,
-                            or_(
-                                DockerSample.status != row.status,
-                                DockerSample.health.is_distinct_from(row.health),
-                                DockerSample.restart_count != row.restart_count,
-                            ),
-                        )
-                        for row in rows
-                    )
-                )
-            )
-            .distinct()
-        )
-    )
-    return {
-        row.container_id: row.timestamp if row.container_id in changed else None for row in rows
-    }
-
-
 def get_storage_forecast(db: Session) -> ForecastResponse:
     samples = current_storage_samples(db)
     if not samples:
@@ -137,7 +107,6 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     network = calculate_network_rates(metrics[1] if len(metrics) > 1 else None, metric)
     disks = latest_snapshot(db, DiskSample)
     containers = latest_snapshot(db, DockerSample)
-    container_changes = container_change_times(db, containers)
     observed_at = [
         _as_utc(value)
         for value in (
@@ -303,7 +272,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
                 "health": x.health,
                 "started_at": x.started_at,
                 "uptime_seconds": elapsed_since(x.started_at),
-                "last_state_change": container_changes.get(x.container_id),
+                "last_state_change": x.state_changed_at,
                 "cpu_percent": x.cpu_percent,
                 "memory_bytes": x.memory_bytes,
                 "restart_count": x.restart_count,
@@ -423,7 +392,6 @@ def disk_details(disk_id: str, db: Session = Depends(get_db)) -> dict:
 @router.get("/docker")
 def docker_list(db: Session = Depends(get_db)) -> list[dict]:
     rows = latest_snapshot(db, DockerSample)
-    changes = container_change_times(db, rows)
     return [
         {
             "id": x.container_id,
@@ -434,7 +402,7 @@ def docker_list(db: Session = Depends(get_db)) -> list[dict]:
             "health": x.health,
             "started_at": x.started_at,
             "uptime_seconds": elapsed_since(x.started_at),
-            "last_state_change": changes.get(x.container_id),
+            "last_state_change": x.state_changed_at,
             "cpu_percent": x.cpu_percent,
             "memory_bytes": x.memory_bytes,
             "restart_count": x.restart_count,

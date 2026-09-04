@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api } from '../api'
 import { Brand } from '../App'
+import { clearLiveQueryCache } from '../hooks/useLiveQuery'
 
 const links = [
   ['/', 'Overview', Gauge], ['/storage', 'Storage', HardDrive], ['/disks', 'Disks', HardDrive], ['/docker', 'Docker', Container], ['/alerts', 'Alerts', Bell], ['/sense', 'Ask SENSE', Bot], ['/settings', 'Settings', Settings],
@@ -83,7 +84,11 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
       : senseConfig
         ? { title: 'SENSE available', detail: 'AI model not configured' }
         : { title: 'SENSE available', detail: 'Checking AI configuration…' }
-  const logout = async () => { await api('/api/auth/logout', { method: 'POST' }); onLogout() }
+  const logout = async () => {
+    await api('/api/auth/logout', { method: 'POST' })
+    clearLiveQueryCache()
+    onLogout()
+  }
   return <div className="app-shell">
     <aside className={open ? 'sidebar open' : 'sidebar'}>
       <div className="sidebar-head"><Brand /><button className="icon-button mobile-only" onClick={() => setOpen(false)} aria-label="Close navigation"><X /></button></div>

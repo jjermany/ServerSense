@@ -13,6 +13,7 @@ from typing import Any, Protocol, cast
 import docker
 import psutil
 from docker.errors import DockerException
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from serversense.config import Settings
@@ -544,14 +545,59 @@ def build_collector(settings: Settings) -> Collector:
     )
 
 
+def _container_state_changed_at(
+    container: dict[str, Any],
+    previous: DockerSample | None,
+    sampled_at: datetime,
+) -> datetime:
+    started_at = container.get("started_at")
+    if previous is None:
+        return started_at if isinstance(started_at, datetime) else sampled_at
+    changed = (
+        container.get("status") != previous.status
+        or container.get("health") != previous.health
+        or container.get("restart_count", 0) != previous.restart_count
+    )
+    if changed:
+        return sampled_at
+    if previous.state_changed_at is not None:
+        return previous.state_changed_at
+    if previous.status == "running" and previous.started_at is not None:
+        return previous.started_at
+    return previous.timestamp
+
+
 def persist_snapshot(db: Session, snapshot: Snapshot, include_storage: bool = True) -> None:
     db.add(MetricSample(timestamp=snapshot.timestamp, **snapshot.metric))
     if include_storage and snapshot.storage:
         db.add(StorageSample(timestamp=snapshot.timestamp, **snapshot.storage))
     for disk in snapshot.disks:
         db.add(DiskSample(**disk))
+    previous_containers: dict[str, DockerSample] = {}
+    if snapshot.containers:
+        previous_timestamp = db.scalar(
+            select(DockerSample.timestamp).order_by(desc(DockerSample.timestamp)).limit(1)
+        )
+        if previous_timestamp is not None:
+            previous_containers = {
+                row.container_id: row
+                for row in db.scalars(
+                    select(DockerSample).where(DockerSample.timestamp == previous_timestamp)
+                )
+            }
     for container in snapshot.containers:
-        db.add(DockerSample(timestamp=snapshot.timestamp, **container))
+        container_id = str(container["container_id"])
+        db.add(
+            DockerSample(
+                timestamp=snapshot.timestamp,
+                state_changed_at=_container_state_changed_at(
+                    container,
+                    previous_containers.get(container_id),
+                    snapshot.timestamp,
+                ),
+                **container,
+            )
+        )
     if snapshot.state:
         state = db.get(Setting, "monitoring_state")
         value = {

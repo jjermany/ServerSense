@@ -90,6 +90,7 @@ class DockerSample(Base):
     status: Mapped[str] = mapped_column(String(40))
     health: Mapped[str | None] = mapped_column(String(40))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cpu_percent: Mapped[float | None] = mapped_column(Float)
     memory_bytes: Mapped[int | None] = mapped_column(Integer)
     restart_count: Mapped[int] = mapped_column(Integer, default=0)
