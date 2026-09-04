@@ -38,6 +38,7 @@ Last updated: 2026-09-02
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 - [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware refresh across monitoring pages, source sample timestamps, and independent Docker, SMART, and storage cadences
 - [x] container `TZ` precedence with validated Settings fallback and shared timezone-aware frontend formatting
+- [x] bounded browser API requests and recoverable startup authentication retries after temporary backend stalls
 
 ## SENSE
 

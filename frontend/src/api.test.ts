@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, formatBytes } from "./api";
+import { API_REQUEST_TIMEOUT_MS, api, formatBytes } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -21,5 +21,43 @@ describe("api", () => {
       "/api/dashboard",
       expect.objectContaining({ cache: "no-store" }),
     );
+  });
+
+  it("exposes response status for authentication decisions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: vi.fn().mockResolvedValue({ detail: "Authentication required" }),
+      }),
+    );
+
+    await expect(api("/api/auth/me")).rejects.toEqual(
+      expect.objectContaining({
+        message: "Authentication required",
+        name: "ApiError",
+        status: 401,
+      }),
+    );
+  });
+
+  it("aborts a request that does not complete", async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn((_path: string, options: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        );
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const request = expect(api("/api/dashboard")).rejects.toThrow(
+      "Server did not respond in time",
+    );
+    await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS);
+    await request;
+    vi.useRealTimers();
   });
 });

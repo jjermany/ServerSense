@@ -1921,6 +1921,17 @@ button.danger {
   color: var(--muted);
   animation: pulse 1.4s infinite;
 }
+.connection-retry {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px 14px;
+  font: inherit;
+}
+.connection-retry:hover {
+  border-color: var(--accent);
+}
 .loading-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

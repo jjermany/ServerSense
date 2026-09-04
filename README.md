@@ -127,6 +127,8 @@ The end-to-end command builds the production image, starts it with an isolated t
 
 OpenAPI documentation is available at `/docs` in development and production.
 
+The web client bounds API requests and automatically retries its startup authentication check, so a temporary database lock or backend stall cannot leave the app permanently stuck on the connecting screen.
+
 ## Architecture
 
 ServerSense is a modular monolith in one container:
