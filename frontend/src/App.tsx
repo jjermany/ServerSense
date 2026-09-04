@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api, ApiError } from "./api";
+import ChunkErrorBoundary from "./components/ChunkErrorBoundary";
 import Layout from "./components/Layout";
 import AuthPage from "./pages/AuthPage";
 import { TimeZoneProvider } from "./timeZone";
@@ -21,6 +22,18 @@ export default function App() {
   const [auth, setAuth] = useState<AuthState>("loading");
   const [connectionDelayed, setConnectionDelayed] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
+  useEffect(() => {
+    // Once the freshly-reloaded build has had time to load its chunks
+    // without a repeat failure, drop the retry marker so a genuinely new
+    // stale-build error later can trigger another automatic reload.
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("_ssretry")) return;
+    const timer = window.setTimeout(() => {
+      url.searchParams.delete("_ssretry");
+      window.history.replaceState(null, "", url.toString());
+    }, 4_000);
+    return () => window.clearTimeout(timer);
+  }, []);
   useEffect(() => {
     let active = true;
     let retryTimer: number | undefined;
@@ -97,6 +110,7 @@ export default function App() {
     );
   return (
     <TimeZoneProvider>
+    <ChunkErrorBoundary>
     <Suspense
       fallback={
         <div className="splash">
@@ -118,6 +132,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Suspense>
+    </ChunkErrorBoundary>
     </TimeZoneProvider>
   );
 }
