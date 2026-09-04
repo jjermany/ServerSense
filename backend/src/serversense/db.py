@@ -41,9 +41,8 @@ def initialize_database() -> None:
     from serversense import models  # noqa: F401
 
     # WAL allows dashboard readers to continue while monitoring commits a new
-    # snapshot. The connection timeout remains a bounded fallback for brief
-    # writer-to-writer contention.
+    # snapshot. The connect_args timeout above already gives every pooled
+    # connection a bounded busy handler for brief writer-to-writer contention.
     with engine.connect() as connection:
         connection.exec_driver_sql("PRAGMA journal_mode=WAL")
-        connection.exec_driver_sql("PRAGMA busy_timeout=15000")
     Base.metadata.create_all(engine)
