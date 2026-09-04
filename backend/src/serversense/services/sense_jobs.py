@@ -159,6 +159,27 @@ def _curated_context(
 ) -> dict[str, Any]:
     text = question.lower()
     names: list[str] = []
+    tool_arguments: dict[str, dict[str, Any]] = {}
+    broad_change_summary = "changed" in text and any(
+        term in text for term in ("server", "today", "since", "recent")
+    )
+    if broad_change_summary:
+        names.extend(
+            (
+                "get_storage_history",
+                "get_recent_alerts",
+                "get_media_activity_summary",
+                "get_container_status",
+                "get_server_overview",
+            )
+        )
+        if "today" in text:
+            tool_arguments["get_storage_history"] = {"days": 1, "today": True}
+            tool_arguments["get_recent_alerts"] = {"limit": 100, "today": True}
+            tool_arguments["get_media_activity_summary"] = {"days": 1, "today": True}
+        else:
+            tool_arguments["get_storage_history"] = {"days": 7}
+            tool_arguments["get_media_activity_summary"] = {"days": 7}
     if any(term in text for term in ("storage", "space", "capacity", "full", "growth", "array")):
         if intent == "historical":
             names.append("get_storage_history")
@@ -185,7 +206,7 @@ def _curated_context(
     }
     remaining = max_telemetry_chars
     for name in dict.fromkeys(names):
-        result = execute_tool(db, name, {})
+        result = execute_tool(db, name, tool_arguments.get(name, {}))
         encoded = json.dumps(result, default=str)
         if len(encoded) > remaining:
             context["telemetry"][name] = {

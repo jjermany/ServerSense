@@ -54,6 +54,13 @@ def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
+def _job_elapsed_seconds(job: AIJob) -> float | None:
+    if job.started_at is None:
+        return None
+    end = job.completed_at or datetime.now(UTC)
+    return max(0.0, (_aware(end) - _aware(job.started_at)).total_seconds())
+
+
 def _history(
     db: Session,
     conversation: AIConversation | None,
@@ -357,6 +364,7 @@ async def stream_chat(
                             "model": current.model,
                             "source": "sense_ai",
                             "job_id": current.id,
+                            "elapsed_seconds": _job_elapsed_seconds(current),
                         },
                     )
                     return
@@ -373,6 +381,7 @@ async def stream_chat(
                             "source": "sense_ai",
                             "job_id": current.id,
                             "status": current.status,
+                            "elapsed_seconds": _job_elapsed_seconds(current),
                         },
                     )
                     return
@@ -491,11 +500,22 @@ def conversation_messages(
     conversation = db.get(AIConversation, conversation_id)
     if not conversation:
         raise HTTPException(404, "Conversation not found")
-    rows = db.scalars(
-        select(AIMessage)
-        .where(AIMessage.conversation_id == conversation_id)
-        .order_by(AIMessage.timestamp)
+    rows = list(
+        db.scalars(
+            select(AIMessage)
+            .where(AIMessage.conversation_id == conversation_id)
+            .order_by(AIMessage.timestamp)
+        )
     )
+    message_ids = [row.id for row in rows]
+    completed_jobs = list(
+        db.scalars(select(AIJob).where(AIJob.response_message_id.in_(message_ids)))
+    )
+    elapsed_by_message = {
+        job.response_message_id: _job_elapsed_seconds(job)
+        for job in completed_jobs
+        if job.response_message_id is not None
+    }
     return {
         "id": conversation.id,
         "title": conversation.title,
@@ -510,6 +530,7 @@ def conversation_messages(
                 "provider": row.provider,
                 "model": row.model,
                 "references": row.references,
+                "elapsed_seconds": elapsed_by_message.get(row.id),
             }
             for row in rows
         ],

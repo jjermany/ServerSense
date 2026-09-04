@@ -196,6 +196,58 @@ describe("SENSE requests", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
+  it("pins elapsed time to ongoing and completed SENSE messages", async () => {
+    const startedAt = new Date(Date.now() - 65_000).toISOString();
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/ai/conversations") {
+        return Promise.resolve([
+          { id: 8, title: "Timing", updated_at: "2026-09-04T12:00:00Z" },
+        ]);
+      }
+      if (path === "/api/ai/conversations/8") {
+        return Promise.resolve({
+          id: 8,
+          messages: [
+            { id: 80, role: "user", content: "First question", source: "user" },
+            {
+              id: 81,
+              role: "assistant",
+              content: "Completed answer",
+              source: "sense_ai",
+              model: "test-model",
+              elapsed_seconds: 12,
+            },
+          ],
+        });
+      }
+      if (path === "/api/ai/jobs") {
+        return Promise.resolve([
+          {
+            id: "active-job",
+            conversation_id: 8,
+            user_message_id: 82,
+            status: "analyzing",
+            model: "test-model",
+            partial_response: "",
+            backgrounded: false,
+            notify_on_completion: true,
+            started_at: startedAt,
+          },
+        ]);
+      }
+      if (path === "/api/ai/notifications") {
+        return Promise.resolve({ unread: 0, items: [] });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<SensePage />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Timing/i }));
+
+    expect(await screen.findByText(/SENSE AI .* Elapsed 12s/)).toBeInTheDocument();
+    expect(screen.getByText(/Elapsed 1m [4-7]s/)).toBeInTheDocument();
+  });
+
   it("collapses conversation history behind a mobile-friendly toggle", async () => {
     vi.mocked(api).mockImplementation((path) => {
       if (path === "/api/ai/conversations") {

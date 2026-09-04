@@ -65,9 +65,9 @@ Last updated: 2026-09-02
 - [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery
 - [x] provider model discovery, minimal-generation health test, native-tool capability hints, and curated-context fallback
 - [x] conversation summaries, structured references, model/provider message provenance, rename, search, configurable retention, and cascade deletion
-- [x] separate background and hard-runtime settings, total context/telemetry budgets, retention/tool compatibility, timing diagnostics, and Ask SENSE job UI
+- [x] separate background and hard-runtime settings, total context/telemetry budgets, retention/tool compatibility, timing diagnostics, live/persisted per-message elapsed time, and Ask SENSE job UI
 - [x] partial-response preservation for timeout/cancel/failure/interruption, explicit provider-inactivity/connection versus overall-runtime error details, plus deduplicated global/per-job long-running notifications, dismissible in-app notices, and category-controlled delivery of 200-character plain-text result summaries through configured notification providers
-- [x] responsive Ask SENSE conversation history and message layout with a single notification control per active job and no stale Retry action after a replacement attempt is accepted
+- [x] responsive Ask SENSE conversation history and message layout with a single notification control per active job, no stale Retry action after a replacement attempt is accepted, and broad change summaries grounded in pre-gathered storage, alert, media, container, and overview evidence
 - [x] direct read-only telemetry access while a long SENSE AI analysis remains active
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 

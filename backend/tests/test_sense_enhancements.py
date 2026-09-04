@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -21,6 +21,7 @@ from serversense.schemas import ChatRequest
 from serversense.services.ai import ChatEvent
 from serversense.services.sense_jobs import (
     NOTIFICATION_SUMMARY_LIMIT,
+    _curated_context,
     _notification_summary,
     _run_job,
     _safe_error,
@@ -80,6 +81,89 @@ def test_provider_connect_timeout_names_the_short_connection_limit() -> None:
 
     assert "connect to the model provider within 10 seconds" in error
     assert "separate from the configured 600-second maximum runtime" in error
+
+
+def test_broad_change_summary_preloads_historical_sources(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_tool(db, name, arguments):
+        calls.append((name, arguments))
+        return {"source": name}
+
+    monkeypatch.setattr("serversense.services.sense_jobs.execute_tool", fake_tool)
+    with SessionLocal() as db:
+        context = _curated_context(
+            db,
+            "What changed on my server today?",
+            "historical",
+            {},
+            30_000,
+            20_000,
+        )
+
+    assert set(context["telemetry"]) >= {
+        "get_storage_history",
+        "get_recent_alerts",
+        "get_media_activity_summary",
+        "get_container_status",
+        "get_server_overview",
+    }
+    assert ("get_storage_history", {"days": 1, "today": True}) in calls
+    assert ("get_recent_alerts", {"limit": 100, "today": True}) in calls
+    assert ("get_media_activity_summary", {"days": 1, "today": True}) in calls
+
+
+def test_completed_conversation_message_includes_persisted_elapsed_time(
+    authenticated_client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == "administrator"))
+        assert user is not None
+        conversation = AIConversation(title="Elapsed time")
+        db.add(conversation)
+        db.flush()
+        question = AIMessage(
+            conversation_id=conversation.id,
+            timestamp=now - timedelta(seconds=13),
+            role="user",
+            content="What changed?",
+            source="user",
+            references={},
+        )
+        answer = AIMessage(
+            conversation_id=conversation.id,
+            timestamp=now,
+            role="assistant",
+            content="Measured changes.",
+            source="sense_ai",
+            provider="ollama",
+            model="test-model",
+            references={},
+        )
+        db.add_all([question, answer])
+        db.flush()
+        job = create_job(
+            db,
+            user.id,
+            conversation,
+            question,
+            "historical",
+            {"provider": "ollama", "model": "test-model"},
+            [],
+        )
+        job.status = "completed"
+        job.started_at = now - timedelta(seconds=12.5)
+        job.completed_at = now
+        job.response_message_id = answer.id
+        db.commit()
+        conversation_id = conversation.id
+
+    response = authenticated_client.get(f"/api/ai/conversations/{conversation_id}")
+
+    assert response.status_code == 200
+    assistant = next(row for row in response.json()["messages"] if row["role"] == "assistant")
+    assert assistant["elapsed_seconds"] == 12.5
 
 
 def test_direct_response_has_serversense_provenance_and_never_needs_ai(

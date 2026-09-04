@@ -29,6 +29,7 @@ type Message = {
   model?: string | null;
   provider?: string | null;
   source?: "user" | "serversense" | "sense_ai";
+  elapsed_seconds?: number | null;
 };
 type Conversation = { id: number; title: string; updated_at: string; summary?: string };
 type Job = {
@@ -45,6 +46,7 @@ type Job = {
   time_to_first_token_seconds?: number | null;
   inference_seconds?: number | null;
   generated_tokens?: number | null;
+  started_at?: string | null;
   first_token_at?: string | null;
   error?: string | null;
 };
@@ -63,6 +65,16 @@ const prompts = [
   "What changed on my server today?",
 ];
 const terminal = new Set(["completed", "failed", "cancelled", "timed_out", "interrupted"]);
+
+function formatElapsed(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const remainder = whole % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${remainder}s`;
+  if (minutes > 0) return `${minutes}m ${remainder}s`;
+  return `${remainder}s`;
+}
 
 export default function SensePage() {
   const { timeZone } = useTimeZone();
@@ -83,6 +95,8 @@ export default function SensePage() {
   const [foregroundNotify, setForegroundNotify] = useState(true);
   const [quickTelemetryError, setQuickTelemetryError] = useState("");
   const [retryingJobs, setRetryingJobs] = useState<Set<string>>(() => new Set());
+  const [activeStartedAt, setActiveStartedAt] = useState<string>();
+  const [clock, setClock] = useState(() => Date.now());
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const requestIdRef = useRef<string | undefined>(undefined);
   const stoppedRef = useRef(false);
@@ -127,6 +141,15 @@ export default function SensePage() {
       document.removeEventListener("visibilitychange", refreshVisible);
     };
   }, [loadBackgroundState, loadConversations]);
+  useEffect(() => {
+    const hasRunningJob = jobs.some(
+      (job) => !terminal.has(job.status) && job.started_at != null,
+    );
+    if (!busy && !hasRunningJob) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy, jobs]);
 
   const openConversation = async (id: number) => {
     await loadConversation(id);
@@ -157,6 +180,7 @@ export default function SensePage() {
     setMessages((current) => [...current, { role: "user", content: text, source: "user" }]);
     setBusy(true);
     setDraft("");
+    setActiveStartedAt(undefined);
     stoppedRef.current = false;
     requestIdRef.current = undefined;
     const controller = new AbortController();
@@ -197,6 +221,8 @@ export default function SensePage() {
             queue_position?: number;
             notify_on_completion?: boolean;
             error?: string;
+            started_at?: string;
+            elapsed_seconds?: number;
           };
           if (data.request_id) {
             requestIdRef.current = data.request_id;
@@ -205,6 +231,7 @@ export default function SensePage() {
           if (data.conversation_id) setConversation(data.conversation_id);
           if (event === "activity") setActivity(data.message);
           if (event === "status") {
+            if (data.started_at) setActiveStartedAt(data.started_at);
             setActivity(
               data.status === "queued"
                 ? `Queued${data.queue_position ? ` (#${data.queue_position})` : ""}…`
@@ -237,6 +264,7 @@ export default function SensePage() {
                 tools: data.tools_used,
                 model: data.model,
                 source: data.source,
+                elapsed_seconds: data.elapsed_seconds,
               },
             ]);
           }
@@ -251,6 +279,7 @@ export default function SensePage() {
                 content: data.message || data.error || `SENSE job was ${data.status}.`,
                 model: data.model,
                 source: "sense_ai",
+                elapsed_seconds: data.elapsed_seconds,
               },
             ]);
           }
@@ -273,6 +302,7 @@ export default function SensePage() {
         controllerRef.current = undefined;
         requestIdRef.current = undefined;
         setActiveStreamJob(undefined);
+        setActiveStartedAt(undefined);
         setBusy(false);
       }
       void Promise.all([loadConversations(), loadBackgroundState()]);
@@ -393,6 +423,13 @@ export default function SensePage() {
       newestAttemptIds.has(job.id) &&
       ["failed", "cancelled", "timed_out", "interrupted"].includes(job.status),
   );
+  const activeElapsed = activeStartedAt
+    ? Math.max(0, (clock - Date.parse(activeStartedAt)) / 1000)
+    : undefined;
+  const jobElapsed = (job: Job) =>
+    job.started_at
+      ? Math.max(0, (clock - Date.parse(job.started_at)) / 1000)
+      : job.inference_seconds;
 
   return (
     <div className="page sense-page">
@@ -440,7 +477,7 @@ export default function SensePage() {
               {messages.map((message, index) => (
                 <article key={message.id ?? index} className={message.role}>
                   <span>{message.role === "assistant" ? message.source === "serversense" ? <Server /> : <Bot /> : <User />}</span>
-                  <div>{message.tools?.map((tool) => <small className="tool" key={tool}>Checked {tool.replace("get_", "").replaceAll("_", " ")}</small>)}<ReactMarkdown>{message.content}</ReactMarkdown>{message.role === "assistant" && <small className={`model ${message.source ?? "sense_ai"}`}>{message.source === "serversense" ? "ServerSense · live telemetry" : `SENSE AI · ${message.model ?? "configured model"}`}</small>}</div>
+                  <div>{message.tools?.map((tool) => <small className="tool" key={tool}>Checked {tool.replace("get_", "").replaceAll("_", " ")}</small>)}<ReactMarkdown>{message.content}</ReactMarkdown>{message.role === "assistant" && <small className={`model ${message.source ?? "sense_ai"}`}>{message.source === "serversense" ? "ServerSense · live telemetry" : `SENSE AI · ${message.model ?? "configured model"}${message.elapsed_seconds != null ? ` · Elapsed ${formatElapsed(message.elapsed_seconds)}` : ""}`}</small>}</div>
                 </article>
               ))}
               {busy && (
@@ -449,10 +486,10 @@ export default function SensePage() {
                   {draft ? (
                     <div>
                       <ReactMarkdown>{draft}</ReactMarkdown>
-                      <small className="streaming-label">SENSE AI · Streaming</small>
+                      <small className="streaming-label">SENSE AI · Streaming{activeElapsed != null ? ` · Elapsed ${formatElapsed(activeElapsed)}` : ""}</small>
                     </div>
                   ) : (
-                    <div className="thinking"><i /><i /><i /> {activity}</div>
+                    <div><div className="thinking"><i /><i /><i /> {activity}</div>{activeElapsed != null && <small className="model">Elapsed {formatElapsed(activeElapsed)}</small>}</div>
                   )}
                 </article>
               )}
@@ -489,7 +526,7 @@ export default function SensePage() {
                       {job.queue_position ? ` · queue #${job.queue_position}` : ""}
                       {job.queue_wait_seconds != null ? ` · waited ${Math.floor(job.queue_wait_seconds)}s` : ""}
                       {job.time_to_first_token_seconds != null ? ` · first token ${job.time_to_first_token_seconds.toFixed(1)}s` : ""}
-                      {job.inference_seconds != null ? ` · runtime ${Math.floor(job.inference_seconds)}s` : ""}
+                      {jobElapsed(job) != null ? ` · Elapsed ${formatElapsed(jobElapsed(job)!)}` : ""}
                       {job.generated_tokens != null ? ` · ~${job.generated_tokens} tokens` : ""}
                     </small>
                     {job.partial_response && <ReactMarkdown>{job.partial_response}</ReactMarkdown>}

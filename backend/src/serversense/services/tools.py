@@ -114,9 +114,17 @@ def pools(db: Session, _: dict[str, Any]) -> dict[str, Any]:
 
 def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     days = min(max(int(args.get("days", 30)), 1), 3650)
-    rows = current_storage_samples(db, since=datetime.now(UTC) - timedelta(days=days))
+    local_today = bool(args.get("today", False))
+    cutoff = (
+        local_time(db).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        if local_today
+        else datetime.now(UTC) - timedelta(days=days)
+    )
+    rows = current_storage_samples(db, since=cutoff)
     return {
         "days": days,
+        "period": "configured_timezone_today" if local_today else "rolling_days",
+        "window_start_utc": cutoff.isoformat(),
         "storage_scope": storage_scope(rows[-1]) if rows else None,
         "samples": [
             {
@@ -196,6 +204,7 @@ def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
                 "image": x.image,
                 "status": x.status,
                 "health": x.health,
+                "state_changed_at": x.state_changed_at.isoformat() if x.state_changed_at else None,
                 "uptime_seconds": _elapsed_since(x.started_at),
                 "cpu_percent": x.cpu_percent,
                 "memory_bytes": x.memory_bytes,
@@ -208,15 +217,17 @@ def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
 
 def recent_alerts(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     limit = min(max(int(args.get("limit", 20)), 1), 100)
-    rows = list(
-        db.scalars(
-            select(Alert)
-            .where(Alert.dismissed_at.is_(None))
-            .order_by(desc(Alert.created_at))
-            .limit(limit)
-        )
-    )
+    query = select(Alert).where(Alert.dismissed_at.is_(None))
+    local_today = bool(args.get("today", False))
+    cutoff: datetime | None = None
+    if local_today:
+        cutoff = local_time(db).replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff = cutoff.astimezone(UTC)
+        query = query.where(Alert.created_at >= cutoff)
+    rows = list(db.scalars(query.order_by(desc(Alert.created_at)).limit(limit)))
     return {
+        "period": "configured_timezone_today" if local_today else "recent",
+        "window_start_utc": cutoff.isoformat() if cutoff else None,
         "alerts": [
             {
                 "severity": x.severity,
@@ -226,15 +237,19 @@ def recent_alerts(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "timestamp": x.created_at.isoformat(),
             }
             for x in rows
-        ]
+        ],
     }
 
 
 def _media_rows(db: Session, args: dict[str, Any]) -> tuple[int, list[MediaActivity]]:
     days = min(max(int(args.get("days", 30)), 1), 365)
-    query = select(MediaActivity).where(
-        MediaActivity.occurred_at >= datetime.now(UTC) - timedelta(days=days)
+    local_today = bool(args.get("today", False))
+    cutoff = (
+        local_time(db).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        if local_today
+        else datetime.now(UTC) - timedelta(days=days)
     )
+    query = select(MediaActivity).where(MediaActivity.occurred_at >= cutoff)
     if args.get("provider"):
         query = query.where(MediaActivity.provider == args["provider"])
     if args.get("instance"):
@@ -314,11 +329,16 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
             group["explicit_upgrades"] += 1
         elif row.event_type == "imported" and row.is_upgrade and row.id not in upgrade_pairs:
             group["explicit_upgrades"] += 1
-    cutoff = datetime.now(UTC) - timedelta(days=days)
+    cutoff = (
+        local_time(db).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        if args.get("today", False)
+        else datetime.now(UTC) - timedelta(days=days)
+    )
     storage = current_storage_samples(db, since=cutoff)
     measured_change = storage[-1].used_bytes - storage[0].used_bytes if len(storage) >= 2 else None
     return {
         "days": days,
+        "period": "configured_timezone_today" if args.get("today", False) else "rolling_days",
         "instances": instances,
         "measured_storage_change_bytes": measured_change,
         "evidence_note": (
@@ -417,6 +437,7 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "days": days,
+        "period": "configured_timezone_today" if args.get("today", False) else "rolling_days",
         "activities": activities[:limit],
     }
 
@@ -496,7 +517,10 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         "Get measured combined array history for the current measurement source, excluding incompatible older sources.",
         {
             "type": "object",
-            "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 3650}},
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 3650},
+                "today": {"type": "boolean"},
+            },
             "additionalProperties": False,
         },
         storage_history,
@@ -550,7 +574,10 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         "Get recent ServerSense alerts.",
         {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}},
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "today": {"type": "boolean"},
+            },
             "additionalProperties": False,
         },
         recent_alerts,
@@ -566,6 +593,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
             "type": "object",
             "properties": {
                 "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "today": {"type": "boolean"},
                 "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
                 "instance": {"type": "string", "maxLength": 160},
             },
@@ -579,6 +607,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
             "type": "object",
             "properties": {
                 "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "today": {"type": "boolean"},
                 "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
                 "instance": {"type": "string", "maxLength": 160},
                 "event_type": {
@@ -619,6 +648,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
             "type": "object",
             "properties": {
                 "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "today": {"type": "boolean"},
                 "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
                 "instance": {"type": "string", "maxLength": 160},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
