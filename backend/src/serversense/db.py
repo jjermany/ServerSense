@@ -26,7 +26,7 @@ class TimestampMixin:
 settings = get_settings()
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False, "timeout": 15},
     pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -40,4 +40,10 @@ def get_db() -> Generator:
 def initialize_database() -> None:
     from serversense import models  # noqa: F401
 
+    # WAL allows dashboard readers to continue while monitoring commits a new
+    # snapshot. The connection timeout remains a bounded fallback for brief
+    # writer-to-writer contention.
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+        connection.exec_driver_sql("PRAGMA busy_timeout=15000")
     Base.metadata.create_all(engine)

@@ -32,6 +32,7 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
     read_timeouts: list[float | None] = []
 
     def fake_post(url: str, **kwargs: object) -> httpx.Response:
+        assert not db.in_transaction()
         payload = kwargs["json"]
         assert isinstance(payload, dict)
         calls.append(payload)

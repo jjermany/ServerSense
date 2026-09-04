@@ -183,6 +183,10 @@ def refresh_dashboard_summary(
     facts = _facts(db)
     if facts is None:
         return None
+    # Facts are detached plain values. End the read transaction before a potentially
+    # long provider call so a monitoring write cannot enter SQLite's pending state
+    # and block new dashboard readers behind this worker.
+    db.rollback()
     headers = {"Content-Type": "application/json"}
     if config.get("api_key"):
         headers["Authorization"] = f"Bearer {config['api_key']}"
