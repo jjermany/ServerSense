@@ -223,9 +223,29 @@ async def _mark_backgrounded(job_id: str, seconds: int) -> None:
             db.commit()
 
 
-def _safe_error(exc: Exception) -> str:
+def _safe_error(exc: Exception, config: dict[str, Any] | None = None) -> str:
+    snapshot = config or {}
+    provider_timeout = float(snapshot.get("timeout_seconds", 120))
+    max_runtime = float(snapshot.get("max_runtime_seconds", 300))
+    if isinstance(exc, httpx.ConnectTimeout):
+        connect_timeout = min(10.0, provider_timeout)
+        return (
+            f"ServerSense could not connect to the model provider within "
+            f"{connect_timeout:g} seconds. This connection limit is separate from the "
+            f"configured {max_runtime:g}-second maximum runtime. You can retry this job."
+        )
+    if isinstance(exc, httpx.ReadTimeout):
+        return (
+            f"The model provider sent no response data for {provider_timeout:g} seconds. "
+            f"This provider inactivity timeout is separate from the configured "
+            f"{max_runtime:g}-second maximum runtime. You can retry this job."
+        )
     if isinstance(exc, httpx.TimeoutException):
-        return "The configured model timed out. You can retry this job."
+        return (
+            f"The model request reached the configured {provider_timeout:g}-second "
+            f"provider I/O timeout. This is separate from the configured "
+            f"{max_runtime:g}-second maximum runtime. You can retry this job."
+        )
     if isinstance(exc, httpx.HTTPStatusError):
         return f"The model endpoint returned HTTP {exc.response.status_code}."
     if isinstance(exc, httpx.HTTPError):
@@ -555,7 +575,7 @@ async def _run_job(job_id: str) -> None:
                     db,
                     job,
                     "failed",
-                    _safe_error(exc)
+                    _safe_error(exc, job.config_snapshot)
                     + " ServerSense monitoring and direct telemetry remain available.",
                     notify=True,
                 )

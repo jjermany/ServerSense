@@ -558,7 +558,7 @@ export default function SettingsPage() {
                   <label>Context window<input name="context_window" type="number" min="1024" defaultValue={config.context_window} /><small>Total token capacity used to budget SENSE instructions, context, tools, and the response.</small></label>
                   <label>Temperature<input name="temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.temperature} /></label>
                   <label>Maximum tool calls<input name="max_tool_calls" type="number" min="1" max="12" defaultValue={config.max_tool_calls} /></label>
-                  <label>Provider timeout (seconds)<input name="timeout_seconds" type="number" min="5" max="600" defaultValue={config.timeout_seconds} /></label>
+                  <label>Provider inactivity timeout (seconds)<input name="timeout_seconds" type="number" min="5" max="600" defaultValue={config.timeout_seconds} /><small>Maximum wait for response data. This can stop a stalled request before the overall job runtime limit.</small></label>
                   <label>Maximum response tokens<input name="max_output_tokens" type="number" min="64" max="4096" defaultValue={config.max_output_tokens} /><small>Generation space reserved within the context window.</small></label>
                   <label>Tool compatibility<select name="tool_calling" defaultValue={config.tool_calling}><option value="auto">Auto fallback</option><option value="native">Require native tools</option><option value="curated_context">Curated context only</option></select></label>
                 </div>
@@ -571,7 +571,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="settings-control-grid">
                   <label>Background after (seconds)<input name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} /><small>Changes presentation only; processing continues.</small></label>
-                  <label>Maximum runtime (seconds)<input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Hard wall-clock limit for one inference, including dashboard summaries.</small></label>
+                  <label>Maximum runtime (seconds)<input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Overall wall-clock limit. Provider inactivity and connection limits can stop a request sooner.</small></label>
                   <label>Concurrent AI jobs<input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} /></label>
                   <label>Maximum queued jobs<input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} /></label>
                   <label>Conversation retention (days)<input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} /></label>

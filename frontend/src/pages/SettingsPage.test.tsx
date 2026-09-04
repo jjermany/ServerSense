@@ -68,6 +68,14 @@ describe("AI settings", () => {
   });
   afterEach(cleanup);
 
+  it("explains that provider inactivity can stop a job before maximum runtime", async () => {
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("Provider inactivity timeout (seconds)")).toBeInTheDocument();
+    expect(screen.getByText(/This can stop a stalled request before the overall job runtime limit/)).toBeInTheDocument();
+    expect(screen.getByText(/Provider inactivity and connection limits can stop a request sooner/)).toBeInTheDocument();
+  });
+
   it("requires an explicit opt-in for proactive model explanations", async () => {
     render(<SettingsPage />);
     const optIn = await screen.findByLabelText(/Explain new alerts with SENSE/);

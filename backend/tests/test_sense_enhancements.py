@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -22,6 +23,7 @@ from serversense.services.sense_jobs import (
     NOTIFICATION_SUMMARY_LIMIT,
     _notification_summary,
     _run_job,
+    _safe_error,
     cancel_job,
     config_snapshot,
     create_job,
@@ -58,6 +60,26 @@ def test_notification_summary_is_plain_text_and_capped() -> None:
     assert "##" not in summary
     assert "https://" not in summary
     assert summary.startswith("Result Storage is healthy.")
+
+
+def test_provider_read_timeout_names_the_limit_that_fired() -> None:
+    error = _safe_error(
+        httpx.ReadTimeout("provider stalled"),
+        {"timeout_seconds": 120, "max_runtime_seconds": 600},
+    )
+
+    assert "sent no response data for 120 seconds" in error
+    assert "separate from the configured 600-second maximum runtime" in error
+
+
+def test_provider_connect_timeout_names_the_short_connection_limit() -> None:
+    error = _safe_error(
+        httpx.ConnectTimeout("provider unavailable"),
+        {"timeout_seconds": 600, "max_runtime_seconds": 600},
+    )
+
+    assert "connect to the model provider within 10 seconds" in error
+    assert "separate from the configured 600-second maximum runtime" in error
 
 
 def test_direct_response_has_serversense_provenance_and_never_needs_ai(
