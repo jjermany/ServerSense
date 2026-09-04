@@ -37,6 +37,25 @@ export function formatTime(value: string | Date, timeZone: string) {
   }).format(parseTimestamp(value));
 }
 
+export function formatChartTime(value: string | Date, timeZone: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  }).format(parseTimestamp(value));
+}
+
+export function formatRangeChartTick(
+  value: string | Date,
+  range: string,
+  timeZone: string,
+) {
+  return range === "24h"
+    ? formatChartTime(value, timeZone)
+    : formatDate(value, timeZone);
+}
+
 export function localHour(value: Date, timeZone: string) {
   const hour = new Intl.DateTimeFormat("en-US", {
     hour: "numeric",

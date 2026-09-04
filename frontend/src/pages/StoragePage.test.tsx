@@ -56,4 +56,5 @@ describe("storage live telemetry", () => {
     });
     expect(screen.getByText("80 B")).toBeVisible();
   });
+
 });

@@ -13,7 +13,12 @@ import { formatBytes } from "../api";
 import type { Pool, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
 import { SLOW_REFRESH_INTERVAL_MS, useLiveQuery } from "../hooks/useLiveQuery";
-import { formatDate, formatDateTime, parseTimestamp } from "../timeFormat";
+import {
+  formatDate,
+  formatDateTime,
+  formatRangeChartTick,
+  parseTimestamp,
+} from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
 
 type Forecast = {
@@ -152,7 +157,7 @@ export default function StoragePage() {
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={(v) =>
-                  formatDate(String(v), timeZone)
+                  formatRangeChartTick(String(v), range, timeZone)
                 }
                 stroke="#626d7e"
               />
@@ -166,6 +171,9 @@ export default function StoragePage() {
                   border: "1px solid #2a3342",
                 }}
                 formatter={(v) => formatBytes(Number(v), 2)}
+                labelFormatter={(label) =>
+                  formatDateTime(String(label), timeZone)
+                }
               />
               <Area
                 dataKey="used_bytes"
