@@ -59,7 +59,7 @@ Last updated: 2026-09-02
 - [x] opt-in proactive LLM explanations layered on deterministic events with safe fallback
 - [x] AI-only, multi-instance Sonarr/Radarr history collection with encrypted keys and normalized records
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name, with explicit configured-timezone 12-hour display values for user-facing SENSE timestamps
-- [x] provider-confirmed quality-upgrade pairing and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
+- [x] provider-confirmed quality-upgrade pairing, single-event normalization in general activity lists, evidence-required upgrade follow-ups, provider-size-based logical net change, and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
 - [x] additive opt-in cached AI dashboard summary with isolated scheduling and database transactions, SQLite WAL reader/writer concurrency, configured runtime/output bounds, suppressed Ollama reasoning traces, safe failure diagnostics, deterministic fallback, 12-hour local times, and validated storage/media claims
 - [x] deterministic intent router with explicit ServerSense/SENSE AI provenance, configuration-aware sidebar status, and no-model factual telemetry responses
 - [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery
@@ -67,7 +67,7 @@ Last updated: 2026-09-02
 - [x] conversation summaries, structured references, model/provider message provenance, rename, search, configurable retention, and cascade deletion
 - [x] separate background and hard-runtime settings, total context/telemetry budgets, retention/tool compatibility, timing diagnostics, UTC-safe live/persisted per-message elapsed time, and Ask SENSE job UI
 - [x] partial-response preservation for timeout/cancel/failure/interruption, explicit provider-inactivity/connection versus overall-runtime error details, plus deduplicated global/per-job long-running notifications, dismissible in-app notices, and category-controlled delivery of 200-character plain-text result summaries through configured notification providers
-- [x] responsive Ask SENSE conversation history and message layout with a single notification control per active job, no stale Retry action after a replacement attempt is accepted, and broad change summaries grounded in pre-gathered storage, alert, media, container, and overview evidence
+- [x] responsive Ask SENSE conversation history and message layout with durable-job recovery after live-stream loss, a single notification control per active job, no stale Retry action after a replacement attempt is accepted, and broad change summaries grounded in pre-gathered storage, alert, media, container, and overview evidence
 - [x] direct read-only telemetry access while a long SENSE AI analysis remains active
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 

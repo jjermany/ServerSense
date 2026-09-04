@@ -252,9 +252,79 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
                 "previous_quality": "WEBDL-1080p",
                 "quality": "Bluray-2160p",
                 "bytes": 2_000,
+                "previous_bytes": 1_000,
+                "replacement_bytes": 2_000,
+                "net_bytes_change": 1_000,
                 "evidence": "provider deletion reason Upgrade followed by import",
             }
         ]
+        assert items["known_net_bytes_change"] == 1_000
+        assert items["net_change_known_count"] == 1
+        assert items["net_change_unknown_count"] == 0
+        all_items = execute_tool(
+            db,
+            "get_media_activity_items",
+            {"days": 1, "instance": "TV upgrades"},
+        )
+        assert len(all_items["activities"]) == 1
+        assert all_items["activities"][0]["event_type"] == "quality_upgraded"
+        assert all_items["activities"][0]["classification"] == "confirmed_quality_upgrade"
+        assert all_items["activities"][0]["explicit_upgrade"] is True
+        assert all_items["activities"][0]["previous_bytes"] == 1_000
+        assert all_items["activities"][0]["replacement_bytes"] == 2_000
+        assert all_items["activities"][0]["net_bytes_change"] == 1_000
+        assert all_items["activities"][0]["upgrade_evidence"] == (
+            "provider deletion reason Upgrade followed by import"
+        )
+
+
+def test_quality_upgrade_net_change_stays_unknown_when_a_size_is_missing() -> None:
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        integration = Integration(provider="radarr", name="Movies", enabled=True, config={})
+        db.add(integration)
+        db.flush()
+        common = {
+            "integration_id": integration.id,
+            "provider": "radarr",
+            "instance_name": "Movies",
+            "media_type": "movie",
+            "title": "A Movie",
+            "parent_title": None,
+            "season_number": None,
+            "episode_number": None,
+        }
+        db.add_all(
+            [
+                MediaActivity(
+                    **common,
+                    external_id="missing-size-delete",
+                    occurred_at=now,
+                    event_type="file_deleted",
+                    quality="WEBDL-1080p",
+                    bytes=None,
+                    is_upgrade=True,
+                ),
+                MediaActivity(
+                    **common,
+                    external_id="missing-size-import",
+                    occurred_at=now + timedelta(seconds=2),
+                    event_type="imported",
+                    quality="WEBDL-2160p",
+                    bytes=2_000,
+                    is_upgrade=False,
+                ),
+            ]
+        )
+        db.commit()
+
+        items = execute_tool(db, "get_quality_upgrades", {"days": 1, "instance": "Movies"})
+        assert items["activities"][0]["previous_bytes"] is None
+        assert items["activities"][0]["replacement_bytes"] == 2_000
+        assert items["activities"][0]["net_bytes_change"] is None
+        assert items["known_net_bytes_change"] == 0
+        assert items["net_change_known_count"] == 0
+        assert items["net_change_unknown_count"] == 1
 
 
 def test_upcoming_media_is_normalized_and_not_described_as_guaranteed() -> None:

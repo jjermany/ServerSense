@@ -97,6 +97,8 @@ export default function SensePage() {
   const [retryingJobs, setRetryingJobs] = useState<Set<string>>(() => new Set());
   const [activeStartedAt, setActiveStartedAt] = useState<string>();
   const [clock, setClock] = useState(() => Date.now());
+  const [detachedJob, setDetachedJob] = useState<string>();
+  const [streamNotice, setStreamNotice] = useState("");
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const requestIdRef = useRef<string | undefined>(undefined);
   const stoppedRef = useRef(false);
@@ -150,6 +152,15 @@ export default function SensePage() {
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [busy, jobs]);
+  useEffect(() => {
+    if (!detachedJob) return;
+    const job = jobs.find((item) => item.id === detachedJob);
+    if (!job || !terminal.has(job.status)) return;
+    setDetachedJob(undefined);
+    setLongRunningJob(undefined);
+    setStreamNotice("");
+    if (conversation === job.conversation_id) void loadConversation(job.conversation_id);
+  }, [conversation, detachedJob, jobs, loadConversation]);
 
   const openConversation = async (id: number) => {
     await loadConversation(id);
@@ -181,10 +192,12 @@ export default function SensePage() {
     setBusy(true);
     setDraft("");
     setActiveStartedAt(undefined);
+    setStreamNotice("");
     stoppedRef.current = false;
     requestIdRef.current = undefined;
     const controller = new AbortController();
     controllerRef.current = controller;
+    let streamReportedError = false;
     try {
       const response = await fetch("/api/ai/chat/stream", {
         method: "POST",
@@ -251,8 +264,13 @@ export default function SensePage() {
             setForegroundNotify(data.notify_on_completion ?? true);
             void loadBackgroundState();
           }
-          if (event === "error") throw new Error(data.message);
+          if (event === "error") {
+            streamReportedError = true;
+            throw new Error(data.message);
+          }
           if (event === "message") {
+            setDetachedJob(undefined);
+            setStreamNotice("");
             setLongRunningJob(undefined);
             setActiveStreamJob(undefined);
             setDraft("");
@@ -269,6 +287,8 @@ export default function SensePage() {
             ]);
           }
           if (event === "terminal") {
+            setDetachedJob(undefined);
+            setStreamNotice("");
             setLongRunningJob(undefined);
             setActiveStreamJob(undefined);
             setDraft("");
@@ -289,14 +309,24 @@ export default function SensePage() {
     } catch (error) {
       if (controller.signal.aborted || stoppedRef.current) return;
       setDraft("");
-      setMessages((current) => [
-        ...current,
-        {
-          role: "assistant",
-          source: "serversense",
-          content: `I couldn't complete that request: ${error instanceof Error ? error.message : "Unknown error"}`,
-        },
-      ]);
+      const durableJobId = requestIdRef.current;
+      if (durableJobId && !streamReportedError) {
+        setDetachedJob(durableJobId);
+        setLongRunningJob(durableJobId);
+        setStreamNotice(
+          "The live response connection was interrupted. The SENSE job is still running, and ServerSense will load its result when it finishes.",
+        );
+        void loadBackgroundState();
+      } else {
+        setMessages((current) => [
+          ...current,
+          {
+            role: "assistant",
+            source: "serversense",
+            content: `I couldn't complete that request: ${error instanceof Error ? error.message : "Unknown error"}`,
+          },
+        ]);
+      }
     } finally {
       if (controllerRef.current === controller) {
         controllerRef.current = undefined;
@@ -319,6 +349,8 @@ export default function SensePage() {
     }
     controllerRef.current?.abort();
     setLongRunningJob(undefined);
+    setDetachedJob(undefined);
+    setStreamNotice("");
     setActiveStreamJob(undefined);
     setDraft("");
     setBusy(false);
@@ -498,7 +530,7 @@ export default function SensePage() {
                   <div className="long-running-status">
                     <div>
                       <b>SENSE AI is still working.</b>
-                      <p>You can stay here and continue watching, or leave this page and return later.</p>
+                      <p>{streamNotice || "You can stay here and continue watching, or leave this page and return later."}</p>
                     </div>
                     <label>
                       <input

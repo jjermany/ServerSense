@@ -90,6 +90,18 @@ def test_upcoming_media_follow_up_requires_calendar_tool() -> None:
     assert _calendar_window_days("Yes please", history) == 7
 
 
+def test_quality_upgrade_challenge_requires_upgrade_evidence() -> None:
+    history = [
+        {"role": "user", "content": "What changed on my server today?"},
+        {"role": "assistant", "content": "Radarr imported Mayday."},
+    ]
+
+    assert _required_tool("Wasn't that just a quality upgrade?", history) == (
+        "get_quality_upgrades"
+    )
+    assert _calendar_window_days("Wasn't that just a quality upgrade?", history) == 1
+
+
 async def test_tool_call_preamble_is_not_compiled_into_final_answer(
     monkeypatch: MonkeyPatch,
 ) -> None:

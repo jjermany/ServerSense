@@ -385,6 +385,11 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                         "previous_quality": deleted.quality,
                         "quality": row.quality,
                         "bytes": row.bytes,
+                        "previous_bytes": deleted.bytes,
+                        "replacement_bytes": row.bytes,
+                        "net_bytes_change": row.bytes - deleted.bytes
+                        if row.bytes is not None and deleted.bytes is not None
+                        else None,
                         "evidence": "provider deletion reason Upgrade followed by import",
                     }
                 )
@@ -408,6 +413,9 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                         "previous_quality": row.quality,
                         "quality": None,
                         "bytes": None,
+                        "previous_bytes": row.bytes,
+                        "replacement_bytes": None,
+                        "net_bytes_change": None,
                         "evidence": "provider deletion reason Upgrade; matching import is outside the selected window",
                     }
                 )
@@ -427,9 +435,14 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                         "previous_quality": None,
                         "quality": row.quality,
                         "bytes": row.bytes,
+                        "previous_bytes": None,
+                        "replacement_bytes": row.bytes,
+                        "net_bytes_change": None,
                         "evidence": "import explicitly marked as an upgrade by the provider",
                     }
                 )
+            continue
+        if row.id in paired_deletions:
             continue
         activities.append(
             {
@@ -437,7 +450,14 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "timestamp_local_display": format_local_datetime(db, row.occurred_at),
                 "provider": row.provider,
                 "instance": row.instance_name,
-                "event_type": row.event_type,
+                "event_type": "quality_upgraded"
+                if row.event_type == "imported" and (row.is_upgrade or deleted is not None)
+                else row.event_type,
+                "classification": "confirmed_quality_upgrade"
+                if row.event_type == "imported" and (row.is_upgrade or deleted is not None)
+                else "unclassified_import"
+                if row.event_type == "imported"
+                else row.event_type,
                 "media_type": row.media_type,
                 "title": row.title,
                 "series": row.parent_title,
@@ -446,14 +466,46 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "previous_quality": deleted.quality if deleted else None,
                 "quality": row.quality,
                 "bytes": row.bytes,
+                "previous_bytes": deleted.bytes if deleted else None,
+                "replacement_bytes": row.bytes
+                if row.event_type == "imported" and (row.is_upgrade or deleted is not None)
+                else None,
+                "net_bytes_change": row.bytes - deleted.bytes
+                if row.bytes is not None and deleted is not None and deleted.bytes is not None
+                else None,
                 "explicit_upgrade": row.is_upgrade or deleted is not None,
+                "upgrade_evidence": "provider deletion reason Upgrade followed by import"
+                if deleted is not None
+                else "provider marked import as upgrade"
+                if row.is_upgrade
+                else None,
             }
         )
-    return {
+    selected_activities = activities[:limit]
+    result: dict[str, Any] = {
         "days": days,
         "period": "configured_timezone_today" if args.get("today", False) else "rolling_days",
-        "activities": activities[:limit],
+        "activities": selected_activities,
     }
+    if args.get("upgrades_only", False):
+        known_changes = [
+            item["net_bytes_change"]
+            for item in selected_activities
+            if item["net_bytes_change"] is not None
+        ]
+        result.update(
+            {
+                "known_net_bytes_change": sum(known_changes),
+                "net_change_known_count": len(known_changes),
+                "net_change_unknown_count": len(selected_activities) - len(known_changes),
+                "net_change_evidence_note": (
+                    "Each known net change is replacement_bytes minus previous_bytes. This is "
+                    "the logical media-file size difference, not a measured array-storage change. "
+                    "Upgrades missing either provider-reported size are excluded from the known sum."
+                ),
+            }
+        )
+    return result
 
 
 def upcoming_media(db: Session, args: dict[str, Any]) -> dict[str, Any]:
@@ -616,7 +668,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         media_activity_summary,
     ),
     "get_media_activity_items": (
-        "List bounded normalized Sonarr/Radarr activity with titles and source instance. Set upgrades_only=true for quality upgrades confirmed by provider upgrade-deletion evidence and a nearby import when available.",
+        "List bounded normalized Sonarr/Radarr activity with titles and source instance. A confirmed_quality_upgrade combines an import with the provider's explicit Upgrade deletion evidence; an unclassified_import is not proof of a new acquisition. File-renames are not upgrade evidence. Set upgrades_only=true to return confirmed upgrades only.",
         {
             "type": "object",
             "properties": {
@@ -657,7 +709,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         upcoming_media,
     ),
     "get_quality_upgrades": (
-        "List confirmed Sonarr/Radarr quality replacements. Use this for questions such as 'any TV upgrades today?'; these are higher-quality file replacements, not conversions.",
+        "List confirmed Sonarr/Radarr quality replacements and their provider-reported previous_bytes, replacement_bytes, per-item net_bytes_change, and known aggregate net change. Use this for questions such as 'how much space did upgrades add today?'. Never estimate a net change when either size is missing, and distinguish logical file-size change from measured array-storage change.",
         {
             "type": "object",
             "properties": {

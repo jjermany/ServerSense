@@ -145,6 +145,60 @@ describe("SENSE requests", () => {
     expect(requestSignal?.aborted).toBe(false);
   });
 
+  it("keeps a durable job running when the live response connection is lost", async () => {
+    let jobSubmitted = false;
+    const activeJob = {
+      id: "detached-job",
+      conversation_id: 9,
+      user_message_id: 90,
+      status: "analyzing",
+      model: "test-model",
+      partial_response: "",
+      backgrounded: true,
+      notify_on_completion: true,
+    };
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/ai/jobs") return Promise.resolve(jobSubmitted ? [activeJob] : []);
+      if (path === "/api/ai/notifications") {
+        return Promise.resolve({ unread: 0, items: [] });
+      }
+      return Promise.resolve([]);
+    });
+    const encoder = new TextEncoder();
+    vi.stubGlobal("fetch", vi.fn(() => {
+      jobSubmitted = true;
+      let reads = 0;
+      return Promise.resolve({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: () => {
+              reads += 1;
+              if (reads === 1) {
+                return Promise.resolve({
+                  done: false,
+                  value: encoder.encode(
+                    'event: status\ndata: {"message":"Analyzing","request_id":"detached-job","conversation_id":9,"status":"analyzing"}\n\n',
+                  ),
+                });
+              }
+              return Promise.reject(new TypeError("network error"));
+            },
+          }),
+        },
+      } as Response);
+    }));
+
+    render(<SensePage />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "What changed on my server today?" }),
+    );
+
+    expect(await screen.findByText(/live response connection was interrupted/)).toBeInTheDocument();
+    expect(screen.queryByText(/I couldn't complete that request/)).not.toBeInTheDocument();
+    expect(screen.getByText("SENSE AI is still working.")).toBeInTheDocument();
+  });
+
   it("hides a superseded failure after its retry is accepted", async () => {
     const failedJob = {
       id: "failed-job",
