@@ -67,7 +67,7 @@ Last updated: 2026-09-02
 - [x] conversation summaries, structured references, model/provider message provenance, rename, search, configurable retention, and cascade deletion
 - [x] separate background and hard-runtime settings, total context/telemetry budgets, retention/tool compatibility, timing diagnostics, and Ask SENSE job UI
 - [x] partial-response preservation for timeout/cancel/failure/interruption, explicit provider-inactivity/connection versus overall-runtime error details, plus deduplicated global/per-job long-running notifications, dismissible in-app notices, and category-controlled delivery of 200-character plain-text result summaries through configured notification providers
-- [x] responsive Ask SENSE conversation history and message layout with a single notification control per active job
+- [x] responsive Ask SENSE conversation history and message layout with a single notification control per active job and no stale Retry action after a replacement attempt is accepted
 - [x] direct read-only telemetry access while a long SENSE AI analysis remains active
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 

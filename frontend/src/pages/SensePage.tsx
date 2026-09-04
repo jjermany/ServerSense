@@ -34,6 +34,7 @@ type Conversation = { id: number; title: string; updated_at: string; summary?: s
 type Job = {
   id: string;
   conversation_id: number;
+  user_message_id?: number;
   status: string;
   model: string;
   partial_response: string;
@@ -81,6 +82,7 @@ export default function SensePage() {
   const [activeStreamJob, setActiveStreamJob] = useState<string>();
   const [foregroundNotify, setForegroundNotify] = useState(true);
   const [quickTelemetryError, setQuickTelemetryError] = useState("");
+  const [retryingJobs, setRetryingJobs] = useState<Set<string>>(() => new Set());
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const requestIdRef = useRef<string | undefined>(undefined);
   const stoppedRef = useRef(false);
@@ -300,8 +302,18 @@ export default function SensePage() {
     await loadBackgroundState();
   };
   const retryJob = async (job: Job) => {
-    await api(`/api/ai/jobs/${job.id}/retry`, { method: "POST" });
-    await loadBackgroundState();
+    setRetryingJobs((current) => new Set(current).add(job.id));
+    try {
+      const retried = await api<Job>(`/api/ai/jobs/${job.id}/retry`, { method: "POST" });
+      setJobs((current) => [retried, ...current.filter((item) => item.id !== retried.id)]);
+      await loadBackgroundState();
+    } finally {
+      setRetryingJobs((current) => {
+        const updated = new Set(current);
+        updated.delete(job.id);
+        return updated;
+      });
+    }
   };
   const setJobNotification = async (jobId: string, enabled: boolean) => {
     const updated = await api<Job>(`/api/ai/jobs/${jobId}/notification`, {
@@ -365,9 +377,20 @@ export default function SensePage() {
   const conversationJobs = jobs.filter(
     (job) => (!conversation || job.conversation_id === conversation) && !terminal.has(job.status),
   );
+  // Jobs arrive newest first. A retry reuses the original user message, so only
+  // its newest attempt should remain actionable.
+  const newestAttemptIds = new Set<string>();
+  const seenUserMessages = new Set<number>();
+  for (const job of jobs) {
+    if (job.user_message_id == null || !seenUserMessages.has(job.user_message_id)) {
+      newestAttemptIds.add(job.id);
+      if (job.user_message_id != null) seenUserMessages.add(job.user_message_id);
+    }
+  }
   const retryableJobs = jobs.filter(
     (job) =>
       (!conversation || job.conversation_id === conversation) &&
+      newestAttemptIds.has(job.id) &&
       ["failed", "cancelled", "timed_out", "interrupted"].includes(job.status),
   );
 
@@ -490,7 +513,7 @@ export default function SensePage() {
                   <div>
                     <b>SENSE job {job.status.replaceAll("_", " ")}</b>
                     <small>{job.error}</small>
-                    <button onClick={() => void retryJob(job)}><RotateCcw size={12} /> Retry</button>
+                    <button disabled={retryingJobs.has(job.id)} onClick={() => void retryJob(job)}><RotateCcw size={12} /> {retryingJobs.has(job.id) ? "Retryingâ€¦" : "Retry"}</button>
                   </div>
                 </article>
               ))}

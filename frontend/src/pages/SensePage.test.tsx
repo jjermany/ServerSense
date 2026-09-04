@@ -145,6 +145,57 @@ describe("SENSE requests", () => {
     expect(requestSignal?.aborted).toBe(false);
   });
 
+  it("hides a superseded failure after its retry is accepted", async () => {
+    const failedJob = {
+      id: "failed-job",
+      conversation_id: 7,
+      user_message_id: 42,
+      status: "failed",
+      model: "test-model",
+      partial_response: "",
+      backgrounded: false,
+      notify_on_completion: true,
+      error: "The provider timed out.",
+    };
+    const retriedJob = {
+      ...failedJob,
+      id: "retry-job",
+      status: "analyzing",
+      error: "",
+    };
+    let jobRows = [failedJob];
+    vi.mocked(api).mockImplementation((path, options) => {
+      if (path === "/api/ai/conversations") {
+        return Promise.resolve([
+          { id: 7, title: "Server changes", updated_at: "2026-09-04T12:00:00Z" },
+        ]);
+      }
+      if (path === "/api/ai/conversations/7") {
+        return Promise.resolve({
+          id: 7,
+          messages: [{ id: 42, role: "user", content: "What changed?", source: "user" }],
+        });
+      }
+      if (path === "/api/ai/jobs/failed-job/retry" && options?.method === "POST") {
+        jobRows = [retriedJob, failedJob];
+        return Promise.resolve(retriedJob);
+      }
+      if (path === "/api/ai/jobs") return Promise.resolve(jobRows);
+      if (path === "/api/ai/notifications") {
+        return Promise.resolve({ unread: 0, items: [] });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<SensePage />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Server changes/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText(/SENSE AI .* analyzing/)).toBeInTheDocument();
+    expect(screen.queryByText("The provider timed out.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
+
   it("collapses conversation history behind a mobile-friendly toggle", async () => {
     vi.mocked(api).mockImplementation((path) => {
       if (path === "/api/ai/conversations") {
