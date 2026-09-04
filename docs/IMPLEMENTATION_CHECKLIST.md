@@ -44,8 +44,8 @@ Last updated: 2026-09-02
 - [x] read-only allowlisted structured tool registry
 - [x] built-in deterministic no-model mode
 - [x] OpenAI-compatible tool-calling provider
-- [x] Ollama-compatible `/v1` endpoint configuration
-- [x] encrypted provider key, health test, context/temperature/timeout/tool settings UI
+- [x] Ollama-compatible `/v1` endpoint configuration with bounded low-reasoning interactive responses, a no-reasoning empty-response retry, and suppressed reasoning for short background responses
+- [x] encrypted provider key, health test, enforced token-window prompt budget, context/temperature/timeout/tool settings UI
 - [x] explicit removal of a previously saved AI provider API key without resetting other AI settings
 - [x] conversation/message/tool-call persistence
 - [x] user-initiated conversation deletion and current-turn-grounded follow-ups that avoid prior-answer repetition
@@ -57,7 +57,7 @@ Last updated: 2026-09-02
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name
 - [x] provider-confirmed quality-upgrade pairing and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
 - [x] additive opt-in cached AI dashboard summary with isolated scheduling, configured runtime/output bounds, suppressed Ollama reasoning traces, safe failure diagnostics, deterministic fallback, 12-hour local times, and validated storage/media claims
-- [x] deterministic intent router with explicit ServerSense/SENSE AI provenance and no-model factual telemetry responses
+- [x] deterministic intent router with explicit ServerSense/SENSE AI provenance, configuration-aware sidebar status, and no-model factual telemetry responses
 - [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery
 - [x] provider model discovery, minimal-generation health test, native-tool capability hints, and curated-context fallback
 - [x] conversation summaries, structured references, model/provider message provenance, rename, search, configurable retention, and cascade deletion

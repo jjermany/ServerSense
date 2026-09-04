@@ -81,6 +81,49 @@ def test_proactive_explanation_is_opt_in_and_uses_no_tools(monkeypatch: MonkeyPa
         assert event.data["model"] == "local-test-model"
         assert db.get(Event, event.id) is not None
         assert calls[0]["temperature"] == 0.4
+        assert "reasoning_effort" not in calls[0]
+        db.delete(event)
+        db.delete(alert)
+        db.commit()
+
+
+def test_ollama_proactive_explanation_disables_reasoning(monkeypatch: MonkeyPatch) -> None:
+    payloads: list[dict] = []
+
+    def fake_post(url: str, **kwargs: object) -> httpx.Response:
+        payload = kwargs["json"]
+        assert isinstance(payload, dict)
+        payloads.append(payload)
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={"choices": [{"message": {"content": "Measured alert."}}]},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    with SessionLocal() as db:
+        alert = Alert(
+            alert_type="storage_low",
+            severity="warning",
+            title="Storage low",
+            message="Only 5% remains.",
+            fingerprint=f"proactive-ollama-{datetime.now(UTC).timestamp()}",
+            data={"free_percent": 5},
+        )
+        db.add(alert)
+        db.commit()
+        event = explain_alerts(
+            db,
+            [alert],
+            {
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "endpoint": "http://ollama.test:11434",
+                "proactive_insights": True,
+            },
+        )
+        assert event is not None
+        assert payloads[0]["reasoning_effort"] == "none"
         db.delete(event)
         db.delete(alert)
         db.commit()

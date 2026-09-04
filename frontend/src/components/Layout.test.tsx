@@ -32,4 +32,35 @@ describe("Layout monitoring status", () => {
     renderLayout();
     expect(await screen.findByText("Connection interrupted")).toBeVisible();
   });
+
+  it("shows the configured AI provider and model in the sidebar", async () => {
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/settings/ai") {
+        return Promise.resolve({ provider: "ollama", model: "qwen3.5:9b" });
+      }
+      if (path === "/api/ai/notifications?unread_only=true") {
+        return Promise.resolve({ unread: 0, items: [] });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderLayout();
+
+    expect(await screen.findByText("SENSE AI configured")).toBeVisible();
+    expect(screen.getByText("Ollama · qwen3.5:9b")).toBeVisible();
+  });
+
+  it("describes the absence of an AI model without calling it deterministic mode", async () => {
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/settings/ai") {
+        return Promise.resolve({ provider: "disabled", model: "" });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderLayout();
+
+    expect(await screen.findByText("AI model not configured")).toBeVisible();
+    expect(screen.queryByText("Deterministic mode")).not.toBeInTheDocument();
+  });
 });

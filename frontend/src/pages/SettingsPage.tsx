@@ -246,6 +246,7 @@ export default function SettingsPage() {
           }),
         });
         setConfig(updated);
+        window.dispatchEvent(new Event("serversense:ai-settings-updated"));
         const apiKeyInput = formElement.elements.namedItem("api_key");
         if (apiKeyInput instanceof HTMLInputElement) apiKeyInput.value = "";
         return updated;
@@ -554,11 +555,11 @@ export default function SettingsPage() {
                   <p>Control response size, model behavior, and provider timeouts.</p>
                 </div>
                 <div className="settings-control-grid">
-                  <label>Context window<input name="context_window" type="number" min="1024" defaultValue={config.context_window} /></label>
+                  <label>Context window<input name="context_window" type="number" min="1024" defaultValue={config.context_window} /><small>Total token capacity used to budget SENSE instructions, context, tools, and the response.</small></label>
                   <label>Temperature<input name="temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.temperature} /></label>
                   <label>Maximum tool calls<input name="max_tool_calls" type="number" min="1" max="12" defaultValue={config.max_tool_calls} /></label>
                   <label>Provider timeout (seconds)<input name="timeout_seconds" type="number" min="5" max="600" defaultValue={config.timeout_seconds} /></label>
-                  <label>Maximum response tokens<input name="max_output_tokens" type="number" min="64" max="4096" defaultValue={config.max_output_tokens} /></label>
+                  <label>Maximum response tokens<input name="max_output_tokens" type="number" min="64" max="4096" defaultValue={config.max_output_tokens} /><small>Generation space reserved within the context window.</small></label>
                   <label>Tool compatibility<select name="tool_calling" defaultValue={config.tool_calling}><option value="auto">Auto fallback</option><option value="native">Require native tools</option><option value="curated_context">Curated context only</option></select></label>
                 </div>
               </section>
@@ -574,7 +575,7 @@ export default function SettingsPage() {
                   <label>Concurrent AI jobs<input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} /></label>
                   <label>Maximum queued jobs<input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} /></label>
                   <label>Conversation retention (days)<input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} /></label>
-                  <label>Maximum AI context (characters)<input name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} /></label>
+                  <label>Maximum AI context (characters)<input name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} /><small>Secondary safety cap; SENSE applies whichever prompt limit is lower.</small></label>
                   <label>Maximum telemetry (characters)<input name="max_telemetry_chars" type="number" min="2000" max="100000" step="1000" defaultValue={config.max_telemetry_chars} /></label>
                 </div>
               </section>

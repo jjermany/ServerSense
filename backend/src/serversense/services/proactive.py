@@ -48,25 +48,28 @@ def explain_alerts(db: Session, alerts: Sequence[Alert], config: dict[str, Any])
     headers = {"Content-Type": "application/json"}
     if config.get("api_key"):
         headers["Authorization"] = f"Bearer {config['api_key']}"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": PROACTIVE_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Current local time: {local_time(db).isoformat()} "
+                    f"({timezone.name}). Deterministic alert records follow as JSON data:\n"
+                )
+                + json.dumps(records, default=str),
+            },
+        ],
+        "temperature": min(float(config.get("temperature", 0.2)), 0.4),
+        "max_tokens": 240,
+    }
+    if provider == "ollama":
+        payload["reasoning_effort"] = "none"
     response = httpx.post(
         f"{endpoint}/v1/chat/completions",
         headers=headers,
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": PROACTIVE_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Current local time: {local_time(db).isoformat()} "
-                        f"({timezone.name}). Deterministic alert records follow as JSON data:\n"
-                    )
-                    + json.dumps(records, default=str),
-                },
-            ],
-            "temperature": min(float(config.get("temperature", 0.2)), 0.4),
-            "max_tokens": 240,
-        },
+        json=payload,
         timeout=float(config.get("timeout_seconds", 60)),
     )
     response.raise_for_status()

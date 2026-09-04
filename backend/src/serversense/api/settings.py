@@ -105,22 +105,29 @@ def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
         discovery = _discover_models(config)
         if discovery["models"] and not discovery["selected_exists"]:
             raise ValueError("The selected model was not returned by the provider")
+        payload: dict[str, Any] = {
+            "model": config.get("model"),
+            "messages": [{"role": "user", "content": "Reply with OK."}],
+            "temperature": 0,
+            "max_tokens": 8,
+            "stream": False,
+        }
+        if config.get("provider") == "ollama":
+            payload["reasoning_effort"] = "none"
         response = httpx.post(
             f"{endpoint}/v1/chat/completions",
             headers=_ai_headers(config),
-            json={
-                "model": config.get("model"),
-                "messages": [{"role": "user", "content": "Reply with OK."}],
-                "temperature": 0,
-                "max_tokens": 8,
-                "stream": False,
-            },
+            json=payload,
             timeout=float(config.get("timeout_seconds", 60)),
         )
         response.raise_for_status()
         body = response.json()
-        if not (body.get("choices") if isinstance(body, dict) else None):
+        choices = body.get("choices") if isinstance(body, dict) else None
+        if not choices:
             raise ValueError("The model returned no completion choices")
+        content = choices[0].get("message", {}).get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("The model returned no visible test response")
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(502, f"Model endpoint is unavailable: {type(exc).__name__}") from exc
     return {"healthy": True, "detail": f"Connected to {config.get('model')}"}

@@ -16,6 +16,11 @@ FOLLOW_UP_PROMPT = """The conversation history is context for understanding the 
 
 GROUNDED_ANSWER_PROMPT = """Answer the current request now. Do not repeat any earlier answer or tool-call preamble. For array-wide storage, use only values explicitly scoped as combined_array_data_disks; never substitute individual disk or named-pool capacity. For media titles, episode numbers, and dates, use only values present in the tool results from this turn; never invent or substitute examples. If the requested items are absent, say that none were returned."""
 
+# Tokenization varies by model. Three characters per token is intentionally
+# conservative for mixed prose, JSON telemetry, and tool schemas.
+_ESTIMATED_CHARS_PER_TOKEN = 3
+_REQUEST_FRAMING_TOKENS = 64
+
 
 @dataclass(frozen=True)
 class ChatEvent:
@@ -29,6 +34,24 @@ class ChatEvent:
 class _ProviderTurn:
     content: str
     tool_calls: tuple[dict[str, Any], ...]
+    finish_reason: str | None
+
+
+def _context_message_char_budget(
+    config: dict[str, Any], tool_schema: Sequence[dict[str, Any]]
+) -> int:
+    """Translate the configured token window into a conservative message budget."""
+    context_window = min(max(int(config.get("context_window", 4096)), 1024), 262_144)
+    max_output_tokens = min(max(int(config.get("max_output_tokens", 512)), 64), 4096)
+    prompt_tokens = max(0, context_window - max_output_tokens - _REQUEST_FRAMING_TOKENS)
+    provider_overhead = 0
+    if tool_schema:
+        provider_overhead = len(json.dumps(tool_schema, separators=(",", ":")))
+        # A later tool-result turn also carries the adjacent grounding instruction.
+        provider_overhead += len(GROUNDED_ANSWER_PROMPT)
+    window_budget = max(0, prompt_tokens * _ESTIMATED_CHARS_PER_TOKEN - provider_overhead)
+    configured_cap = max(0, int(config.get("max_context_chars", 30_000)))
+    return min(configured_cap, window_budget)
 
 
 def _fallback(db: Session, question: str) -> tuple[str, list[str]]:
@@ -226,6 +249,7 @@ async def _provider_turn(
 ) -> AsyncIterator[str | _ProviderTurn]:
     content_parts: list[str] = []
     calls: dict[int, dict[str, Any]] = {}
+    finish_reason: str | None = None
     async with client.stream(
         "POST", f"{endpoint}/v1/chat/completions", headers=headers, json=payload
     ) as response:
@@ -243,6 +267,8 @@ async def _provider_turn(
             if not choices:
                 continue
             choice = choices[0]
+            if choice.get("finish_reason") is not None:
+                finish_reason = str(choice["finish_reason"])
             delta = choice.get("delta") or choice.get("message") or {}
             content = delta.get("content")
             if content:
@@ -265,7 +291,7 @@ async def _provider_turn(
         call = calls[index]
         call["id"] = call.get("id") or f"tool-call-{index + 1}"
         ordered_calls.append(call)
-    yield _ProviderTurn("".join(content_parts), tuple(ordered_calls))
+    yield _ProviderTurn("".join(content_parts), tuple(ordered_calls), finish_reason)
 
 
 async def chat_stream(
@@ -291,14 +317,6 @@ async def chat_stream(
     if config.get("api_key"):
         headers["Authorization"] = f"Bearer {config['api_key']}"
     timezone = time_zone_details(db)
-    messages = _provider_messages(
-        question,
-        history,
-        current_time=local_time(db),
-        timezone_name=timezone.name,
-        curated_context=config.get("curated_context"),
-        max_context_chars=int(config.get("max_context_chars", 30_000)),
-    )
     required_tool = _required_tool(question, history)
     calendar_window_days = _calendar_window_days(question, history)
     used: list[str] = []
@@ -306,6 +324,22 @@ async def chat_stream(
     max_calls = int(config.get("max_tool_calls", 5))
     timeout_seconds = float(config.get("timeout_seconds", 60))
     timeout = httpx.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds))
+    native_tools = config.get("tool_calling", "auto") != "curated_context"
+    provider_tools = tool_definitions() if native_tools else []
+    message_char_budget = _context_message_char_budget(config, provider_tools)
+    messages = _provider_messages(
+        question,
+        history,
+        current_time=local_time(db),
+        timezone_name=timezone.name,
+        curated_context=config.get("curated_context"),
+        max_context_chars=message_char_budget,
+    )
+    if sum(len(str(item.get("content") or "")) for item in messages) > message_char_budget:
+        raise ValueError(
+            "The current request and required SENSE instructions exceed the configured "
+            "context window. Increase Context window or shorten the request."
+        )
     async with httpx.AsyncClient(timeout=timeout) as client:
         for turn_number in range(max_calls + 1):
             yield ChatEvent(
@@ -321,9 +355,12 @@ async def chat_stream(
                 "max_tokens": int(config.get("max_output_tokens", 512)),
                 "stream": True,
             }
-            native_tools = config.get("tool_calling", "auto") != "curated_context"
+            if provider == "ollama":
+                # Keep some reasoning for interactive analysis, but retry without the
+                # hidden trace if it consumes the bounded budget before any usable output.
+                payload["reasoning_effort"] = "low"
             if native_tools:
-                payload["tools"] = tool_definitions()
+                payload["tools"] = provider_tools
                 payload["tool_choice"] = (
                     {"type": "function", "function": {"name": required_tool}}
                     if turn_number == 0 and required_tool
@@ -331,16 +368,32 @@ async def chat_stream(
                 )
             turn: _ProviderTurn | None = None
             turn_parts: list[str] = []
-            async for item in _provider_turn(client, endpoint, headers, payload):
-                if isinstance(item, str):
-                    turn_parts.append(item)
-                    yield ChatEvent("delta", item)
-                else:
-                    turn = item
-            if turn is None:
-                raise RuntimeError("SENSE provider ended without a response")
+            can_retry_without_reasoning = provider == "ollama"
+            while True:
+                async for item in _provider_turn(client, endpoint, headers, payload):
+                    if isinstance(item, str):
+                        turn_parts.append(item)
+                        yield ChatEvent("delta", item)
+                    else:
+                        turn = item
+                if turn is None:
+                    raise RuntimeError("SENSE provider ended without a response")
+                if turn.content.strip() or turn.tool_calls or not can_retry_without_reasoning:
+                    break
+                can_retry_without_reasoning = False
+                payload["reasoning_effort"] = "none"
+                yield ChatEvent(
+                    "activity", "Retrying with the response budget reserved for the answer…"
+                )
             if not turn.tool_calls:
-                answer = turn.content.strip() or "SENSE returned an empty response."
+                answer = turn.content.strip()
+                if not answer:
+                    if turn.finish_reason == "length":
+                        raise RuntimeError(
+                            "The model reached the response-token limit before producing "
+                            "a visible answer. Increase Maximum response tokens or retry."
+                        )
+                    raise RuntimeError("The model returned no visible answer. Please retry.")
                 yield ChatEvent("complete", message=answer, tools=tuple(used), model=model)
                 return
             if turn_parts:

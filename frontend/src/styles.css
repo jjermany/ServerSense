@@ -158,6 +158,10 @@ button {
 .sense-status small {
   font-size: 10px;
   color: var(--muted);
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .status-dot {
   width: 7px;
