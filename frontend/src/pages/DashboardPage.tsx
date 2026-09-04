@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import {
   AlertTriangle,
+  ArrowDownRight,
   ArrowUpRight,
   Bot,
   HardDrive,
@@ -60,6 +61,7 @@ export default function DashboardPage() {
   const online = data.containers.filter((x) => x.status === "running").length;
   const timeZone = data.timezone || configuredTimeZone;
   const currentHour = localHour(new Date(), timeZone);
+  const dailyGrowth = data.storage.growth_bytes_per_day ?? 0;
   return (
     <div className="page">
       <PageHeader
@@ -224,8 +226,8 @@ export default function DashboardPage() {
               Measured usage
             </span>
             <span className="growth">
-              +{formatBytes(data.storage.growth_bytes_per_day ?? 0)} / day{" "}
-              <ArrowUpRight size={14} />
+              {dailyGrowth > 0 ? "+" : ""}{formatBytes(dailyGrowth)} / day{" "}
+              {dailyGrowth < 0 ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}
             </span>
           </div>
         </Card>

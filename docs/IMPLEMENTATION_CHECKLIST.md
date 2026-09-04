@@ -28,7 +28,7 @@ Last updated: 2026-09-02
 - [x] restricted Docker inventory collector
 - [x] scheduled collection and retention cleanup
 - [x] deterministic 7/30/90-day robust forecasting
-- [x] dashboard with timezone-aware overall/source update times, storage chart/ranges, disk cards, Docker table
+- [x] dashboard with timezone-aware overall/source update times, storage chart/ranges, signed human-readable growth rates, disk cards, Docker table
 - [x] metric-driven storage, forecast, SMART, temperature, and container rules with a 10-minute stopped-container grace period
 - [x] Unraid array/parity state, disk/cache inventory, and available APC UPS data
 - [x] combined array capacity from assigned data disks only, with explicit SENSE scope and incompatible legacy-source isolation

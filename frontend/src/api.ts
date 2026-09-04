@@ -45,7 +45,10 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export const formatBytes = (value: number, digits = 1) => {
   if (!Number.isFinite(value)) return '—'
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  const unit = Math.min(Math.floor(Math.log(Math.max(value, 1)) / Math.log(1000)), units.length - 1)
+  const unit = Math.min(
+    Math.floor(Math.log(Math.max(Math.abs(value), 1)) / Math.log(1000)),
+    units.length - 1,
+  )
   return `${(value / 1000 ** unit).toFixed(digits)} ${units[unit]}`
 }
 

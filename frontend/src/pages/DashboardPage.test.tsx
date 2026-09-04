@@ -144,6 +144,27 @@ describe("dashboard", () => {
     expect(results.violations).toHaveLength(0);
   });
 
+  it("formats a falling usage trend without a contradictory positive sign", async () => {
+    vi.mocked(api).mockImplementation((path: string) =>
+      Promise.resolve(
+        path === "/api/dashboard"
+          ? {
+              ...dashboard,
+              storage: {
+                ...dashboard.storage,
+                growth_bytes_per_day: -846_702_280_547,
+              },
+            }
+          : history,
+      ),
+    );
+
+    render(<DashboardPage />);
+
+    expect(await screen.findByText("-0.8 TB / day")).toBeVisible();
+    expect(screen.queryByText(/\+-/)).not.toBeInTheDocument();
+  });
+
   it("adds a cached AI summary without replacing measured insights", async () => {
     vi.mocked(api).mockImplementation((path: string) =>
       Promise.resolve(

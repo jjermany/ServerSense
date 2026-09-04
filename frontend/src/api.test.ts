@@ -7,6 +7,7 @@ describe("formatBytes", () => {
   it("formats decimal storage units consistently", () => {
     expect(formatBytes(4_070_000_000_000, 2)).toBe("4.07 TB");
     expect(formatBytes(620_000_000_000)).toBe("620.0 GB");
+    expect(formatBytes(-846_702_280_547)).toBe("-846.7 GB");
   });
 });
 
