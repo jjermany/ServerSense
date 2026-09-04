@@ -129,6 +129,8 @@ OpenAPI documentation is available at `/docs` in development and production.
 
 The web client bounds API requests and automatically retries its startup authentication check, so a temporary database lock or backend stall cannot leave the app permanently stuck on the connecting screen.
 
+If a browser tab stays open across a ServerSense update, its cached bundle can reference a page chunk that no longer exists on the server. The app detects that failure and reloads once automatically to pick up the new build; if the page still won't load after that, it shows a manual reload prompt instead of leaving the content area blank.
+
 ## Architecture
 
 ServerSense is a modular monolith in one container:
