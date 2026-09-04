@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from serversense.db import SessionLocal
 from serversense.models import Integration, MediaActivity, MediaSchedule, StorageSample
 from serversense.services.integrations import collect_integration
+from serversense.services.timezones import format_local_datetime
 from serversense.services.tools import execute_tool
 
 
@@ -239,6 +240,7 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
         assert items["activities"] == [
             {
                 "timestamp": (now + timedelta(seconds=3)).isoformat(),
+                "timestamp_local_display": format_local_datetime(db, now + timedelta(seconds=3)),
                 "provider": "sonarr",
                 "instance": "TV upgrades",
                 "event_type": "quality_upgraded",

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "../components/UI";
 import { api } from "../api";
-import { formatDate } from "../timeFormat";
+import { formatDate, parseTimestamp } from "../timeFormat";
 import { useTimeZone } from "../timeZoneContext";
 
 type Message = {
@@ -424,11 +424,11 @@ export default function SensePage() {
       ["failed", "cancelled", "timed_out", "interrupted"].includes(job.status),
   );
   const activeElapsed = activeStartedAt
-    ? Math.max(0, (clock - Date.parse(activeStartedAt)) / 1000)
+    ? Math.max(0, (clock - parseTimestamp(activeStartedAt).getTime()) / 1000)
     : undefined;
   const jobElapsed = (job: Job) =>
     job.started_at
-      ? Math.max(0, (clock - Date.parse(job.started_at)) / 1000)
+      ? Math.max(0, (clock - parseTimestamp(job.started_at).getTime()) / 1000)
       : job.inference_seconds;
 
   return (

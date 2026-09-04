@@ -67,6 +67,7 @@ def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
             "used_bytes": storage.used_bytes,
             "free_bytes": storage.free_bytes,
             "sampled_at": storage.timestamp.isoformat(),
+            "sampled_at_local_display": format_local_datetime(db, storage.timestamp),
             **storage_scope(storage),
         }
         if storage
@@ -129,6 +130,7 @@ def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "samples": [
             {
                 "timestamp": x.timestamp.isoformat(),
+                "timestamp_local_display": format_local_datetime(db, x.timestamp),
                 "total_bytes": x.total_bytes,
                 "used_bytes": x.used_bytes,
                 "free_bytes": x.free_bytes,
@@ -147,6 +149,7 @@ def storage_forecast(db: Session, _: dict[str, Any]) -> dict[str, Any]:
             "used_bytes": latest.used_bytes,
             "free_bytes": latest.free_bytes,
             "sampled_at": latest.timestamp.isoformat(),
+            "sampled_at_local_display": format_local_datetime(db, latest.timestamp),
             **storage_scope(latest),
         }
         if latest
@@ -205,6 +208,9 @@ def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
                 "status": x.status,
                 "health": x.health,
                 "state_changed_at": x.state_changed_at.isoformat() if x.state_changed_at else None,
+                "state_changed_at_local_display": format_local_datetime(db, x.state_changed_at)
+                if x.state_changed_at
+                else None,
                 "uptime_seconds": _elapsed_since(x.started_at),
                 "cpu_percent": x.cpu_percent,
                 "memory_bytes": x.memory_bytes,
@@ -235,6 +241,7 @@ def recent_alerts(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "message": x.message,
                 "active": x.active,
                 "timestamp": x.created_at.isoformat(),
+                "timestamp_local_display": format_local_datetime(db, x.created_at),
             }
             for x in rows
         ],
@@ -342,8 +349,11 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "instances": instances,
         "measured_storage_change_bytes": measured_change,
         "evidence_note": (
-            "Import sizes are gross media events and do not prove net storage growth; "
-            "hardlinks, replacements, deletions, and incomplete size fields can differ. "
+            "known_import_bytes totals gross media import events; hardlinks, replacements, "
+            "deletions, and incomplete size fields mean those totals do not prove net growth. "
+            "measured_storage_change_bytes is a separate net combined-array measurement. "
+            "The values may correlate, but telemetry does not prove media activity caused the "
+            "measured storage change. "
             "Quality upgrades are confirmed by a provider deletion event whose reason is Upgrade, "
             "paired with a nearby import when available. They are not video conversions."
         ),
@@ -363,6 +373,7 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 activities.append(
                     {
                         "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                        "timestamp_local_display": format_local_datetime(db, row.occurred_at),
                         "provider": row.provider,
                         "instance": row.instance_name,
                         "event_type": "quality_upgraded",
@@ -385,6 +396,7 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 activities.append(
                     {
                         "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                        "timestamp_local_display": format_local_datetime(db, row.occurred_at),
                         "provider": row.provider,
                         "instance": row.instance_name,
                         "event_type": "quality_upgrade",
@@ -403,6 +415,7 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 activities.append(
                     {
                         "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                        "timestamp_local_display": format_local_datetime(db, row.occurred_at),
                         "provider": row.provider,
                         "instance": row.instance_name,
                         "event_type": "quality_upgraded",
@@ -421,6 +434,7 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         activities.append(
             {
                 "timestamp": _aware_datetime(row.occurred_at).isoformat(),
+                "timestamp_local_display": format_local_datetime(db, row.occurred_at),
                 "provider": row.provider,
                 "instance": row.instance_name,
                 "event_type": row.event_type,

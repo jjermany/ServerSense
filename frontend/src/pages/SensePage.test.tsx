@@ -197,7 +197,8 @@ describe("SENSE requests", () => {
   });
 
   it("pins elapsed time to ongoing and completed SENSE messages", async () => {
-    const startedAt = new Date(Date.now() - 65_000).toISOString();
+    // SQLite-backed API timestamps are UTC but can arrive without an explicit Z.
+    const startedAt = new Date(Date.now() - 65_000).toISOString().replace(/Z$/, "");
     vi.mocked(api).mockImplementation((path) => {
       if (path === "/api/ai/conversations") {
         return Promise.resolve([
