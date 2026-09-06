@@ -4,6 +4,7 @@ from serversense.db import engine
 
 
 def test_sqlite_uses_wal_with_a_bounded_busy_timeout() -> None:
+    assert engine.hide_parameters is True
     with engine.connect() as connection:
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
         busy_timeout = connection.scalar(text("PRAGMA busy_timeout"))

@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 
 from serversense.db import SessionLocal
 from serversense.models import Integration, MediaActivity, MediaSchedule, StorageSample
+from serversense.services import http_requests
 from serversense.services.integrations import collect_integration
 from serversense.services.timezones import format_local_datetime
 from serversense.services.tools import execute_tool
@@ -67,6 +68,7 @@ def test_collects_normalized_history_and_deduplicates(
         deleted_at = imported_at - timedelta(seconds=1)
 
         def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
+            assert not db.in_transaction()
             assert item.id == integration.id
             if path == "calendar":
                 return [
@@ -431,7 +433,7 @@ def test_integration_test_does_not_follow_redirects(
             request=httpx.Request("GET", url),
         )
 
-    monkeypatch.setattr(httpx, "get", fake_get)  # type: ignore[attr-defined]
+    monkeypatch.setattr(http_requests, "get", fake_get)  # type: ignore[attr-defined]
     response = authenticated_client.post(f"/api/integrations/{created['id']}/test")
     assert response.status_code == 200
     assert response.json()["detail"] == "Connected to Sonarr 4.0."

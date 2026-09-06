@@ -141,7 +141,7 @@ def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def storage_forecast(db: Session, _: dict[str, Any]) -> dict[str, Any]:
-    rows = current_storage_samples(db)
+    rows = current_storage_samples(db, window_days=90)
     latest = rows[-1] if rows else None
     return {
         "current": {

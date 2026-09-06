@@ -5,6 +5,7 @@ from pytest import MonkeyPatch
 
 from serversense.db import SessionLocal
 from serversense.models import Alert, Event
+from serversense.services import http_requests
 from serversense.services.proactive import explain_alerts
 
 
@@ -36,7 +37,7 @@ def test_proactive_explanation_is_opt_in_and_uses_no_tools(monkeypatch: MonkeyPa
             },
         )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_requests, "post", fake_post)
     with SessionLocal() as db:
         alert = Alert(
             alert_type="disk_smart",
@@ -100,7 +101,7 @@ def test_ollama_proactive_explanation_disables_reasoning(monkeypatch: MonkeyPatc
             json={"choices": [{"message": {"content": "Measured alert."}}]},
         )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_requests, "post", fake_post)
     with SessionLocal() as db:
         alert = Alert(
             alert_type="storage_low",
@@ -154,7 +155,7 @@ def test_proactive_explanation_rejects_invalid_endpoint_without_losing_alert() -
                 },
             )
         except ValueError as exc:
-            assert str(exc) == "AI endpoint must use HTTP or HTTPS"
+            assert "HTTP(S)" in str(exc)
         else:
             raise AssertionError("invalid endpoint was accepted")
 

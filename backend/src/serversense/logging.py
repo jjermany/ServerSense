@@ -32,7 +32,21 @@ def configure_logging() -> None:
     handler.setFormatter(formatter)
     root = logging.getLogger()
     root.setLevel(settings.log_level)
+    # Lifespan can restart in embedded deployments and tests. Replace our own
+    # file handler rather than accumulating open files and duplicate records.
+    for previous in list(root.handlers):
+        if (
+            isinstance(previous, RotatingFileHandler)
+            and previous.baseFilename == handler.baseFilename
+        ):
+            root.removeHandler(previous)
+            previous.close()
     root.addHandler(handler)
+    # HTTP client info/debug messages include full URLs (including secret
+    # webhook paths) and protocol details. Keep operational failures in our
+    # callers' sanitized error handling instead.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     access_logger = logging.getLogger("uvicorn.access")
     if not any(isinstance(item, SuccessfulAccessFilter) for item in access_logger.filters):

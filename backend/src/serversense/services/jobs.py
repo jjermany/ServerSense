@@ -18,6 +18,7 @@ from serversense.models import (
     MediaActivity,
     MediaSchedule,
     MetricSample,
+    Session,
     Setting,
     StorageSample,
 )
@@ -90,6 +91,7 @@ def cleanup_cycle() -> None:
         conversation_cutoff = now - timedelta(
             days=int(read_ai_config(db).get("conversation_retention_days", 30))
         )
+        db.execute(delete(Session).where(Session.expires_at < now))
         db.execute(delete(MetricSample).where(MetricSample.timestamp < cutoff))
         db.execute(delete(DockerSample).where(DockerSample.timestamp < cutoff))
         db.execute(delete(DiskSample).where(DiskSample.timestamp < cutoff))

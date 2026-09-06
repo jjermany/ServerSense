@@ -1,19 +1,19 @@
 import asyncio
-from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.types import Scope
 
 from serversense.api import ai, auth, integrations, monitoring, settings
 from serversense.config import get_settings
 from serversense.db import SessionLocal, initialize_database
 from serversense.logging import configure_logging
+from serversense.middleware import APIProtectionMiddleware
 from serversense.services.demo import seed_demo_data
 from serversense.services.jobs import dashboard_summary_loop, monitoring_loop
 from serversense.services.sense_jobs import sense_job_loop, stop_sense_jobs
@@ -46,24 +46,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ServerSense API", version="1.0.0", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def prevent_api_response_caching(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
-    response = await call_next(request)
-    if request.url.path.startswith("/api/"):
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
-    return response
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    # Pydantic's default error includes the rejected input, which can be a
+    # password, credential, or an entire malformed request body.
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
+                for error in exc.errors()
+            ]
+        },
+    )
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(APIProtectionMiddleware)
 app.include_router(auth.router)
 app.include_router(monitoring.router)
 app.include_router(settings.router)

@@ -82,7 +82,7 @@ def evaluate_alerts(
     forecast_days_threshold: int = 90,
 ) -> list[Alert]:
     created: list[Alert] = []
-    storage = current_storage_samples(db)
+    storage = current_storage_samples(db, window_days=30)
     if storage:
         latest = storage[-1]
         free_percent = latest.free_bytes / latest.total_bytes * 100 if latest.total_bytes else 0

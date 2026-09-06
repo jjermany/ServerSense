@@ -126,6 +126,7 @@ def test_configured_integration(
     item = db.get(Integration, integration_id)
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Integration not found")
+    db.commit()
     try:
         return test_integration(item)
     except (httpx.HTTPError, ValueError) as exc:

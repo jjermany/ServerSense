@@ -127,6 +127,16 @@ The end-to-end command builds the production image, starts it with an isolated t
 
 OpenAPI documentation is available at `/docs` in development and production.
 
+API mutations require `X-ServerSense-Request: 1`; the bundled browser client supplies it automatically. External scripts must include it on POST, PUT, PATCH, and DELETE requests. The development client uses Vite's same-origin API proxy; cross-origin CORS access is disabled. Request bodies are limited to 128 KiB and must arrive within 15 seconds. Login attempts are limited independently by account and source address, with bounded, expiring limiter storage. First-run account creation is serialized so concurrent setup requests cannot create multiple administrators. Validation errors omit submitted values, and HTTP client URL/protocol logs and SQL parameter values are suppressed to protect webhook tokens. Set a stable random `SERVERSENSE_SECRET_KEY`; startup no longer falls back to a shared development key.
+
+Forecast slope calculations use at most 256 evenly spaced samples from each selected window (including both endpoints), preserving the full sample count and coverage for confidence. This bounds each calculation to 32,640 slopes and caches recent inputs. Dense-window results are an approximation of the full pairwise median; sparse windows retain the original calculation. Forecast queries load only the latest relevant 30/90-day history. Disk temperature charts show the latest 500 measurements in chronological order. Synchronous external responses are limited to 8 MiB and redirects are rejected. Gzip/deflate decoding enforces the limit during expansion, and compressed model streams use the same bounded decoder; unsupported encodings and incomplete compressed responses fail safely. External model streams have hard response/event/tool-argument bounds, and each tool-result turn is checked against the total prompt budget; oversized tool text is explicitly marked as truncated.
+
+The runtime uses Python 3.12 on Alpine 3.24, applies available Alpine package updates during builds, and adds only SMART tools and timezone data. Temporary compiler dependencies and pip are removed after installation; pip is patched before use. The localhost health check uses Python. Update dependencies by rebuilding the image. Keep the existing `/config` mount and installation secret when upgrading.
+
+See [the security and performance audit](docs/SECURITY_AUDIT.md) for findings, validation, and scope.
+
+Login usernames are case-insensitive; passwords remain case-sensitive, and the saved username keeps its original capitalization.
+
 The web client bounds API requests and automatically retries its startup authentication check, so a temporary database lock or backend stall cannot leave the app permanently stuck on the connecting screen. Monitoring pages retain their most recent data across sidebar navigation and refresh it in the background instead of returning to an empty loading state.
 
 If a browser tab stays open across a ServerSense update, its cached bundle can reference a page chunk that no longer exists on the server. The app detects that failure and reloads once automatically to pick up the new build; if the page still won't load after that, it shows a manual reload prompt instead of leaving the content area blank.

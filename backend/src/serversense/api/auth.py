@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from serversense.db import get_db
@@ -7,10 +7,12 @@ from serversense.models import Setting, User
 from serversense.schemas import LoginRequest, SetupRequest, UserResponse
 from serversense.security import (
     COOKIE_NAME,
+    DUMMY_PASSWORD_HASH,
     clear_session,
     create_session,
     current_user,
     login_limiter,
+    login_source_limiter,
     password_hash,
 )
 from serversense.services.demo import seed_demo_data
@@ -24,10 +26,21 @@ def status_info(db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/setup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def setup(payload: SetupRequest, response: Response, db: Session = Depends(get_db)) -> User:
+def setup(
+    payload: SetupRequest, response: Response, request: Request, db: Session = Depends(get_db)
+) -> User:
+    login_source_limiter.check(request.client.host if request.client else "unknown")
     if db.scalar(select(func.count(User.id))) or 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Setup has already been completed")
-    user = User(username=payload.username, password_hash=password_hash.hash(payload.password))
+    db.rollback()
+    hashed = password_hash.hash(payload.password)
+    # Serialize the check and insert across connections/processes. Hash first so
+    # the expensive password operation does not hold SQLite's writer lock.
+    db.execute(text("BEGIN IMMEDIATE"))
+    if db.scalar(select(func.count(User.id))) or 0:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Setup has already been completed")
+    user = User(username=payload.username, password_hash=hashed)
     db.add(user)
     db.add(
         Setting(
@@ -51,10 +64,14 @@ def login(
     db: Session = Depends(get_db),
 ) -> User:
     client_host = request.client.host if request.client else "unknown"
-    limit_key = f"{client_host}:{payload.username.lower()}"
+    login_source_limiter.check(client_host)
+    limit_key = f"account:{payload.username.lower()}"
     login_limiter.check(limit_key)
-    user = db.scalar(select(User).where(User.username == payload.username))
-    if not user or not password_hash.verify(payload.password, user.password_hash):
+    user = db.scalar(select(User).where(func.lower(User.username) == payload.username.lower()))
+    valid_password = password_hash.verify(
+        payload.password, user.password_hash if user else DUMMY_PASSWORD_HASH
+    )
+    if not user or not valid_password:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
     login_limiter.reset(limit_key)
     create_session(db, user, response)

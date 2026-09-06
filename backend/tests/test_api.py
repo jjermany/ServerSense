@@ -143,6 +143,46 @@ def test_persistence_and_login_after_client_restart(client: TestClient) -> None:
     assert client.get("/api/storage/history?range=all").json()
 
 
+def test_login_username_ignores_case_but_password_does_not(
+    authenticated_client: TestClient,
+) -> None:
+    client = authenticated_client
+    original = client.get("/api/auth/me").json()
+    with SessionLocal() as db:
+        user = db.get(User, original["id"])
+        assert user is not None
+        user.username = "AdminISTRator"
+        db.commit()
+    try:
+        for username in ("administrator", "ADMINISTRATOR", "AdMiNiStRaToR"):
+            assert client.post("/api/auth/logout").status_code == 204
+            response = client.post(
+                "/api/auth/login",
+                json={"username": username, "password": "correct horse battery staple"},
+            )
+            assert response.status_code == 200
+            assert response.json()["username"] == "AdminISTRator"
+            assert client.get("/api/auth/me").json()["id"] == original["id"]
+
+        client.post("/api/auth/logout")
+        for username, password in (
+            ("ADMINISTRATOR", "Correct horse battery staple"),
+            ("unknown-user", "correct horse battery staple"),
+        ):
+            response = client.post(
+                "/api/auth/login", json={"username": username, "password": password}
+            )
+            assert response.status_code == 401
+            assert response.json()["detail"] == "Invalid username or password"
+            assert client.get("/api/auth/me").status_code == 401
+    finally:
+        with SessionLocal() as db:
+            user = db.get(User, original["id"])
+            assert user is not None
+            user.username = original["username"]
+            db.commit()
+
+
 def test_forecast_and_safe_chat(authenticated_client: TestClient) -> None:
     forecast = authenticated_client.get("/api/storage/forecast")
     assert forecast.status_code == 200

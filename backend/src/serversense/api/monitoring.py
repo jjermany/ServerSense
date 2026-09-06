@@ -80,7 +80,7 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def get_storage_forecast(db: Session) -> ForecastResponse:
-    samples = current_storage_samples(db)
+    samples = current_storage_samples(db, window_days=90)
     if not samples:
         raise HTTPException(404, "No storage samples are available")
     forecasts = calculate_all(samples)
@@ -357,7 +357,10 @@ def disk_list(db: Session = Depends(get_db)) -> list[dict]:
 @router.get("/disks/{disk_id}")
 def disk_details(disk_id: str, db: Session = Depends(get_db)) -> dict:
     row = db.scalar(
-        select(DiskSample).where(DiskSample.disk_id == disk_id).order_by(desc(DiskSample.timestamp))
+        select(DiskSample)
+        .where(DiskSample.disk_id == disk_id)
+        .order_by(desc(DiskSample.timestamp))
+        .limit(1)
     )
     if not row:
         raise HTTPException(404, "Disk not found")
@@ -365,7 +368,7 @@ def disk_details(disk_id: str, db: Session = Depends(get_db)) -> dict:
         db.scalars(
             select(DiskSample)
             .where(DiskSample.disk_id == disk_id)
-            .order_by(DiskSample.timestamp)
+            .order_by(desc(DiskSample.timestamp))
             .limit(500)
         )
     )
@@ -384,7 +387,7 @@ def disk_details(disk_id: str, db: Session = Depends(get_db)) -> dict:
         "smart_status": row.smart_status,
         "smart_attributes": row.smart_attributes,
         "temperature_history": [
-            {"timestamp": x.timestamp, "temperature_c": x.temperature_c} for x in history
+            {"timestamp": x.timestamp, "temperature_c": x.temperature_c} for x in reversed(history)
         ],
     }
 

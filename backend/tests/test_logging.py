@@ -1,6 +1,7 @@
 import logging
+from logging.handlers import RotatingFileHandler
 
-from serversense.logging import SuccessfulAccessFilter
+from serversense.logging import SuccessfulAccessFilter, configure_logging
 
 
 def access_record(status_code: object) -> logging.LogRecord:
@@ -36,3 +37,13 @@ def test_successful_access_filter_keeps_unrecognized_records() -> None:
 
     assert access_filter.filter(record)
     assert access_filter.filter(access_record(object()))
+
+
+def test_logging_does_not_duplicate_handlers_or_enable_secret_url_logs() -> None:
+    configure_logging()
+    before = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
+    configure_logging()
+    after = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
+    assert len(before) == len(after)
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+    assert not logging.getLogger("httpcore").isEnabledFor(logging.DEBUG)

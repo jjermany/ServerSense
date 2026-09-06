@@ -10,7 +10,9 @@ import httpx
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, Setting
+from serversense.services import http_requests
 from serversense.services.secrets import decrypt_secret
+from serversense.services.urls import validate_http_url
 
 
 class NotificationProvider(ABC):
@@ -31,9 +33,12 @@ def _alert_payload(alert: Alert) -> dict[str, Any]:
 
 
 def _http_url(value: str, label: str) -> str:
-    if not value.startswith(("http://", "https://")):
-        raise ValueError(f"{label} must use HTTP or HTTPS")
-    return value
+    try:
+        return validate_http_url(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{label} must be a valid HTTP(S) URL without embedded credentials"
+        ) from exc
 
 
 class WebhookProvider(NotificationProvider):
@@ -42,11 +47,14 @@ class WebhookProvider(NotificationProvider):
         self.timeout = timeout
 
     def send(self, alert: Alert) -> None:
-        httpx.post(self.url, json=_alert_payload(alert), timeout=self.timeout).raise_for_status()
+        http_requests.post(
+            self.url, json=_alert_payload(alert), timeout=self.timeout
+        ).raise_for_status()
 
 
 class DiscordProvider(NotificationProvider):
     def __init__(self, webhook_url: str, timeout: float = 10):
+        webhook_url = validate_http_url(webhook_url)
         parsed = urlparse(webhook_url)
         hostname = parsed.hostname or ""
         valid_host = hostname in {"discord.com", "discordapp.com"} or hostname.endswith(
@@ -75,7 +83,7 @@ class DiscordProvider(NotificationProvider):
                 }
             ],
         }
-        httpx.post(self.webhook_url, json=payload, timeout=self.timeout).raise_for_status()
+        http_requests.post(self.webhook_url, json=payload, timeout=self.timeout).raise_for_status()
 
 
 class PushoverProvider(NotificationProvider):
@@ -90,7 +98,7 @@ class PushoverProvider(NotificationProvider):
 
     def send(self, alert: Alert) -> None:
         priority = 1 if alert.severity.lower() == "critical" else 0
-        httpx.post(
+        http_requests.post(
             self.endpoint,
             data={
                 "user": self.user_key,
@@ -226,7 +234,9 @@ def dispatch_notifications(db: Session, alerts: list[Alert]) -> list[str]:
     row = db.get(Setting, "alerts")
     values = row.value if row else {}
     selected_alerts = [alert for alert in alerts if notification_enabled(values, alert)]
-    for provider in configured_providers(db):
+    providers = configured_providers(db)
+    db.commit()
+    for provider in providers:
         for alert in selected_alerts:
             try:
                 provider.send(alert)

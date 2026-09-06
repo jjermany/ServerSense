@@ -8,9 +8,11 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample, Event, MediaActivity, MetricSample
+from serversense.services import http_requests
 from serversense.services.storage import latest_storage_sample
 from serversense.services.timezones import format_local_datetime, time_zone_details
 from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
+from serversense.services.urls import validate_http_url
 
 REFRESH_INTERVAL = timedelta(hours=6)
 MINIMUM_REFRESH_INTERVAL = timedelta(minutes=15)
@@ -177,7 +179,7 @@ def refresh_dashboard_summary(
         return None
     if provider not in {"ollama", "openai_compatible"}:
         raise ValueError("Unsupported AI provider")
-    endpoint = str(config.get("endpoint", "")).rstrip("/")
+    endpoint = validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
     if not endpoint.startswith(("http://", "https://")):
         raise ValueError("AI endpoint must use HTTP or HTTPS")
     facts = _facts(db)
@@ -213,7 +215,7 @@ def refresh_dashboard_summary(
         # separate reasoning trace prevents thinking-capable models from
         # consuming the output budget before message.content is produced.
         payload["reasoning_effort"] = "none"
-    response = httpx.post(
+    response = http_requests.post(
         f"{endpoint}/v1/chat/completions",
         headers=headers,
         json=payload,

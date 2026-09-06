@@ -10,10 +10,12 @@ from serversense.db import get_db
 from serversense.models import Alert, Setting
 from serversense.schemas import AISettings, AlertSettings, GeneralSettingsUpdate
 from serversense.security import current_user
+from serversense.services import http_requests
 from serversense.services.ai_config import read_ai_config
 from serversense.services.notifications import DELIVERY_ERRORS, provider_from_config
 from serversense.services.secrets import decrypt_secret, encrypt_secret
 from serversense.services.timezones import time_zone_details, validate_time_zone
+from serversense.services.urls import validate_http_url
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
 
@@ -25,10 +27,10 @@ def _ai_headers(config: dict[str, Any]) -> dict[str, str]:
 def _discover_models(config: dict[str, Any]) -> dict[str, Any]:
     if config.get("provider") == "disabled":
         return {"models": [], "selected_exists": False, "provider": "disabled"}
-    endpoint = str(config.get("endpoint", "")).rstrip("/")
+    endpoint = validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
     if not endpoint.startswith(("http://", "https://")):
         raise ValueError("AI endpoint must use HTTP or HTTPS")
-    response = httpx.get(
+    response = http_requests.get(
         f"{endpoint}/v1/models",
         headers=_ai_headers(config),
         timeout=float(config.get("timeout_seconds", 60)),
@@ -70,6 +72,11 @@ def get_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 @router.put("/ai")
 def update_ai_settings(payload: AISettings, db: Session = Depends(get_db)) -> dict[str, Any]:
+    if payload.endpoint:
+        try:
+            payload.endpoint = validate_http_url(payload.endpoint)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     current = db.get(Setting, "ai")
     value = payload.model_dump(exclude={"api_key"})
     if payload.api_key:
@@ -98,6 +105,7 @@ def clear_ai_api_key(db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.post("/ai/test")
 def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
     config = read_ai_config(db, include_secret=True)
+    db.commit()
     if config.get("provider") == "disabled":
         return {"healthy": True, "detail": "SENSE is using built-in deterministic mode"}
     endpoint = str(config.get("endpoint", "")).rstrip("/")
@@ -114,7 +122,7 @@ def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
         }
         if config.get("provider") == "ollama":
             payload["reasoning_effort"] = "none"
-        response = httpx.post(
+        response = http_requests.post(
             f"{endpoint}/v1/chat/completions",
             headers=_ai_headers(config),
             json=payload,
@@ -135,8 +143,10 @@ def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 @router.get("/ai/models")
 def discover_ai_models(db: Session = Depends(get_db)) -> dict[str, Any]:
+    config = read_ai_config(db, include_secret=True)
+    db.commit()
     try:
-        return _discover_models(read_ai_config(db, include_secret=True))
+        return _discover_models(config)
     except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(502, f"Could not discover models: {type(exc).__name__}") from exc
 
@@ -279,7 +289,9 @@ def _test_notification_provider(provider_key: str, db: Session) -> dict[str, Any
     )
     alert.created_at = datetime.now(UTC)
     try:
-        provider_from_config(provider_key, value).send(alert)
+        provider = provider_from_config(provider_key, value)
+        db.commit()
+        provider.send(alert)
     except DELIVERY_ERRORS as exc:
         raise HTTPException(
             502, f"{provider_key.title()} delivery failed: {type(exc).__name__}"

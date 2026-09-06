@@ -1,4 +1,4 @@
-const defaults: RequestInit = { credentials: 'include', cache: 'no-store', headers: { 'Content-Type': 'application/json' } }
+const defaults: RequestInit = { credentials: 'include', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-ServerSense-Request': '1' } }
 
 export const API_REQUEST_TIMEOUT_MS = 15_000
 
@@ -30,7 +30,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
       throw new ApiError(detail, response.status)
     }
     if (response.status === 204) return undefined as T
-    return response.json() as Promise<T>
+    return await response.json() as T
   } catch (reason) {
     if (controller.signal.aborted && !callerSignal?.aborted) {
       throw new Error('Server did not respond in time. Please try again.', { cause: reason })

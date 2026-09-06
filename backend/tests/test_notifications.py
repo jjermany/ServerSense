@@ -4,6 +4,7 @@ import httpx
 from pytest import MonkeyPatch
 
 from serversense.models import Alert, Setting
+from serversense.services import http_requests
 from serversense.services.notifications import (
     DiscordProvider,
     EmailProvider,
@@ -35,7 +36,7 @@ def test_generic_webhook_sends_structured_alert(monkeypatch: MonkeyPatch) -> Non
         captured["json"] = kwargs["json"]
         return httpx.Response(204, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_requests, "post", fake_post)
     WebhookProvider("https://notifications.test/serversense").send(sample_alert())
     assert captured["url"] == "https://notifications.test/serversense"
     assert captured["json"]["source"] == "ServerSense"
@@ -49,7 +50,7 @@ def test_discord_sends_embed_and_pushover_sends_form(monkeypatch: MonkeyPatch) -
         requests.append((url, kwargs))
         return httpx.Response(204, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_requests, "post", fake_post)
     DiscordProvider("https://discord.com/api/webhooks/1/token").send(sample_alert())
     PushoverProvider("user-key", "app-token").send(sample_alert())
 
@@ -130,6 +131,9 @@ def test_dispatch_delivers_new_alert_to_every_enabled_provider(
     )
 
     class FakeSession:
+        def commit(self) -> None:
+            pass
+
         def get(self, model: type[Setting], key: str) -> Setting | None:
             assert model is Setting
             return setting if key == "alerts" else None
@@ -168,6 +172,9 @@ def test_dispatch_filters_disabled_notification_categories(
     )
 
     class FakeSession:
+        def commit(self) -> None:
+            pass
+
         def get(self, model: type[Setting], key: str) -> Setting | None:
             assert model is Setting
             return setting if key == "alerts" else None
@@ -203,6 +210,9 @@ def test_dispatch_filters_sense_job_notifications(monkeypatch: MonkeyPatch) -> N
     )
 
     class FakeSession:
+        def commit(self) -> None:
+            pass
+
         def get(self, model: type[Setting], key: str) -> Setting | None:
             return setting if model is Setting and key == "alerts" else None
 

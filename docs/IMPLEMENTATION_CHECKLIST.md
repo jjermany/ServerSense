@@ -39,6 +39,7 @@ Last updated: 2026-09-02
 - [x] normalized Unraid pool detail and reset-safe calculated network transfer rates
 - [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware refresh across monitoring pages, source sample timestamps, and independent Docker, SMART, and storage cadences
 - [x] container `TZ` precedence with validated Settings fallback and shared timezone-aware frontend formatting
+- [x] case-insensitive username login for existing accounts, preserving saved capitalization and case-sensitive passwords
 - [x] bounded browser API requests and recoverable startup authentication retries after temporary backend stalls
 - [x] collection-time Docker state-change tracking with constant-size Overview and Docker reads independent of retained history
 - [x] stale-while-refresh monitoring-page data across sidebar navigation with cache clearing on logout
@@ -89,3 +90,11 @@ Last updated: 2026-09-02
 - [x] browser visual QA at desktop/mobile sizes and axe scans for setup and dashboard
 - [x] security review of secrets, tools, subprocesses, sessions, rate limits, and prompt data
 - [x] final criterion-by-criterion audit
+
+- [x] authentication hardening: independent bounded account/source limits, bounded credentials, constant-cost unknown-user password verification, serialized setup, and expired session cleanup
+- [x] API request header protection, same-origin browser access, bounded body size/time, redacted validation errors, and anti-framing/content-sniffing headers
+- [x] explicit installation secret, validated HTTP endpoint syntax, suppressed secret-bearing HTTP client logs, and idempotent log handlers
+- [x] bounded model stream/event/tool payloads and prompt-budget enforcement after tool results
+- [x] bounded cached forecast estimation, relevant-window queries, current disk-history selection, and normalized media gathering before database writes
+- [x] production image audit with zero known OS/Python findings on updated Alpine 3.24; native modules, migrations and packaged browser flow verified; historical Debian findings retained without ignore rules
+- [x] decompression-time response limits for HTTP and model streams, with compressed-bomb allocation and chunk-boundary regression coverage

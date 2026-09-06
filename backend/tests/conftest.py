@@ -11,13 +11,16 @@ from fastapi.testclient import TestClient
 
 from serversense.db import initialize_database
 from serversense.main import app
+from serversense.security import login_limiter, login_source_limiter
 
 initialize_database()
 
 
 @pytest.fixture
 def client() -> TestClient:
-    with TestClient(app) as test_client:
+    login_limiter._entries.clear()
+    login_source_limiter._entries.clear()
+    with TestClient(app, headers={"X-ServerSense-Request": "1"}) as test_client:
         yield test_client
 
 

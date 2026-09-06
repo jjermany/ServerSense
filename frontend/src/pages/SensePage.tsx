@@ -202,7 +202,7 @@ export default function SensePage() {
       const response = await fetch("/api/ai/chat/stream", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-ServerSense-Request": "1" },
         body: JSON.stringify({ message: text, conversation_id: conversation }),
         signal: controller.signal,
       });
@@ -345,6 +345,7 @@ export default function SensePage() {
       void fetch(`/api/ai/requests/${requestIdRef.current}`, {
         method: "DELETE",
         credentials: "include",
+        headers: { "X-ServerSense-Request": "1" },
       });
     }
     controllerRef.current?.abort();

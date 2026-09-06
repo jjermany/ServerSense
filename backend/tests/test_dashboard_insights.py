@@ -7,6 +7,7 @@ from sqlalchemy import delete
 
 from serversense.db import SessionLocal
 from serversense.models import Alert, Event, StorageSample
+from serversense.services import http_requests
 from serversense.services.dashboard_insights import (
     latest_dashboard_summary,
     refresh_dashboard_summary,
@@ -62,7 +63,7 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
             },
         )
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(http_requests, "post", fake_post)
     now = datetime.now(UTC)
     with SessionLocal() as db:
         db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
@@ -132,7 +133,7 @@ def test_failed_refresh_preserves_recent_cached_summary(monkeypatch: MonkeyPatch
     def fail_post(url: str, **kwargs: object) -> httpx.Response:
         raise httpx.ConnectError("offline", request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(httpx, "post", fail_post)
+    monkeypatch.setattr(http_requests, "post", fail_post)
     with SessionLocal() as db:
         db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
         storage = latest_storage_sample(db)
@@ -188,7 +189,7 @@ def test_dashboard_summary_rejects_military_time_and_guaranteed_import_claims(
             },
         )
 
-    monkeypatch.setattr(httpx, "post", invalid_post)
+    monkeypatch.setattr(http_requests, "post", invalid_post)
     with SessionLocal() as db:
         db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
         sample = StorageSample(

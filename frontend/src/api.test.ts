@@ -12,6 +12,30 @@ describe("formatBytes", () => {
 });
 
 describe("api", () => {
+  it("keeps the timeout active while the response body is loading", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_path: string, options: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+      }),
+    ));
+    try {
+      const request = expect(api("/api/dashboard")).rejects.toThrow(
+        "Server did not respond in time",
+      );
+      await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS);
+      await request;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bypasses browser caches for live API reads", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     vi.stubGlobal("fetch", fetch);

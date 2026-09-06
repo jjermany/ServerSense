@@ -1,8 +1,29 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from statistics import median
 
 from serversense.models import StorageSample
+
+MAX_SLOPE_SAMPLES = 256
+
+
+@lru_cache(maxsize=12)
+def _robust_rate(points: tuple[tuple[float, float], ...]) -> float:
+    # Evenly cover the selected window, retaining both endpoints. This bounds
+    # the quadratic estimator at 32,640 slopes, even with five-minute samples.
+    if len(points) > MAX_SLOPE_SAMPLES:
+        points = tuple(
+            points[index * (len(points) - 1) // (MAX_SLOPE_SAMPLES - 1)]
+            for index in range(MAX_SLOPE_SAMPLES)
+        )
+    slopes = [
+        (y2 - y1) / (x2 - x1)
+        for index, (x1, y1) in enumerate(points)
+        for x2, y2 in points[index + 1 :]
+        if x2 > x1
+    ]
+    return median(slopes) if slopes else 0.0
 
 
 @dataclass(frozen=True)
@@ -31,19 +52,17 @@ def calculate_forecast(samples: list[StorageSample], window_days: int) -> Foreca
     if len(selected) < 3 or (selected[-1].timestamp - selected[0].timestamp) < timedelta(days=2):
         return Forecast(window_days, None, None, None, "Insufficient data", len(selected))
 
-    points = [(_timestamp(sample.timestamp), float(sample.used_bytes)) for sample in selected]
-    slopes: list[float] = []
-    for index, (x1, y1) in enumerate(points):
-        for x2, y2 in points[index + 1 :]:
-            if x2 > x1:
-                slopes.append((y2 - y1) / (x2 - x1))
-    rate = median(slopes) if slopes else 0.0
+    points = tuple((_timestamp(sample.timestamp), float(sample.used_bytes)) for sample in selected)
+    rate = _robust_rate(points)
     if rate <= 0:
         return Forecast(window_days, rate, None, None, "Low", len(selected))
 
     remaining = max(0, latest.free_bytes)
     days_remaining = remaining / rate
-    exhaustion = datetime.now(UTC) + timedelta(days=days_remaining)
+    try:
+        exhaustion = datetime.now(UTC) + timedelta(days=days_remaining)
+    except OverflowError:
+        exhaustion = None
     span = (selected[-1].timestamp - selected[0].timestamp).total_seconds() / 86400
     coverage = min(1.0, span / window_days)
     confidence = "High" if len(selected) >= 20 and coverage >= 0.8 else "Moderate"

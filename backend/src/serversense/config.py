@@ -7,10 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="SERVERSENSE_", env_file=".env")
+    model_config = SettingsConfigDict(
+        env_prefix="SERVERSENSE_", env_file=".env", hide_input_in_errors=True
+    )
 
     config_dir: Path = Path("/config")
-    secret_key: str = Field(default="development-only-change-me", min_length=16)
+    secret_key: str = Field(default="", min_length=16)
     demo_mode: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     session_hours: int = Field(default=24, ge=1, le=720)

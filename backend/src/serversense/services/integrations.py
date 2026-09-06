@@ -9,7 +9,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from serversense.models import Integration, MediaActivity, MediaSchedule
+from serversense.services import http_requests
 from serversense.services.secrets import decrypt_secret
+from serversense.services.urls import validate_http_url
 
 logger = logging.getLogger(__name__)
 POLL_INTERVAL = timedelta(minutes=5)
@@ -40,7 +42,7 @@ DESCRIPTORS = (
 
 
 def normalize_url(value: str) -> str:
-    parts = urlsplit(value.strip())
+    parts = urlsplit(validate_http_url(value))
     if (
         parts.scheme not in {"http", "https"}
         or not parts.hostname
@@ -57,7 +59,7 @@ def _request(integration: Integration, path: str, params: dict[str, Any] | None 
     if not key:
         raise ValueError("API key is not configured")
     url = f"{normalize_url(str(config.get('url', '')))}/api/v3/{path}"
-    response = httpx.get(
+    response = http_requests.get(
         url,
         params=params,
         headers={"X-Api-Key": key, "Accept": "application/json"},
@@ -231,7 +233,7 @@ def _schedule(
     )
 
 
-def _replace_calendar(db: Session, integration: Integration, now: datetime) -> None:
+def _fetch_calendar(integration: Integration, now: datetime) -> list[MediaSchedule]:
     window_start = now - timedelta(days=1)
     window_end = now + timedelta(days=31)
     params: dict[str, Any] = {
@@ -244,14 +246,12 @@ def _replace_calendar(db: Session, integration: Integration, now: datetime) -> N
     payload = _request(integration, "calendar", params)
     if not isinstance(payload, list):
         raise ValueError("The server returned an unexpected calendar response")
-    schedules = [
+    return [
         schedule
         for raw in payload[:1000]
         if isinstance(raw, dict)
         if (schedule := _schedule(integration, raw, window_start, window_end)) is not None
     ]
-    db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == integration.id))
-    db.add_all(schedules)
 
 
 def collect_integration(db: Session, integration: Integration, now: datetime | None = None) -> int:
@@ -261,13 +261,10 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
     if last and now - last < POLL_INTERVAL:
         return 0
     cutoff = last or now - INITIAL_LOOKBACK
-    added = 0
-    existing = {
-        row.external_id: row
-        for row in db.scalars(
-            select(MediaActivity).where(MediaActivity.integration_id == integration.id)
-        )
-    }
+    # Finish all read-only network work before starting the update transaction.
+    # Only normalized records survive the fetch phase.
+    db.commit()
+    activities: dict[str, MediaActivity] = {}
     for page in range(1, 5):
         params: dict[str, Any] = {
             "page": page,
@@ -283,7 +280,7 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
         if not isinstance(records, list):
             raise ValueError("The server returned an unexpected history response")
         reached_cutoff = False
-        for raw in records:
+        for raw in records[:250]:
             if not isinstance(raw, dict):
                 continue
             activity = _activity(integration, raw)
@@ -291,28 +288,35 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
                 reached_cutoff = True
                 continue
             if activity:
-                current = existing.get(activity.external_id)
-                if current is None:
-                    db.add(activity)
-                    existing[activity.external_id] = activity
-                    added += 1
-                else:
-                    if activity.title != "Unknown title":
-                        current.title = activity.title
-                    if activity.parent_title is not None:
-                        current.parent_title = activity.parent_title
-                    if activity.season_number is not None:
-                        current.season_number = activity.season_number
-                    if activity.episode_number is not None:
-                        current.episode_number = activity.episode_number
-                    if activity.quality is not None:
-                        current.quality = activity.quality
-                    if activity.bytes is not None:
-                        current.bytes = activity.bytes
-                    current.is_upgrade = current.is_upgrade or activity.is_upgrade
+                activities.setdefault(activity.external_id, activity)
         if reached_cutoff or len(records) < 250:
             break
-    _replace_calendar(db, integration, now)
+    schedules = _fetch_calendar(integration, now)
+    existing = {
+        row.external_id: row
+        for row in db.scalars(
+            select(MediaActivity).where(
+                MediaActivity.integration_id == integration.id,
+                MediaActivity.external_id.in_(activities),
+            )
+        )
+    }
+    added = 0
+    for activity in activities.values():
+        current = existing.get(activity.external_id)
+        if current is None:
+            db.add(activity)
+            added += 1
+        else:
+            if activity.title != "Unknown title":
+                current.title = activity.title
+            for field in ("parent_title", "season_number", "episode_number", "quality", "bytes"):
+                value = getattr(activity, field)
+                if value is not None:
+                    setattr(current, field, value)
+            current.is_upgrade = current.is_upgrade or activity.is_upgrade
+    db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == integration.id))
+    db.add_all(schedules)
     config["last_collected_at"] = now.isoformat()
     integration.config = config
     db.commit()

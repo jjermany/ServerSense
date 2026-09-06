@@ -11,6 +11,7 @@ from serversense.services.ai import (
     _calendar_window_days,
     _context_message_char_budget,
     _provider_messages,
+    _provider_turn,
     _required_tool,
     chat,
 )
@@ -20,6 +21,38 @@ from serversense.services.demo import seed_demo_data
 def _stream(*chunks: dict) -> bytes:
     lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in chunks]
     return ("".join(lines) + "data: [DONE]\n\n").encode()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"x" * (256 * 1024 + 1),
+        _stream({"choices": [{"delta": {"content": "x" * 65_537}}]}),
+        _stream({"choices": [{"delta": {"tool_calls": [{"index": 12}]}}]}),
+        _stream(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": "x" * 16_384}},
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+    ],
+    ids=["oversized-line", "oversized-content", "too-many-tools", "oversized-arguments"],
+)
+async def test_provider_stream_rejects_unbounded_events_and_tool_arguments(body: bytes) -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, stream=httpx.ByteStream(body))
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(ValueError, match="exceeded"):
+            async for _ in _provider_turn(client, "http://model.test", {}, {}):
+                pass
 
 
 def test_follow_up_prompt_makes_history_context_only() -> None:
@@ -112,31 +145,35 @@ async def test_tool_call_preamble_is_not_compiled_into_final_answer(
         if len(calls) == 1:
             return httpx.Response(
                 200,
-                content=_stream(
-                    {"choices": [{"delta": {"content": "The old answer repeated. "}}]},
-                    {
-                        "choices": [
-                            {
-                                "delta": {
-                                    "tool_calls": [
-                                        {
-                                            "index": 0,
-                                            "id": "media-call",
-                                            "function": {
-                                                "name": "get_quality_upgrades",
-                                                "arguments": "{}",
-                                            },
-                                        }
-                                    ]
+                stream=httpx.ByteStream(
+                    _stream(
+                        {"choices": [{"delta": {"content": "The old answer repeated. "}}]},
+                        {
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "tool_calls": [
+                                            {
+                                                "index": 0,
+                                                "id": "media-call",
+                                                "function": {
+                                                    "name": "get_quality_upgrades",
+                                                    "arguments": "{}",
+                                                },
+                                            }
+                                        ]
+                                    }
                                 }
-                            }
-                        ]
-                    },
+                            ]
+                        },
+                    )
                 ),
             )
         return httpx.Response(
             200,
-            content=_stream({"choices": [{"delta": {"content": "Here are the titles."}}]}),
+            stream=httpx.ByteStream(
+                _stream({"choices": [{"delta": {"content": "Here are the titles."}}]})
+            ),
         )
 
     transport = httpx.MockTransport(handler)
@@ -161,10 +198,13 @@ async def test_tool_call_preamble_is_not_compiled_into_final_answer(
 
     assert answer == "Here are the titles."
     assert tools == ["get_quality_upgrades"]
-    assert calls[1]["messages"][-1] == {
+    assert calls[1]["messages"][-2] == {
         "role": "system",
         "content": GROUNDED_ANSWER_PROMPT,
     }
+    assert calls[1]["messages"][-1]["content"] == "List the recently upgraded titles."
+    budget = _context_message_char_budget({}, calls[1]["tools"])
+    assert len(json.dumps(calls[1]["messages"], ensure_ascii=False)) <= budget
 
 
 async def test_openai_compatible_provider_streams_and_executes_read_only_tool_call(
@@ -178,34 +218,43 @@ async def test_openai_compatible_provider_streams_and_executes_read_only_tool_ca
         if len(calls) == 1:
             return httpx.Response(
                 200,
-                content=_stream(
-                    {
-                        "choices": [
-                            {
-                                "delta": {
-                                    "tool_calls": [
-                                        {
-                                            "index": 0,
-                                            "id": "safe-call-1",
-                                            "type": "function",
-                                            "function": {
-                                                "name": "get_storage_forecast",
-                                                "arguments": "{}",
-                                            },
-                                        }
-                                    ]
+                stream=httpx.ByteStream(
+                    _stream(
+                        {
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "tool_calls": [
+                                            {
+                                                "index": 0,
+                                                "id": "safe-call-1",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "get_storage_forecast",
+                                                    "arguments": "{}",
+                                                },
+                                            }
+                                        ]
+                                    }
                                 }
-                            }
-                        ]
-                    }
+                            ]
+                        }
+                    )
                 ),
             )
-        assert payload["messages"][-2]["role"] == "tool"
-        assert payload["messages"][-1]["content"] == GROUNDED_ANSWER_PROMPT
+        assert payload["messages"][-4]["role"] == "tool"
+        assert payload["messages"][-3]["content"] == GROUNDED_ANSWER_PROMPT
+        assert payload["messages"][-1]["content"] == "How long until I run out of storage?"
         return httpx.Response(
             200,
-            content=_stream(
-                {"choices": [{"delta": {"content": "The measured 30-day forecast is available."}}]}
+            stream=httpx.ByteStream(
+                _stream(
+                    {
+                        "choices": [
+                            {"delta": {"content": "The measured 30-day forecast is available."}}
+                        ]
+                    }
+                )
             ),
         )
 
@@ -255,7 +304,9 @@ async def test_ollama_uses_low_reasoning_for_interactive_answers(
         calls.append(payload)
         return httpx.Response(
             200,
-            content=_stream({"choices": [{"delta": {"content": "Visible answer."}}]}),
+            stream=httpx.ByteStream(
+                _stream({"choices": [{"delta": {"content": "Visible answer."}}]})
+            ),
         )
 
     transport = httpx.MockTransport(handler)
@@ -292,14 +343,18 @@ async def test_ollama_retries_empty_reasoning_completion_without_reasoning(
         if len(calls) == 1:
             return httpx.Response(
                 200,
-                content=_stream(
-                    {"choices": [{"delta": {"reasoning": "Hidden reasoning"}}]},
-                    {"choices": [{"delta": {}, "finish_reason": "length"}]},
+                stream=httpx.ByteStream(
+                    _stream(
+                        {"choices": [{"delta": {"reasoning": "Hidden reasoning"}}]},
+                        {"choices": [{"delta": {}, "finish_reason": "length"}]},
+                    )
                 ),
             )
         return httpx.Response(
             200,
-            content=_stream({"choices": [{"delta": {"content": "Recovered answer."}}]}),
+            stream=httpx.ByteStream(
+                _stream({"choices": [{"delta": {"content": "Recovered answer."}}]})
+            ),
         )
 
     transport = httpx.MockTransport(handler)
@@ -331,9 +386,11 @@ async def test_empty_length_limited_completion_is_not_saved_as_an_answer(
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            content=_stream(
-                {"choices": [{"delta": {"reasoning": "Hidden reasoning"}}]},
-                {"choices": [{"delta": {}, "finish_reason": "length"}]},
+            stream=httpx.ByteStream(
+                _stream(
+                    {"choices": [{"delta": {"reasoning": "Hidden reasoning"}}]},
+                    {"choices": [{"delta": {}, "finish_reason": "length"}]},
+                )
             ),
         )
 
