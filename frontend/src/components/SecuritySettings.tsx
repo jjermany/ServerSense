@@ -1,5 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Download,
+  KeyRound,
+  ShieldCheck,
+  Smartphone,
+} from "lucide-react";
 import { api } from "../api";
 import { Card } from "./UI";
 
@@ -108,7 +114,7 @@ export default function SecuritySettings() {
   };
 
   return (
-    <Card className="settings-card">
+    <Card className="settings-card security-card">
       <span id="security" />
       <div className="settings-title">
         <span>
@@ -116,19 +122,18 @@ export default function SecuritySettings() {
         </span>
         <div>
           <h2>Account security</h2>
-          <p>
-            Optional multi-factor authentication (MFA) for your administrator
-            account.
-          </p>
+          <p>An extra layer of protection for your administrator account.</p>
         </div>
+        {status && (
+          <p
+            className={`mfa-status ${status.enabled ? "is-enabled" : "is-off"}`}
+          >
+            Authenticator MFA:{" "}
+            <strong>{status.enabled ? "Enabled" : "Off"}</strong>
+          </p>
+        )}
       </div>
       {!status && !error && <p role="status">Loading security settings...</p>}
-      {status && (
-        <p className="mfa-status">
-          Authenticator MFA:{" "}
-          <strong>{status.enabled ? "Enabled" : "Off"}</strong>
-        </p>
-      )}
       {message && (
         <p className="action-feedback success" role="status">
           {message}
@@ -146,6 +151,9 @@ export default function SecuritySettings() {
       )}
       {recoveryCodes.length > 0 ? (
         <section className="mfa-recovery" aria-label="Recovery codes">
+          <span className="mfa-eyebrow">
+            <KeyRound size={14} /> ACCOUNT RECOVERY
+          </span>
           <h3>Save your recovery codes</h3>
           <p>
             These codes are shown only now. Store them in a password manager or
@@ -161,6 +169,7 @@ export default function SecuritySettings() {
           </ul>
           <div className="mfa-actions">
             <button type="button" className="secondary" onClick={downloadCodes}>
+              <Download size={15} aria-hidden="true" />
               Download recovery codes
             </button>
             <button
@@ -173,12 +182,32 @@ export default function SecuritySettings() {
           </div>
         </section>
       ) : status && (!status.enabled || action) ? (
-        <form className="settings-form" onSubmit={submit}>
+        <form
+          className={`settings-form mfa-form ${enrollment ? "is-enrolling" : action ? "is-managing" : "is-starting"}`}
+          onSubmit={submit}
+        >
           {!status.enabled && !enrollment && (
-            <p>
-              Add a code from an authenticator app when signing in. MFA stays
-              off until you finish setup.
-            </p>
+            <div className="mfa-intro">
+              <span className="mfa-eyebrow">
+                <Smartphone size={14} /> AUTHENTICATOR APP
+              </span>
+              <h3>Secure your sign-in</h3>
+              <p>
+                Add a one-time code to your password. MFA is optional and stays
+                off until setup is complete.
+              </p>
+              <ol className="mfa-steps" aria-label="MFA setup steps">
+                <li>
+                  <span>1</span>Confirm password
+                </li>
+                <li>
+                  <span>2</span>Scan QR code
+                </li>
+                <li>
+                  <span>3</span>Save recovery codes
+                </li>
+              </ol>
+            </div>
           )}
           {action === "disable" && (
             <p>
@@ -192,10 +221,12 @@ export default function SecuritySettings() {
               password and a current authenticator or unused recovery code.
             </p>
           )}
-          <label>
+          <label className="mfa-password-field">
             Current password
             <input
               type="password"
+              aria-label="Current password"
+              aria-describedby={!enrollment && !action ? "mfa-password-hint" : undefined}
               autoComplete="current-password"
               value={password}
               maxLength={256}
@@ -203,6 +234,9 @@ export default function SecuritySettings() {
               disabled={busy}
               onChange={(event) => setPassword(event.target.value)}
             />
+            {!enrollment && !action && (
+              <small id="mfa-password-hint">Confirm it’s you to start setup.</small>
+            )}
           </label>
           {enrollment && (
             <div className="mfa-enrollment">
@@ -212,6 +246,7 @@ export default function SecuritySettings() {
                 className="mfa-qr"
               />
               <div>
+                <span className="mfa-eyebrow">CONNECT YOUR AUTHENTICATOR</span>
                 <h3>Scan with your authenticator</h3>
                 <p>
                   Use an app such as Google Authenticator, Microsoft
@@ -234,7 +269,7 @@ export default function SecuritySettings() {
             </div>
           )}
           {(enrollment || action) && (
-            <label>
+            <label className="mfa-code-field">
               {enrollment
                 ? "Authenticator code"
                 : "Authenticator or recovery code"}
@@ -247,6 +282,8 @@ export default function SecuritySettings() {
                 required
                 disabled={busy}
                 onChange={(event) => setCode(event.target.value)}
+                className={enrollment ? "mfa-otp-input" : undefined}
+                placeholder={enrollment ? "000000" : undefined}
               />
             </label>
           )}
@@ -261,6 +298,9 @@ export default function SecuritySettings() {
                     : enrollment
                       ? "Verify and enable MFA"
                       : "Set up MFA"}
+              {!busy && !enrollment && !action && (
+                <ArrowRight size={15} aria-hidden="true" />
+              )}
             </button>
             {(enrollment || action) && (
               <button
@@ -276,10 +316,18 @@ export default function SecuritySettings() {
         </form>
       ) : status?.enabled ? (
         <div className="mfa-management">
-          <p>
-            You have {status.recovery_codes_remaining} recovery codes remaining.
-            MFA is required for both local and remote logins.
-          </p>
+          <div className="mfa-management-summary">
+            <span className="mfa-feature-icon">
+              <ShieldCheck size={22} />
+            </span>
+            <div>
+              <h3>Your sign-in has extra protection</h3>
+              <p>
+                You have {status.recovery_codes_remaining} recovery codes
+                remaining. MFA is required for both local and remote logins.
+              </p>
+            </div>
+          </div>
           <div className="mfa-actions">
             <button
               type="button"

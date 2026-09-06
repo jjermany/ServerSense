@@ -29,7 +29,7 @@ test("fresh installation completes every setup stage and serves the application"
   test.setTimeout(60_000);
   const browserErrors: string[] = [];
   page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
+    if (message.type() === "error") browserErrors.push(`${message.text()} (${message.location().url})`);
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
@@ -104,6 +104,7 @@ test("fresh installation completes every setup stage and serves the application"
   await page.setViewportSize({ width: 1365, height: 1000 });
   await page.goto("/settings#security");
   await expect(page.getByText("Authenticator MFA:")).toContainText("Off");
+  await page.locator(".security-card").screenshot({ path: testInfo.outputPath("mfa-off-desktop.png") });
   await page
     .getByLabel("Current password", { exact: true })
     .fill("e2e-verification-password");
@@ -149,6 +150,7 @@ test("fresh installation completes every setup stage and serves the application"
   await page.getByRole("button", { name: "Verify and enable MFA" }).click();
   const recoverySection = page.getByRole("region", { name: "Recovery codes" });
   await expect(recoverySection).toBeVisible();
+  await recoverySection.screenshot({ path: testInfo.outputPath("mfa-recovery-mobile.png") });
   const recoveryCodes = await recoverySection.locator("code").allTextContents();
   expect(recoveryCodes).toHaveLength(10);
   const downloadPromise = page.waitForEvent("download");

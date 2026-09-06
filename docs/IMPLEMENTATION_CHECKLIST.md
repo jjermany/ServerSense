@@ -40,6 +40,7 @@ Last updated: 2026-09-02
 - [x] authenticated visible-viewer lease with 5-second CPU/network sampling, visibility-aware refresh across monitoring pages, source sample timestamps, and independent Docker, SMART, and storage cadences
 - [x] container `TZ` precedence with validated Settings fallback and shared timezone-aware frontend formatting
 - [x] case-insensitive username login for existing accounts, preserving saved capitalization and case-sensitive passwords
+- [x] polished MFA Settings with status badges, compact guided setup, responsive QR/verification layout and recovery-code tiles
 - [x] optional authenticator MFA, locally generated QR/manual setup, encrypted expiring enrollment, verified activation, two-step login, atomic replay protection, single-use recovery codes, reauthenticated management and session rotation; migration leaves existing accounts opted out
 - [x] bounded browser API requests and recoverable startup authentication retries after temporary backend stalls
 - [x] collection-time Docker state-change tracking with constant-size Overview and Docker reads independent of retained history
