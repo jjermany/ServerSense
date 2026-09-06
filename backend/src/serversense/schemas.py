@@ -14,6 +14,19 @@ class SetupRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=256)
+    code: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class MFARequiredResponse(BaseModel):
+    mfa_required: bool = True
+
+
+class MFAPasswordRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+class MFAVerifyRequest(MFAPasswordRequest):
+    code: str = Field(min_length=1, max_length=64)
 
 
 class UserResponse(BaseModel):

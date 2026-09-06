@@ -4,7 +4,14 @@ from sqlalchemy.orm import Session
 
 from serversense.db import get_db
 from serversense.models import Setting, User
-from serversense.schemas import LoginRequest, SetupRequest, UserResponse
+from serversense.schemas import (
+    LoginRequest,
+    MFAPasswordRequest,
+    MFARequiredResponse,
+    MFAVerifyRequest,
+    SetupRequest,
+    UserResponse,
+)
 from serversense.security import (
     COOKIE_NAME,
     DUMMY_PASSWORD_HASH,
@@ -15,6 +22,7 @@ from serversense.security import (
     login_source_limiter,
     password_hash,
 )
+from serversense.services import mfa
 from serversense.services.demo import seed_demo_data
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -56,13 +64,13 @@ def setup(
     return user
 
 
-@router.post("/login", response_model=UserResponse)
+@router.post("/login", response_model=UserResponse | MFARequiredResponse)
 def login(
     payload: LoginRequest,
     response: Response,
     request: Request,
     db: Session = Depends(get_db),
-) -> User:
+) -> User | MFARequiredResponse:
     client_host = request.client.host if request.client else "unknown"
     login_source_limiter.check(client_host)
     limit_key = f"account:{payload.username.lower()}"
@@ -73,6 +81,12 @@ def login(
     )
     if not user or not valid_password:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
+    user = mfa.lock_user(db, user)
+    if user.mfa_secret is not None:
+        if payload.code is None:
+            db.rollback()
+            return MFARequiredResponse()
+        mfa.consume_code(user, payload.code)
     login_limiter.reset(limit_key)
     create_session(db, user, response)
     return user
@@ -90,3 +104,53 @@ def logout(
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> User:
     return user
+
+
+@router.get("/mfa")
+def mfa_status(user: User = Depends(current_user)) -> dict:
+    return mfa.status(user)
+
+
+@router.post("/mfa/setup")
+def mfa_setup(
+    payload: MFAPasswordRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    return mfa.start_enrollment(db, user, payload.password)
+
+
+@router.post("/mfa/confirm")
+def mfa_confirm(
+    payload: MFAVerifyRequest,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    codes = mfa.confirm_enrollment(db, user, payload.password, payload.code)
+    create_session(db, user, response)
+    return {"enabled": True, "recovery_codes": codes}
+
+
+@router.post("/mfa/disable")
+def mfa_disable(
+    payload: MFAVerifyRequest,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    mfa.disable(db, user, payload.password, payload.code)
+    create_session(db, user, response)
+    return {"enabled": False, "recovery_codes_remaining": 0}
+
+
+@router.post("/mfa/recovery-codes")
+def mfa_recovery_codes(
+    payload: MFAVerifyRequest,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    codes = mfa.regenerate_recovery_codes(db, user, payload.password, payload.code)
+    create_session(db, user, response)
+    return {"enabled": True, "recovery_codes": codes}

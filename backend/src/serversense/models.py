@@ -22,6 +22,11 @@ class User(TimestampMixin, Base):
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=True)
+    mfa_secret: Mapped[str | None] = mapped_column(Text)
+    mfa_pending_secret: Mapped[str | None] = mapped_column(Text)
+    mfa_pending_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    mfa_last_step: Mapped[int | None] = mapped_column(Integer)
+    mfa_recovery_hashes: Mapped[list[str] | None] = mapped_column(JSON)
 
 
 class Session(Base):

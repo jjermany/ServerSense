@@ -1421,6 +1421,13 @@ button {
   gap: 22px;
   min-width: 0;
 }
+.mfa-status, .mfa-management, .mfa-recovery { margin-top: 20px; }
+.mfa-enrollment { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
+.mfa-enrollment > div { flex: 1 1 240px; min-width: 0; }
+.mfa-qr { width: 240px; max-width: 100%; height: auto; image-rendering: pixelated; border-radius: 8px; }
+.mfa-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.mfa-recovery ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 0; list-style: none; }
+.mfa-recovery code { overflow-wrap: anywhere; }
 .settings-title {
   display: flex;
   gap: 14px;
@@ -2057,6 +2064,9 @@ button.danger {
   }
   .settings-layout aside > small {
     display: none;
+  }
+  .settings-card > span[id] {
+    scroll-margin-top: 150px;
   }
   .field-grid,
   .field-grid.three,

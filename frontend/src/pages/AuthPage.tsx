@@ -12,6 +12,11 @@ export default function AuthPage({
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [credentials, setCredentials] = useState<{
+    username: string;
+    password: string;
+  }>();
+  const [mfaCode, setMfaCode] = useState("");
   const [step, setStep] = useState(0);
   const [setup, setSetup] = useState({
     server_name: "Tower",
@@ -39,15 +44,35 @@ export default function AuthPage({
     setBusy(true);
     setError("");
     const form = new FormData(event.currentTarget);
-    const payload = mode === "setup" ? setup : Object.fromEntries(form);
+    const loginCredentials = credentials ?? {
+      username: String(form.get("username") ?? ""),
+      password: String(form.get("password") ?? ""),
+    };
+    const payload =
+      mode === "setup"
+        ? setup
+        : {
+            ...loginCredentials,
+            ...(credentials ? { code: mfaCode } : {}),
+          };
     try {
-      await api(mode === "setup" ? "/api/auth/setup" : "/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      const result = await api<{ mfa_required?: boolean }>(
+        mode === "setup" ? "/api/auth/setup" : "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+      if (result.mfa_required) {
+        setCredentials(loginCredentials);
+        return;
+      }
+      setCredentials(undefined);
+      setMfaCode("");
       onAuthenticated();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to continue");
+      setMfaCode("");
     } finally {
       setBusy(false);
     }
@@ -86,7 +111,9 @@ export default function AuthPage({
                 "Create administrator",
                 "Choose monitoring mode",
               ][step]
-            : "Sign in to ServerSense"}
+            : credentials
+              ? "Verify your sign-in"
+              : "Sign in to ServerSense"}
         </h2>
         <p>
           {mode === "setup"
@@ -95,7 +122,9 @@ export default function AuthPage({
                 "This local account protects your server telemetry and settings.",
                 "ServerSense will detect Unraid automatically when live monitoring begins.",
               ][step]
-            : "Use your local administrator account."}
+            : credentials
+              ? "Enter a code from your authenticator app, or use an unused recovery code."
+              : "Use your local administrator account."}
         </p>
         {mode === "setup" && (
           <div className="wizard-steps">
@@ -199,7 +228,7 @@ export default function AuthPage({
             </div>
           </>
         )}
-        {mode === "login" && (
+        {mode === "login" && !credentials && (
           <>
             <label>
               Username
@@ -221,7 +250,28 @@ export default function AuthPage({
             </label>
           </>
         )}
-        {error && <div className="form-error">{error}</div>}
+        {mode === "login" && credentials && (
+          <label>
+            Authenticator or recovery code
+            <input
+              name="code"
+              autoComplete="one-time-code"
+              value={mfaCode}
+              onChange={(event) => setMfaCode(event.target.value)}
+              required
+              maxLength={64}
+            />
+            <small>
+              Authenticator codes change every 30 seconds. Each code can be used
+              once.
+            </small>
+          </label>
+        )}
+        {error && (
+          <div className="form-error" role="alert">
+            {error}
+          </div>
+        )}
         <button className="primary" disabled={busy}>
           {busy
             ? "Please wait…"
@@ -231,8 +281,24 @@ export default function AuthPage({
                 : step === 1
                   ? "Continue"
                   : "Finish setup"
-              : "Sign in"}
+              : credentials
+                ? "Verify and sign in"
+                : "Sign in"}
         </button>
+        {mode === "login" && credentials && (
+          <button
+            type="button"
+            className="wizard-back"
+            disabled={busy}
+            onClick={() => {
+              setCredentials(undefined);
+              setMfaCode("");
+              setError("");
+            }}
+          >
+            Back to sign in
+          </button>
+        )}
         {mode === "setup" && step > 0 && (
           <button
             type="button"

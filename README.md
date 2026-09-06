@@ -137,6 +137,12 @@ See [the security and performance audit](docs/SECURITY_AUDIT.md) for findings, v
 
 Login usernames are case-insensitive; passwords remain case-sensitive, and the saved username keeps its original capitalization.
 
+MFA is optional and off by default, including for existing accounts after an upgrade. To enable it, open **Settings → Security**, enter your current password, and choose **Set up MFA**. Scan the QR code with an authenticator app (or enter the manual setup key), then enter its six-digit code to activate MFA. The QR code is generated locally; setup expires after 10 minutes. Until confirmation succeeds, password-only login continues to work.
+
+Save the 10 recovery codes shown after activation; they can be downloaded as a text file and are not shown again. Each recovery code works once, together with your password, if you lose access to your authenticator. Once enabled, MFA applies to all new logins, both local and through a proxy/tunnel. Codes use a 30-second interval with one interval of clock tolerance; an accepted code cannot be reused. Keep the server and authenticator clocks synchronized.
+
+You can replace recovery codes or disable MFA under **Settings → Security** using your password and a current authenticator code or unused recovery code. Enabling, disabling, or replacing recovery codes signs out other sessions and refreshes the current session. MFA secrets are encrypted using the installation secret, and only hashes of recovery codes are stored. Preserve `/config` and `SERVERSENSE_SECRET_KEY` across upgrades; store recovery codes separately and privately. There is no password-only MFA bypass if both the authenticator and recovery codes are lost.
+
 The web client bounds API requests and automatically retries its startup authentication check, so a temporary database lock or backend stall cannot leave the app permanently stuck on the connecting screen. Monitoring pages retain their most recent data across sidebar navigation and refresh it in the background instead of returning to an empty loading state.
 
 If a browser tab stays open across a ServerSense update, its cached bundle can reference a page chunk that no longer exists on the server. The app detects that failure and reloads once automatically to pick up the new build; if the page still won't load after that, it shows a manual reload prompt instead of leaving the content area blank.

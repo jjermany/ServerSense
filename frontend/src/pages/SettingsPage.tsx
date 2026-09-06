@@ -10,11 +10,13 @@ import {
   Plug,
   RefreshCw,
   Save,
+  ShieldCheck,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import { api } from "../api";
 import { Card, PageHeader } from "../components/UI";
+import SecuritySettings from "../components/SecuritySettings";
 import { useTimeZone } from "../timeZoneContext";
 type AIConfig = {
   provider: string;
@@ -460,11 +462,12 @@ export default function SettingsPage() {
   return (
     <div className="page settings-page">
       <PageHeader eyebrow="CONFIGURATION" title="Settings">
-        <p className="page-header-note">Server, alerts, AI, and integrations</p>
+        <p className="page-header-note">Server, security, alerts, AI, and integrations</p>
       </PageHeader>
       <div className="settings-layout">
         <aside aria-label="Settings sections">
           <small>SETTINGS</small>
+          <a href="#security"><ShieldCheck />Security</a>
           <a href="#ai">
             <Bot />
             AI
@@ -487,6 +490,7 @@ export default function SettingsPage() {
           </a>
         </aside>
         <div className="settings-stack">
+          <SecuritySettings />
           <Card className="settings-card">
             <span id="ai" />
             <div className="settings-title">

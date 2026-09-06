@@ -21,6 +21,65 @@ def _alembic(backend: Path, config_dir: Path, target: str) -> None:
     )
 
 
+def test_mfa_migration_preserves_existing_account_and_defaults_off(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    _alembic(backend, tmp_path, "c7e4b1a9d2f0")
+    database = tmp_path / "serversense.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
+            (
+                "ExistingAdmin",
+                "existing-password-hash",
+                "2026-09-06 12:00:00",
+                "2026-09-06 12:00:00",
+            ),
+        )
+        connection.commit()
+    _alembic(backend, tmp_path, "head")
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            "SELECT username, password_hash, mfa_secret, mfa_recovery_hashes FROM users"
+        ).fetchone()
+        assert row == ("ExistingAdmin", "existing-password-hash", None, None)
+        connection.execute(
+            "UPDATE users SET mfa_secret = 'encrypted-placeholder', mfa_last_step = 1234"
+        )
+        connection.commit()
+    _alembic(backend, tmp_path, "head")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT mfa_secret, mfa_last_step FROM users").fetchone() == (
+            "encrypted-placeholder",
+            1234,
+        )
+
+
+def test_mfa_migration_empty_database_and_round_trip(tmp_path: Path) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    _alembic(backend, tmp_path, "head")
+    environment = os.environ | {
+        "SERVERSENSE_CONFIG_DIR": str(tmp_path),
+        "SERVERSENSE_SECRET_KEY": "migration-test-secret-key",
+    }
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "c7e4b1a9d2f0"],
+        cwd=backend,
+        env=environment,
+        check=True,
+        capture_output=True,
+    )
+    _alembic(backend, tmp_path, "head")
+    with sqlite3.connect(tmp_path / "serversense.db") as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info('users')")}
+    assert {
+        "mfa_secret",
+        "mfa_pending_secret",
+        "mfa_pending_expires_at",
+        "mfa_last_step",
+        "mfa_recovery_hashes",
+    }.issubset(columns)
+
+
 def test_media_schedule_migration_upgrades_existing_database(tmp_path: Path) -> None:
     backend = Path(__file__).resolve().parents[1]
     _alembic(backend, tmp_path, "a2c91d84e630")

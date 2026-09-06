@@ -33,7 +33,7 @@ Forecast database queries now load only the required 30/90-day window relative t
 - ServerSense remains a single-administrator application. Sessions use random tokens, hashed database storage, HttpOnly/SameSite cookies, and expiration. Passwords remain case-sensitive; username capitalization is preserved.
 - SENSE retains its read-only allowlist and normalized database-only telemetry access. No arbitrary commands, host filesystem tool, or Docker mutation was added.
 - Collector hardware commands still use fixed argument arrays. The Docker socket remains in the collector boundary. Private LAN endpoints are an intentional administrator-configured feature, so blanket private-address blocking would break supported integrations.
-- Docker startup still upgrades the schema through Alembic. This audit adds no schema migration. Existing database upgrade tests are part of the backend suite.
+- Docker startup still upgrades the schema through Alembic. The original audit required no migration; the optional MFA follow-up adds nullable account fields through revision `e8a6f20b91c3`, leaving existing accounts opted out. Upgrade, persistence and downgrade/upgrade tests cover the change.
 - Credentials remain encrypted under the installation key; saved credentials are preserved for blank inputs. No production credentials or live user data were used for the tests.
 
 ## Container remediation
@@ -44,7 +44,7 @@ The runtime now uses Python 3.12 on supported Alpine 3.24 and applies available 
 
 The initial Alpine candidate exposed seven fixable findings in its inherited libuuid package. Applying package updates resolved all seven. The final image contains SQLite 3.53.4 and passed native-module checks for Argon2 password hashing, cryptography encryption/decryption, psutil, uvloop, UUID generation, timezone loading and smartctl execution. The existing /config volume layout, installation secret, Alembic startup and narrow hardware permissions remain unchanged. Production publishing targets linux/amd64; other architectures were not tested.
 
-Final Trivy scan: **zero known vulnerabilities**, covering 41 Alpine packages and 42 Python packages. The full inventory and scanner output are retained in [SECURITY_IMAGE_SCAN.json](SECURITY_IMAGE_SCAN.json). Docker image ID: `sha256:ba9067d11df99da19c71131009c7c50995e14a2e572d77ee2b9207e2094dc779`. Scanned configuration digest: `sha256:452e2d0dac430370cdff8cca94514734726794938e86a0b35e8641e0e486f4ac`. Trivy scanned the exported production image without access to the Docker socket. A clean advisory scan is time-specific evidence, not a guarantee against unknown vulnerabilities; rebuild and rescan for updates.
+Final Trivy scan: **zero known vulnerabilities**, covering 41 Alpine packages and 44 Python packages, including PyOTP and Segno for optional MFA. The full inventory and scanner output are retained in [SECURITY_IMAGE_SCAN.json](SECURITY_IMAGE_SCAN.json). Docker image ID: `sha256:cafe94be5fefb0b687b4d5d0ce6558e7ea47b61eff6ca7bb581c93be3cd76ccc`. Scanned configuration digest: `sha256:aa51001ca4fba812878d759f65e6a67178b91e8d446d7bc3672d01a57ecec062`. Trivy scanned the exported production image without access to the Docker socket. A clean advisory scan is time-specific evidence, not a guarantee against unknown vulnerabilities; rebuild and rescan for updates.
 
 ## Compressed response expansion
 
@@ -54,14 +54,18 @@ A regression test limits responses to 64 KiB, supplies a gzip payload that expan
 
 ## Validation
 
-- All 129 backend tests passed in a disposable test image derived from the final Alpine runtime, including migration upgrades, permissions, forecasts, persistence, setup and security regressions.
-- All 51 frontend tests across 15 files passed; ESLint and the production TypeScript/Vite build passed.
+- All 139 backend tests passed locally after the MFA follow-up, including migration upgrades, permissions, forecasts, persistence, setup and security regressions. The original 129-test suite also passed in Alpine during the base-image audit.
+- All 56 frontend tests across 16 files passed; ESLint and the production TypeScript/Vite build passed.
 - Ruff lint/formatting and strict mypy passed; whitespace checks passed.
-- The final production Dockerfile and Docker Compose build passed. Compose validation used an ephemeral build-only secret, without starting the application. Playwright's fresh-container setup/application test passed against the scanned image.
+- The final production Dockerfile built successfully, and Playwright's fresh-container setup/application/MFA test passed against the scanned image. The original audit also validated the unchanged Compose configuration using an ephemeral build-only secret, without starting the production application.
 - Final runtime native-module and smartctl checks passed.
 - npm audit reported zero advisories. The final Trivy scan reported zero OS or Python package findings at every severity.
 
 ## Completion and limits
+
+The subsequent optional-MFA implementation adds local QR-code enrollment, encrypted expiring setup secrets, confirmed activation, password-plus-factor login, atomic TOTP/recovery replay protection, and password/factor reauthentication for management. Enabling MFA or changing recovery codes revokes prior sessions. Recovery codes contain 80 random bits each and are stored only as hashes. MFA stays off until the administrator explicitly completes enrollment; no network-origin detection or automatic activation is used.
+
+MFA validation: all 139 backend tests and 56 frontend tests passed, along with Ruff, strict mypy, ESLint, and the production build. Browser tests cover desktop/mobile QR rendering, recovery-code download, authenticator and recovery login, replacement codes, disabling MFA, and password-only login afterward. Existing-account and empty-database migrations, pending-enrollment expiry, permissions, rate limits and simultaneous recovery-code consumption have regression coverage. The Python dependency audit found no known vulnerabilities after adding PyOTP and Segno.
 
 The source audit, identified vulnerability remediations, performance changes, documentation and automated validation are complete locally. No production deployment or commit was performed. The live Unraid host, reverse proxy, TLS configuration, device passthrough and real external providers were not penetration-tested. Hardware collector access remains read-only and uses fixed command arguments; private LAN endpoints remain an intentional administrator-configured feature. No production credentials or user data were used for validation.
 
