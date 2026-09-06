@@ -63,14 +63,16 @@ export default function StoragePage() {
   );
   const error = historyError || forecastError || poolsError;
   const preferred = forecast?.forecasts.find((x) => x.window_days === 30);
+  const showProjection = range !== "24h";
   const chartData: ChartPoint[] = history.map((point, index) => ({
     ...point,
     projected_used_bytes:
-      index === history.length - 1 ? point.used_bytes : undefined,
+      showProjection && index === history.length - 1 ? point.used_bytes : undefined,
     projected_free_bytes:
-      index === history.length - 1 ? point.free_bytes : undefined,
+      showProjection && index === history.length - 1 ? point.free_bytes : undefined,
   }));
   if (
+    showProjection &&
     forecast &&
     preferred?.bytes_per_day &&
     preferred.days_remaining &&
@@ -187,20 +189,20 @@ export default function StoragePage() {
                 stroke="#42d6a4"
                 dot={false}
               />
-              <Line
+              {showProjection && <Line
                 dataKey="projected_used_bytes"
                 name="Projected used"
                 stroke="#a58aff"
                 strokeDasharray="6 5"
                 dot={false}
-              />
-              <Line
+              />}
+              {showProjection && <Line
                 dataKey="projected_free_bytes"
                 name="Projected free"
                 stroke="#42d6a4"
                 strokeDasharray="6 5"
                 dot={false}
-              />
+              />}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -209,10 +211,10 @@ export default function StoragePage() {
             <i className="legend measured" />
             Measured
           </span>
-          <span>
+          {showProjection && <span>
             <i className="legend projected" />
             Deterministic 30-day projection
-          </span>
+          </span>}
         </div>
       </Card>
       {pools.length > 0 && (
