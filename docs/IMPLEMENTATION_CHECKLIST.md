@@ -86,6 +86,7 @@ Last updated: 2026-09-02
 - [x] production Docker build, health, setup, route, stream, and recreation verification
 - [x] quiet production access logging that suppresses successful polling while retaining failed requests and operational warnings/errors
 - [x] GitHub Actions verification gate and GitHub Container Registry publishing on push
+- [x] scoped GitHub Actions cache v2 with non-blocking cache exports; build, verification and registry-push failures remain fatal
 - [x] migration upgrade/downgrade/upgrade round trip
 - [x] Python and npm dependency audits report no known vulnerabilities
 - [x] browser visual QA at desktop/mobile sizes and axe scans for setup and dashboard

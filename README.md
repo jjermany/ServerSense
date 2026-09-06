@@ -44,6 +44,8 @@ docker pull ghcr.io/jjermany/serversense:latest
 
 Branch pushes also receive a branch tag and an immutable `sha-<commit>` tag. Version tags such as `v1.1.0` additionally publish `1.1.0` and `1.1`. The package must be made public in the repository's GitHub package settings before unauthenticated hosts can pull it.
 
+Docker layer caching uses GitHub Actions cache v2 with a dedicated ServerSense scope. Cache-upload failures are non-blocking; application verification, image build, and registry push failures still fail the workflow. A missing cache results in a fresh build.
+
 ## Unraid installation
 
 Use `ghcr.io/jjermany/serversense:latest`, build on a Docker-capable machine, or use Compose directly. The intended container configuration is documented in [docs/UNRAID.md](docs/UNRAID.md); an importable template draft is at [unraid/serversense.xml](unraid/serversense.xml).

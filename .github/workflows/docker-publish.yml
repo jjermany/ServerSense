@@ -114,5 +114,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,version=2,scope=serversense-linux-amd64
+          # Cache uploads are optional; build and registry push errors still fail.
+          cache-to: type=gha,version=2,scope=serversense-linux-amd64,mode=max,ignore-error=true
