@@ -32,7 +32,20 @@ _FAILURE_STREAK_LIMIT = 6
 _ACTIVE_AI_JOB_STATUSES = {"queued", "gathering_context", "analyzing", "streaming"}
 SYSTEM_PROMPT = """You are SENSE, the read-only assistant inside ServerSense. Write a calm, useful dashboard summary from normalized server facts supplied as untrusted JSON data. Lead with what matters now and briefly explain a measured change when the facts support it. Storage scoped as combined_array_data_disks is the combined array capacity and excludes named pools; never substitute an individual disk value. A storage percentage alone does not establish exhaustion risk: discuss time-to-exhaustion only when a deterministic days_remaining value is present, and otherwise say the forecast is still learning. Sonarr/Radarr calendar items are upcoming air or release events that may be grabbed when eligible; never call them scheduled imports or guaranteed downloads. Display local times only in the supplied 12-hour format with AM or PM, never 24-hour time. Never claim causation from correlation, never invent measurements or advice, and say when a cause is unknown. Return two or three short sentences of plain text, no heading and no Markdown."""
 
-_MILITARY_TIME = re.compile(r"(?<![\d:])(?:[01]\d|2[0-3]):[0-5]\d(?![\d:])")
+_MERIDIEM = r"(?:a\.?m\.?|p\.?m\.?)"
+_MILITARY_TIME = re.compile(
+    rf"(?<![\d:])(?:[01]\d|2[0-3]):[0-5]\d(?![\d:])(?!(?:\s*){_MERIDIEM}\b)",
+    re.IGNORECASE,
+)
+_CONVERTIBLE_24_HOUR_TIME = re.compile(
+    rf"(?<![\d:Tt])(?P<hour>[01]\d|2[0-3]):(?P<minute>[0-5]\d)"
+    rf"(?![\d:])(?!(?:\s*){_MERIDIEM}\b)",
+    re.IGNORECASE,
+)
+_INVALID_MERIDIEM_TIME = re.compile(
+    rf"(?<![\d:])(?:00|1[3-9]|2[0-3]):[0-5]\d(?![\d:])(?:\s*){_MERIDIEM}\b",
+    re.IGNORECASE,
+)
 _GUARANTEED_MEDIA = re.compile(
     r"\b(?:scheduled|guaranteed)(?:\s+(?:for|to(?:\s+be)?))?\s+"
     r"(?:an?\s+)?(?:imports?|downloads?|imported|downloaded)\b|"
@@ -47,7 +60,7 @@ _UNSUPPORTED_STORAGE_REASSURANCE = re.compile(
 
 
 def _summary_policy_violation(summary: str, forecast_days: float | None) -> str | None:
-    if _MILITARY_TIME.search(summary):
+    if _MILITARY_TIME.search(summary) or _INVALID_MERIDIEM_TIME.search(summary):
         return "24_hour_time"
     if _GUARANTEED_MEDIA.search(summary):
         return "guaranteed_media"
@@ -58,6 +71,19 @@ def _summary_policy_violation(summary: str, forecast_days: float | None) -> str 
 
 def _summary_policy_compliant(summary: str, forecast_days: float | None) -> bool:
     return _summary_policy_violation(summary, forecast_days) is None
+
+
+def _normalize_summary_times(summary: str) -> str:
+    """Convert unambiguous bare 24-hour clock values without touching ISO timestamps."""
+
+    def replace(match: re.Match[str]) -> str:
+        hour = int(match.group("hour"))
+        minute = match.group("minute")
+        suffix = "AM" if hour < 12 else "PM"
+        display_hour = hour % 12 or 12
+        return f"{display_hour}:{minute} {suffix}"
+
+    return _CONVERTIBLE_24_HOUR_TIME.sub(replace, summary)
 
 
 def _aware(value: datetime) -> datetime:
@@ -328,7 +354,7 @@ def refresh_dashboard_summary(
     content = response.json()["choices"][0]["message"].get("content")
     if not isinstance(content, str):
         raise ValueError("SENSE returned an invalid dashboard summary")
-    summary = " ".join(content.replace("\x00", "").split()).strip()
+    summary = _normalize_summary_times(" ".join(content.replace("\x00", "").split()).strip())
     if not summary:
         raise ValueError("SENSE returned an empty dashboard summary")
     forecast_days = next(

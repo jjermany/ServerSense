@@ -168,10 +168,46 @@ def test_failed_refresh_preserves_recent_cached_summary(monkeypatch: MonkeyPatch
         db.commit()
 
 
-def test_dashboard_summary_rejects_military_time_and_guaranteed_import_claims(
+def test_dashboard_summary_converts_military_time(
     monkeypatch: MonkeyPatch,
 ) -> None:
     now = datetime.now(UTC) + timedelta(days=1)
+
+    def military_time_post(url: str, **_: object) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "choices": [
+                    {"message": {"content": "Activity ran at 00:05, 12:30, and 19:00 local time."}}
+                ]
+            },
+        )
+
+    monkeypatch.setattr(http_requests, "post", military_time_post)
+    with SessionLocal() as db:
+        db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
+        sample = StorageSample(
+            timestamp=now,
+            total_bytes=10_000,
+            used_bytes=4_000,
+            free_bytes=6_000,
+            source="summary-time-conversion-test",
+        )
+        db.add(sample)
+        db.commit()
+        event = refresh_dashboard_summary(db, _config(), now)
+        assert event is not None
+        assert event.message == ("Activity ran at 12:05 AM, 12:30 PM, and 7:00 PM local time.")
+        db.delete(sample)
+        db.delete(event)
+        db.commit()
+
+
+def test_dashboard_summary_rejects_guaranteed_import_claims(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    now = datetime.now(UTC) + timedelta(days=2)
 
     def invalid_post(url: str, **_: object) -> httpx.Response:
         return httpx.Response(
@@ -204,7 +240,7 @@ def test_dashboard_summary_rejects_military_time_and_guaranteed_import_claims(
         db.add(sample)
         db.commit()
         try:
-            with pytest.raises(ValueError, match="presentation policy: 24_hour_time"):
+            with pytest.raises(ValueError, match="presentation policy: guaranteed_media"):
                 refresh_dashboard_summary(db, _config(), now)
 
             cached = Event(
@@ -233,7 +269,7 @@ def test_failed_dashboard_summaries_back_off_and_model_change_resets(
     monkeypatch: MonkeyPatch,
 ) -> None:
     calls: list[str] = []
-    now = datetime.now(UTC) + timedelta(days=2)
+    now = datetime.now(UTC) + timedelta(days=3)
 
     def fake_post(url: str, **_: object) -> httpx.Response:
         calls.append(url)
@@ -295,7 +331,7 @@ def test_dashboard_summary_yields_to_interactive_jobs(monkeypatch: MonkeyPatch) 
         "post",
         lambda *_args, **_kwargs: pytest.fail("background summary competed with an AI job"),
     )
-    now = datetime.now(UTC) + timedelta(days=3)
+    now = datetime.now(UTC) + timedelta(days=4)
     with SessionLocal() as db:
         db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
         sample = StorageSample(
