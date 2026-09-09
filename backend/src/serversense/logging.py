@@ -3,6 +3,9 @@ from logging.handlers import RotatingFileHandler
 
 from serversense.config import get_settings
 
+LOG_MAX_BYTES = 5_000_000
+LOG_BACKUP_COUNT = 5
+
 
 class SuccessfulAccessFilter(logging.Filter):
     """Hide routine successful HTTP requests while retaining client/server errors."""
@@ -27,7 +30,9 @@ def configure_logging() -> None:
     settings = get_settings()
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     handler = RotatingFileHandler(
-        settings.config_dir / "logs" / "serversense.log", maxBytes=5_000_000, backupCount=5
+        settings.config_dir / "logs" / "serversense.log",
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
     )
     handler.setFormatter(formatter)
     root = logging.getLogger()

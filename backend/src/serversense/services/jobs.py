@@ -26,7 +26,11 @@ from serversense.services.activity import active_viewers
 from serversense.services.ai_config import read_ai_config
 from serversense.services.alerting import evaluate_alerts
 from serversense.services.collectors import build_collector, persist_snapshot
-from serversense.services.dashboard_insights import refresh_dashboard_summary
+from serversense.services.dashboard_insights import (
+    DASHBOARD_FAILURE_EVENT,
+    record_dashboard_summary_failure,
+    refresh_dashboard_summary,
+)
 from serversense.services.integrations import collect_media_integrations
 from serversense.services.notifications import dispatch_notifications
 from serversense.services.proactive import explain_alerts
@@ -102,7 +106,7 @@ def cleanup_cycle() -> None:
         )
         db.execute(
             delete(Event).where(
-                Event.event_type == "sense_dashboard_summary",
+                Event.event_type.in_(("sense_dashboard_summary", DASHBOARD_FAILURE_EVENT)),
                 Event.timestamp < conversation_cutoff,
             )
         )
@@ -217,10 +221,17 @@ async def monitoring_loop() -> None:
 
 def dashboard_summary_cycle() -> None:
     with SessionLocal() as db:
+        config = read_ai_config(db, include_secret=True)
         try:
-            refresh_dashboard_summary(db, read_ai_config(db, include_secret=True))
+            refresh_dashboard_summary(db, config)
         except Exception as exc:
             db.rollback()
+            try:
+                record_dashboard_summary_failure(db, config, exc)
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.warning("Could not persist dashboard summary failure state")
             detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
             logger.warning("Cached SENSE dashboard summary failed: %s", detail)
 

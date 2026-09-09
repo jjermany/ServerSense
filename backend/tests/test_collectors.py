@@ -3,7 +3,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pytest import MonkeyPatch
+from pytest import LogCaptureFixture, MonkeyPatch
 
 from serversense.config import Settings
 from serversense.models import DockerSample
@@ -212,6 +212,37 @@ def test_smart_uses_model_vendor_fallback_and_rejects_device_errors(
     assert result["interface"] == "ATA"
     assert result["attributes"]["power_on_hours"] == 6542
     assert collector._smart("sde") == {}
+
+
+def test_repeated_smart_warning_is_rate_limited_and_recovers(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+) -> None:
+    from serversense.services import collectors
+
+    clock = 1_000.0
+    error_payload = {
+        "smartctl": {"messages": [{"string": "Operation not permitted", "severity": "error"}]}
+    }
+
+    def fake_run(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            arguments, 0, stdout=json.dumps(error_payload), stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(collectors.time, "monotonic", lambda: clock)
+    collectors._smart_warning_state.clear()
+    collector = UnraidCollector(Settings(secret_key="collector-test-secret-key"))
+
+    with caplog.at_level("WARNING", logger="serversense.services.collectors"):
+        assert collector._smart("rate-limit-disk") == {}
+        assert collector._smart("rate-limit-disk") == {}
+        clock += collectors.SMART_WARNING_REMINDER_SECONDS
+        assert collector._smart("rate-limit-disk") == {}
+
+    warnings = [record for record in caplog.records if "/dev/rate-limit-disk" in record.message]
+    assert len(warnings) == 2
+    collectors._smart_warning_state.clear()
 
 
 def test_smart_manufacturer_is_unknown_for_unrecognized_model() -> None:

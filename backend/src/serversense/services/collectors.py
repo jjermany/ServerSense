@@ -4,6 +4,7 @@ import platform
 import re
 import shutil
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -20,6 +21,28 @@ from serversense.config import Settings
 from serversense.models import DiskSample, DockerSample, MetricSample, Setting, StorageSample
 
 logger = logging.getLogger(__name__)
+SMART_WARNING_REMINDER_SECONDS = 6 * 60 * 60
+_MAX_SMART_WARNING_DEVICES = 128
+_smart_warning_state: dict[str, tuple[str, float]] = {}
+
+
+def _warn_smart_unavailable(device_name: str, detail: str) -> None:
+    now = time.monotonic()
+    previous = _smart_warning_state.get(device_name)
+    if previous and previous[0] == detail and now - previous[1] < SMART_WARNING_REMINDER_SECONDS:
+        return
+    if (
+        device_name not in _smart_warning_state
+        and len(_smart_warning_state) >= _MAX_SMART_WARNING_DEVICES
+    ):
+        oldest = min(_smart_warning_state, key=lambda item: _smart_warning_state[item][1])
+        _smart_warning_state.pop(oldest, None)
+    _smart_warning_state[device_name] = (detail, now)
+    logger.warning("SMART collection unavailable for /dev/%s: %s", device_name, detail)
+
+
+def _clear_smart_warning(device_name: str) -> None:
+    _smart_warning_state.pop(device_name, None)
 
 
 class DiskUsage(Protocol):
@@ -455,11 +478,7 @@ class UnraidCollector(LinuxCollector):
                 if item.get("severity") == "error" and item.get("string")
             ]
             if errors:
-                logger.warning(
-                    "SMART collection unavailable for /dev/%s: %s",
-                    device_name,
-                    "; ".join(errors),
-                )
+                _warn_smart_unavailable(device_name, "; ".join(errors))
                 return {}
 
             passed = payload.get("smart_status", {}).get("passed")
@@ -476,6 +495,7 @@ class UnraidCollector(LinuxCollector):
                 attributes["reallocated_sectors"] = attributes["5"]
             model = payload.get("model_name") or payload.get("product")
             manufacturer = self._smart_manufacturer(payload, model)
+            _clear_smart_warning(device_name)
             return {
                 "temperature": payload.get("temperature", {}).get("current"),
                 "status": "healthy"
@@ -490,11 +510,7 @@ class UnraidCollector(LinuxCollector):
                 "interface": payload.get("device", {}).get("protocol"),
             }
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
-            logger.warning(
-                "SMART collection unavailable for /dev/%s: %s",
-                device_name,
-                type(exc).__name__,
-            )
+            _warn_smart_unavailable(device_name, type(exc).__name__)
             return {}
 
     @staticmethod

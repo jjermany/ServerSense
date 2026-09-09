@@ -1,7 +1,12 @@
 import logging
 from logging.handlers import RotatingFileHandler
 
-from serversense.logging import SuccessfulAccessFilter, configure_logging
+from serversense.logging import (
+    LOG_BACKUP_COUNT,
+    LOG_MAX_BYTES,
+    SuccessfulAccessFilter,
+    configure_logging,
+)
 
 
 def access_record(status_code: object) -> logging.LogRecord:
@@ -45,5 +50,7 @@ def test_logging_does_not_duplicate_handlers_or_enable_secret_url_logs() -> None
     configure_logging()
     after = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
     assert len(before) == len(after)
+    assert after[-1].maxBytes == LOG_MAX_BYTES == 5_000_000
+    assert after[-1].backupCount == LOG_BACKUP_COUNT == 5
     assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
     assert not logging.getLogger("httpcore").isEnabledFor(logging.DEBUG)

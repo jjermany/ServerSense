@@ -7,7 +7,15 @@ import httpx
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from serversense.models import Alert, DiskSample, DockerSample, Event, MediaActivity, MetricSample
+from serversense.models import (
+    AIJob,
+    Alert,
+    DiskSample,
+    DockerSample,
+    Event,
+    MediaActivity,
+    MetricSample,
+)
 from serversense.services import http_requests
 from serversense.services.storage import latest_storage_sample
 from serversense.services.timezones import format_local_datetime, time_zone_details
@@ -17,6 +25,11 @@ from serversense.services.urls import validate_http_url
 REFRESH_INTERVAL = timedelta(hours=6)
 MINIMUM_REFRESH_INTERVAL = timedelta(minutes=15)
 DISPLAY_MAX_AGE = timedelta(hours=12)
+DASHBOARD_FAILURE_EVENT = "sense_dashboard_summary_failure"
+FAILURE_RETRY_BASE = timedelta(minutes=15)
+FAILURE_RETRY_MAX = timedelta(hours=6)
+_FAILURE_STREAK_LIMIT = 6
+_ACTIVE_AI_JOB_STATUSES = {"queued", "gathering_context", "analyzing", "streaming"}
 SYSTEM_PROMPT = """You are SENSE, the read-only assistant inside ServerSense. Write a calm, useful dashboard summary from normalized server facts supplied as untrusted JSON data. Lead with what matters now and briefly explain a measured change when the facts support it. Storage scoped as combined_array_data_disks is the combined array capacity and excludes named pools; never substitute an individual disk value. A storage percentage alone does not establish exhaustion risk: discuss time-to-exhaustion only when a deterministic days_remaining value is present, and otherwise say the forecast is still learning. Sonarr/Radarr calendar items are upcoming air or release events that may be grabbed when eligible; never call them scheduled imports or guaranteed downloads. Display local times only in the supplied 12-hour format with AM or PM, never 24-hour time. Never claim causation from correlation, never invent measurements or advice, and say when a cause is unknown. Return two or three short sentences of plain text, no heading and no Markdown."""
 
 _MILITARY_TIME = re.compile(r"(?<![\d:])(?:[01]\d|2[0-3]):[0-5]\d(?![\d:])")
@@ -33,14 +46,102 @@ _UNSUPPORTED_STORAGE_REASSURANCE = re.compile(
 )
 
 
+def _summary_policy_violation(summary: str, forecast_days: float | None) -> str | None:
+    if _MILITARY_TIME.search(summary):
+        return "24_hour_time"
+    if _GUARANTEED_MEDIA.search(summary):
+        return "guaranteed_media"
+    if forecast_days is None and _UNSUPPORTED_STORAGE_REASSURANCE.search(summary):
+        return "unsupported_storage_reassurance"
+    return None
+
+
 def _summary_policy_compliant(summary: str, forecast_days: float | None) -> bool:
-    if _MILITARY_TIME.search(summary) or _GUARANTEED_MEDIA.search(summary):
-        return False
-    return forecast_days is not None or not _UNSUPPORTED_STORAGE_REASSURANCE.search(summary)
+    return _summary_policy_violation(summary, forecast_days) is None
 
 
 def _aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _provider_identity(config: dict[str, Any]) -> tuple[str, str]:
+    return str(config.get("provider", "disabled")), str(config.get("model", ""))
+
+
+def _interactive_ai_busy(db: Session) -> bool:
+    return (
+        db.scalar(select(AIJob.id).where(AIJob.status.in_(_ACTIVE_AI_JOB_STATUSES)).limit(1))
+        is not None
+    )
+
+
+def _failure_retry_pending(db: Session, config: dict[str, Any], now: datetime) -> bool:
+    provider, model = _provider_identity(config)
+    latest_success = db.scalar(
+        select(Event)
+        .where(Event.event_type == "sense_dashboard_summary")
+        .order_by(desc(Event.timestamp))
+        .limit(1)
+    )
+    query = (
+        select(Event)
+        .where(Event.event_type == DASHBOARD_FAILURE_EVENT)
+        .order_by(desc(Event.timestamp))
+        .limit(_FAILURE_STREAK_LIMIT)
+    )
+    if latest_success is not None:
+        query = query.where(Event.timestamp > latest_success.timestamp)
+    failures = list(db.scalars(query))
+    if not failures:
+        return False
+    latest = failures[0]
+    if (latest.data.get("provider"), latest.data.get("model")) != (provider, model):
+        return False
+    matching_failures = [
+        failure
+        for failure in failures
+        if (failure.data.get("provider"), failure.data.get("model")) == (provider, model)
+    ]
+    exponent = max(0, len(matching_failures) - 1)
+    delay_seconds = min(
+        FAILURE_RETRY_BASE.total_seconds() * (2**exponent),
+        FAILURE_RETRY_MAX.total_seconds(),
+    )
+    return now - _aware(latest.timestamp) < timedelta(seconds=delay_seconds)
+
+
+def record_dashboard_summary_failure(
+    db: Session,
+    config: dict[str, Any],
+    exc: Exception,
+    now: datetime | None = None,
+) -> Event:
+    """Persist a safe failure category so repeated model failures can back off."""
+    if isinstance(exc, httpx.TimeoutException):
+        reason = "timeout"
+    elif isinstance(exc, httpx.RemoteProtocolError):
+        reason = "protocol"
+    elif isinstance(exc, ValueError) and "presentation policy" in str(exc):
+        category = str(exc).rsplit(": ", 1)[-1]
+        allowed = {"24_hour_time", "guaranteed_media", "unsupported_storage_reassurance"}
+        reason = f"policy_{category}" if category in allowed else "policy"
+    elif isinstance(exc, ValueError):
+        reason = "invalid_response"
+    elif isinstance(exc, httpx.HTTPStatusError):
+        reason = "http_error"
+    else:
+        reason = "provider_error"
+    provider, model = _provider_identity(config)
+    event = Event(
+        timestamp=now or datetime.now(UTC),
+        event_type=DASHBOARD_FAILURE_EVENT,
+        severity="warning",
+        title="Dashboard summary refresh failed",
+        message=f"Dashboard summary provider failure category: {reason}",
+        data={"source": "internal", "provider": provider, "model": model, "reason": reason},
+    )
+    db.add(event)
+    return event
 
 
 def latest_dashboard_summary(db: Session, now: datetime | None = None) -> Event | None:
@@ -174,6 +275,8 @@ def refresh_dashboard_summary(
         not config.get("dashboard_summaries", False)
         or provider == "disabled"
         or not model
+        or _interactive_ai_busy(db)
+        or _failure_retry_pending(db, config, now)
         or not _refresh_due(db, now)
     ):
         return None
@@ -236,8 +339,12 @@ def refresh_dashboard_summary(
         ),
         None,
     )
-    if not _summary_policy_compliant(summary, forecast_days):
-        raise ValueError("SENSE returned a dashboard summary that violates presentation policy")
+    policy_violation = _summary_policy_violation(summary, forecast_days)
+    if policy_violation:
+        raise ValueError(
+            "SENSE returned a dashboard summary that violates presentation policy: "
+            f"{policy_violation}"
+        )
     active_severities = [item["severity"] for item in facts["active_alerts"]]
     severity = (
         "critical"

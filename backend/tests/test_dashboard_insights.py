@@ -9,7 +9,9 @@ from serversense.db import SessionLocal
 from serversense.models import Alert, Event, StorageSample
 from serversense.services import http_requests
 from serversense.services.dashboard_insights import (
+    DASHBOARD_FAILURE_EVENT,
     latest_dashboard_summary,
+    record_dashboard_summary_failure,
     refresh_dashboard_summary,
 )
 from serversense.services.storage import latest_storage_sample
@@ -202,7 +204,7 @@ def test_dashboard_summary_rejects_military_time_and_guaranteed_import_claims(
         db.add(sample)
         db.commit()
         try:
-            with pytest.raises(ValueError, match="presentation policy"):
+            with pytest.raises(ValueError, match="presentation policy: 24_hour_time"):
                 refresh_dashboard_summary(db, _config(), now)
 
             cached = Event(
@@ -225,3 +227,86 @@ def test_dashboard_summary_rejects_military_time_and_guaranteed_import_claims(
         finally:
             db.delete(sample)
             db.commit()
+
+
+def test_failed_dashboard_summaries_back_off_and_model_change_resets(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    now = datetime.now(UTC) + timedelta(days=2)
+
+    def fake_post(url: str, **_: object) -> httpx.Response:
+        calls.append(url)
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={"choices": [{"message": {"content": "Storage conditions are measured."}}]},
+        )
+
+    monkeypatch.setattr(http_requests, "post", fake_post)
+    with SessionLocal() as db:
+        db.execute(
+            delete(Event).where(
+                Event.event_type.in_(("sense_dashboard_summary", DASHBOARD_FAILURE_EVENT))
+            )
+        )
+        sample = StorageSample(
+            timestamp=now,
+            total_bytes=10_000,
+            used_bytes=4_000,
+            free_bytes=6_000,
+            source="summary-backoff-test",
+        )
+        db.add(sample)
+        first = record_dashboard_summary_failure(
+            db,
+            _config(),
+            httpx.ReadTimeout("slow", request=httpx.Request("POST", "http://ollama.test")),
+            now,
+        )
+        db.commit()
+        assert first.data["reason"] == "timeout"
+        assert first.message == "Dashboard summary provider failure category: timeout"
+
+        assert refresh_dashboard_summary(db, _config(), now + timedelta(minutes=14)) is None
+        assert calls == []
+
+        changed = _config()
+        changed["model"] = "replacement-model"
+        event = refresh_dashboard_summary(db, changed, now + timedelta(minutes=1))
+        assert event is not None
+        assert len(calls) == 1
+
+        db.delete(sample)
+        db.execute(
+            delete(Event).where(
+                Event.event_type.in_(("sense_dashboard_summary", DASHBOARD_FAILURE_EVENT))
+            )
+        )
+        db.commit()
+
+
+def test_dashboard_summary_yields_to_interactive_jobs(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "serversense.services.dashboard_insights._interactive_ai_busy", lambda _: True
+    )
+    monkeypatch.setattr(
+        http_requests,
+        "post",
+        lambda *_args, **_kwargs: pytest.fail("background summary competed with an AI job"),
+    )
+    now = datetime.now(UTC) + timedelta(days=3)
+    with SessionLocal() as db:
+        db.execute(delete(Event).where(Event.event_type == "sense_dashboard_summary"))
+        sample = StorageSample(
+            timestamp=now,
+            total_bytes=10_000,
+            used_bytes=4_000,
+            free_bytes=6_000,
+            source="summary-busy-test",
+        )
+        db.add(sample)
+        db.commit()
+        assert refresh_dashboard_summary(db, _config(), now) is None
+        db.delete(sample)
+        db.commit()
