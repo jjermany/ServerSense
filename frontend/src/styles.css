@@ -1412,6 +1412,29 @@ button {
   padding: clamp(22px, 3vw, 34px);
   box-shadow: 0 18px 50px #02040a2e;
 }
+.settings-load-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 190px;
+  padding: 34px;
+}
+.settings-load-state > svg {
+  flex: 0 0 auto;
+  color: #aeb8ff;
+}
+.settings-load-state.is-error > svg {
+  color: var(--danger);
+}
+.settings-load-state h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.settings-load-state p {
+  margin: 7px 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .settings-card > span[id] {
   display: block;
   scroll-margin-top: 90px;
@@ -1446,11 +1469,11 @@ button {
   height: 20px;
 }
 .settings-title h2 {
-  font-size: 15px;
+  font-size: 16px;
   margin: 0;
 }
 .settings-title p {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   margin: 5px 0;
 }
@@ -1498,7 +1521,7 @@ button {
   max-width: 430px;
   margin: 3px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   text-align: right;
 }
@@ -1507,10 +1530,13 @@ button {
   display: grid;
   gap: 6px;
   color: #99a4b5;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   margin-bottom: 14px;
   min-width: 0;
+}
+.auth-card label {
+  font-size: 10px;
 }
 .settings-card input,
 .settings-card select,
@@ -1531,8 +1557,14 @@ button {
   border-color: #6878e7;
 }
 .settings-card label small {
-  color: #616e81;
+  color: #78859a;
+  font-size: 11px;
+  line-height: 1.5;
   font-weight: 400;
+}
+.settings-page :is(a, button, input, select):focus-visible {
+  outline: 2px solid #8794ff;
+  outline-offset: 2px;
 }
 .field-grid {
   display: grid;
@@ -2058,7 +2090,19 @@ button.danger {
     top: 68px;
     z-index: 5;
     display: flex;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-layout aside::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-layout aside a {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
   }
   .settings-layout aside > small {
     display: none;

@@ -68,6 +68,34 @@ describe("AI settings", () => {
   });
   afterEach(cleanup);
 
+  it("shows loading progress and can retry a failed initial request", async () => {
+    let rejectLoad: ((reason?: unknown) => void) | undefined;
+    vi.mocked(api).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectLoad = reject;
+        }),
+    );
+
+    render(<SettingsPage />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading settings");
+
+    rejectLoad?.(new Error("Settings service unavailable"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Settings service unavailable",
+    );
+
+    vi.mocked(api).mockImplementation((path: string) => {
+      if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
+      if (path.endsWith("/general")) return Promise.resolve(generalConfig);
+      if (path === "/api/integrations") return Promise.resolve(integrationsConfig);
+      return Promise.resolve(aiConfig);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("heading", { name: "Account security" })).toBeVisible();
+  });
+
   it("explains that provider inactivity can stop a job before maximum runtime", async () => {
     render(<SettingsPage />);
 
@@ -125,10 +153,17 @@ describe("AI settings", () => {
   it("links monitoring and integrations to working settings sections", async () => {
     render(<SettingsPage />);
 
-    expect(await screen.findByRole("link", { name: /Monitoring/ })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /Security/ })).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
+    const monitoringLink = screen.getByRole("link", { name: /Monitoring/ });
+    expect(monitoringLink).toHaveAttribute(
       "href",
       "#monitoring",
     );
+    fireEvent.click(monitoringLink);
+    expect(monitoringLink).toHaveAttribute("aria-current", "location");
     expect(screen.getByRole("link", { name: /Integrations/ })).toHaveAttribute(
       "href",
       "#integrations",
@@ -194,9 +229,7 @@ describe("AI settings", () => {
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
     finishSave?.(aiConfig);
 
-    expect(
-      await screen.findByRole("status", { name: "" }),
-    ).toHaveTextContent("AI settings saved securely.");
+    expect(await screen.findByText("AI settings saved securely.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
   });
 

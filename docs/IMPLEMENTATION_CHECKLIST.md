@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-09-02
+Last updated: 2026-09-09
 
 ## Foundation
 
@@ -16,7 +16,7 @@ Last updated: 2026-09-02
 - [x] guided welcome, administrator, monitoring mode, and optional-AI setup flow
 - [x] live-mode first-launch default with a browser-verified, non-bypassable monitoring selection step
 - [x] functional Monitoring and Integrations settings navigation with mode status and webhook controls
-- [x] consistent full-width responsive Settings layout with grouped AI controls, sticky section navigation, and inline summary timing guidance
+- [x] consistent full-width responsive Settings layout with grouped AI controls, active sticky section navigation, resilient loading/retry states, and inline summary timing guidance
 
 ## Monitoring and intelligence
 

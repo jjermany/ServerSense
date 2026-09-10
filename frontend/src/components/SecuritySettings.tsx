@@ -341,7 +341,7 @@ export default function SecuritySettings() {
             </button>
             <button
               type="button"
-              className="secondary"
+              className="secondary danger"
               onClick={() => {
                 cancel();
                 setAction("disable");

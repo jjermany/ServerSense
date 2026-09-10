@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
+  AlertTriangle,
   Bell,
   Bot,
   CheckCircle2,
@@ -166,21 +167,104 @@ export default function SettingsPage() {
   const [integrations, setIntegrations] = useState<IntegrationsConfig>();
   const [actions, setActions] = useState<Record<string, ActionStatus>>({});
   const [models, setModels] = useState<Array<{ id: string; supports_tools?: boolean | null }>>([]);
-  useEffect(() => {
-    Promise.all([
-      api<AIConfig>("/api/settings/ai"),
-      api<AlertConfig>("/api/settings/alerts"),
-      api<GeneralConfig>("/api/settings/general"),
-      api<IntegrationsConfig>("/api/integrations"),
-    ]).then(([ai, alertConfig, generalConfig, integrationsConfig]) => {
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [loadError, setLoadError] = useState("");
+  const [activeSection, setActiveSection] = useState("security");
+
+  const loadSettings = useCallback(async () => {
+    setLoadState("loading");
+    setLoadError("");
+    try {
+      const [ai, alertConfig, generalConfig, integrationsConfig] = await Promise.all([
+        api<AIConfig>("/api/settings/ai"),
+        api<AlertConfig>("/api/settings/alerts"),
+        api<GeneralConfig>("/api/settings/general"),
+        api<IntegrationsConfig>("/api/integrations"),
+      ]);
       setConfig(ai);
       setAlerts(alertConfig);
       setGeneral(generalConfig);
       setIntegrations(integrationsConfig);
-    });
+      setLoadState("ready");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Settings could not be loaded.");
+      setLoadState("error");
+    }
   }, []);
-  if (!config || !alerts || !general || !integrations)
-    return <div className="page" />;
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  useEffect(() => {
+    if (loadState !== "ready") return;
+    const sectionIds = ["security", "ai", "alerts", "monitoring", "integrations", "advanced"];
+    let animationFrame: number | undefined;
+    const updateActiveSection = () => {
+      let current = sectionIds[0];
+      let hasMeasuredSection = false;
+      for (const id of sectionIds) {
+        const section = document.getElementById(id)?.parentElement;
+        const bounds = section?.getBoundingClientRect();
+        if (bounds && bounds.height > 0) {
+          hasMeasuredSection = true;
+          if (bounds.top <= 170) current = id;
+        }
+      }
+      if (!hasMeasuredSection) return;
+      if (
+        document.documentElement.scrollHeight > window.innerHeight &&
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2
+      ) {
+        current = sectionIds[sectionIds.length - 1];
+      }
+      setActiveSection(current);
+    };
+    const scheduleUpdate = () => {
+      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(updateActiveSection);
+    };
+    updateActiveSection();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("hashchange", scheduleUpdate);
+    return () => {
+      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("hashchange", scheduleUpdate);
+    };
+  }, [loadState]);
+
+  if (loadState !== "ready" || !config || !alerts || !general || !integrations) {
+    return (
+      <div className="page settings-page">
+        <PageHeader eyebrow="CONFIGURATION" title="Settings">
+          <p className="page-header-note">Server, security, alerts, AI, and integrations</p>
+        </PageHeader>
+        <Card className={`settings-load-state ${loadState === "error" ? "is-error" : ""}`}>
+          {loadState === "loading" ? (
+            <>
+              <LoaderCircle className="spin" aria-hidden="true" />
+              <div role="status" aria-live="polite">
+                <h2>Loading settings</h2>
+                <p>Retrieving the current ServerSense configuration.</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <AlertTriangle aria-hidden="true" />
+              <div>
+                <h2>Settings could not be loaded</h2>
+                <p role="alert">{loadError}</p>
+                <button type="button" className="secondary" onClick={() => void loadSettings()}>
+                  Try again
+                </button>
+              </div>
+            </>
+          )}
+        </Card>
+      </div>
+    );
+  }
   const runAction = async <T,>(
     key: string,
     pendingMessage: string,
@@ -459,6 +543,14 @@ export default function SettingsPage() {
       (result) => `Backup created: ${result.filename}`,
     );
   };
+  const settingsSections = [
+    { id: "security", label: "Security", icon: <ShieldCheck /> },
+    { id: "ai", label: "AI", icon: <Bot /> },
+    { id: "alerts", label: "Alerts", icon: <Bell /> },
+    { id: "monitoring", label: "Monitoring", icon: <SlidersHorizontal /> },
+    { id: "integrations", label: "Integrations", icon: <Plug /> },
+    { id: "advanced", label: "Advanced", icon: <Database /> },
+  ];
   return (
     <div className="page settings-page">
       <PageHeader eyebrow="CONFIGURATION" title="Settings">
@@ -467,27 +559,18 @@ export default function SettingsPage() {
       <div className="settings-layout">
         <aside aria-label="Settings sections">
           <small>SETTINGS</small>
-          <a href="#security"><ShieldCheck />Security</a>
-          <a href="#ai">
-            <Bot />
-            AI
-          </a>
-          <a href="#alerts">
-            <Bell />
-            Alerts
-          </a>
-          <a href="#monitoring">
-            <SlidersHorizontal />
-            Monitoring
-          </a>
-          <a href="#integrations">
-            <Plug />
-            Integrations
-          </a>
-          <a href="#advanced">
-            <Database />
-            Advanced
-          </a>
+          {settingsSections.map((section) => (
+            <a
+              href={`#${section.id}`}
+              className={activeSection === section.id ? "active" : undefined}
+              aria-current={activeSection === section.id ? "location" : undefined}
+              onClick={() => setActiveSection(section.id)}
+              key={section.id}
+            >
+              {section.icon}
+              {section.label}
+            </a>
+          ))}
         </aside>
         <div className="settings-stack">
           <SecuritySettings />
@@ -653,7 +736,7 @@ export default function SettingsPage() {
                 <Bell />
               </span>
               <div>
-                <h2>ALERT THRESHOLDS</h2>
+                <h2>Alert thresholds</h2>
                 <p>
                   Choose when alerts are created and which ones are sent to your
                   notification providers.
@@ -776,7 +859,7 @@ export default function SettingsPage() {
                 <SlidersHorizontal />
               </span>
               <div>
-                <h2>MONITORING</h2>
+                <h2>Monitoring</h2>
                 <p>Review the collection mode selected during first-launch setup.</p>
               </div>
             </div>
@@ -850,7 +933,7 @@ export default function SettingsPage() {
                 <Plug />
               </span>
               <div>
-                <h2>INTEGRATIONS</h2>
+                <h2>Integrations</h2>
                 <p>Connect alert delivery and installed read-only providers.</p>
               </div>
             </div>
@@ -1065,7 +1148,7 @@ export default function SettingsPage() {
                   <Bot />
                 </span>
                 <div>
-                  <h3>AI MEDIA CONTEXT</h3>
+                  <h3>AI media context</h3>
                   <p>
                     Add any number of named Sonarr or Radarr instances. SENSE uses
                     their normalized, read-only history only while AI is enabled.
@@ -1204,7 +1287,7 @@ export default function SettingsPage() {
                 <Database />
               </span>
               <div>
-                <h2>ADVANCED & DIAGNOSTICS</h2>
+                <h2>Advanced &amp; diagnostics</h2>
                 <p>
                   Create a consistent SQLite backup or download a sanitized
                   diagnostic bundle.
