@@ -1434,11 +1434,16 @@ button {
   flex: 0 0 42px;
   width: 42px;
   height: 42px;
-  padding: 11px;
+  padding: 0;
   color: #b8c1ff;
   background: linear-gradient(145deg, #303d86, #20295f);
   border: 1px solid #4656a5;
   border-radius: 10px;
+}
+.settings-title > span svg {
+  display: block;
+  width: 20px;
+  height: 20px;
 }
 .settings-title h2 {
   font-size: 15px;
