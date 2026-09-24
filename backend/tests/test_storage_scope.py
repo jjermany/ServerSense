@@ -67,6 +67,10 @@ def test_sense_array_tools_exclude_incompatible_storage_sources_and_device_capac
             history = execute_tool(db, "get_storage_history", {"days": 365})
             assert len(history["samples"]) == 2
             assert all(item["total_bytes"] == 1_000 for item in history["samples"])
+            assert history["used_bytes_change"] == 50
+            assert history["used_bytes_change_display"] == "+50.0 B"
+            assert history["first_used_bytes"] == 600
+            assert history["last_used_bytes"] == 650
 
             disks = execute_tool(db, "get_disk_list", {})["disks"]
             device = next(item for item in disks if item["id"] == "scope-test-disk")

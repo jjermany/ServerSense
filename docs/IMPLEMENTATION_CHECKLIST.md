@@ -74,7 +74,7 @@ Last updated: 2026-09-24
 - [x] cached dashboard summaries yield to interactive SENSE work and persist safe failure categories with a 15-minute-to-6-hour exponential retry cooldown
 - [x] 5 MB application-log rotation with five retained backups and per-device rate limiting for unchanged SMART-unavailable warnings
 - [x] deterministic conversion of unambiguous bare 24-hour clock values in cached dashboard summaries before final presentation-policy validation
-- [x] responsive Ask SENSE conversation history and message layout with durable-job recovery after live-stream loss, a single notification control per active job, no stale Retry action after a replacement attempt is accepted, and broad change summaries grounded in pre-gathered storage, alert, media, container, and overview evidence
+- [x] responsive Ask SENSE conversation history and message layout with durable-job recovery after live-stream loss, a single notification control per active job, no stale Retry action after a replacement attempt is accepted, and broad change summaries grounded in one pre-gathered storage/alert/media/container/overview snapshot with a canonical storage delta, explicit upgrade classification, and conservative container state-change wording
 - [x] direct read-only telemetry access while a long SENSE AI analysis remains active
 - [ ] embedded model download/runtime workflow (external Ollama-compatible local endpoints work)
 

@@ -88,6 +88,15 @@ def test_broad_change_summary_preloads_historical_sources(monkeypatch) -> None:
 
     def fake_tool(db, name, arguments):
         calls.append((name, arguments))
+        if name == "get_storage_history":
+            return {
+                "used_bytes_change_display": "+50.9 GB",
+                "samples": [{"id": 1}, {"id": 2}, {"id": 3}],
+            }
+        if name == "get_media_activity_summary":
+            return {"measured_storage_change_bytes": 99, "instances": {}}
+        if name == "get_recent_alerts":
+            return {"alerts": [{"message": "x" * 10_000}]}
         return {"source": name}
 
     monkeypatch.setattr("serversense.services.sense_jobs.execute_tool", fake_tool)
@@ -111,6 +120,15 @@ def test_broad_change_summary_preloads_historical_sources(monkeypatch) -> None:
     assert ("get_storage_history", {"days": 1, "today": True}) in calls
     assert ("get_recent_alerts", {"limit": 100, "today": True}) in calls
     assert ("get_media_activity_summary", {"days": 1, "today": True}) in calls
+    assert context["context_kind"] == "broad_change_summary"
+    assert context["telemetry"]["get_storage_history"]["samples"] == [
+        {"id": 1},
+        {"id": 3},
+    ]
+    assert "measured_storage_change_bytes" not in context["telemetry"]["get_media_activity_summary"]
+    assert "storage_change_reference" in context["telemetry"]["get_media_activity_summary"]
+    assert context["telemetry"]["get_recent_alerts"]["truncated"] is True
+    assert "get_server_overview" in context["telemetry"]
 
 
 def test_today_imports_preload_detailed_media_for_curated_context(monkeypatch) -> None:
@@ -365,10 +383,12 @@ def test_direct_telemetry_remains_available_during_active_ai_job(
 
 async def test_fast_completed_job_persists_ai_provenance_without_notification(monkeypatch) -> None:
     captured_model = ""
+    captured_tool_calling = ""
 
     async def fake_stream(db, question, config, history):
-        nonlocal captured_model
+        nonlocal captured_model, captured_tool_calling
         captured_model = str(config["model"])
+        captured_tool_calling = str(config["tool_calling"])
         yield ChatEvent("delta", "Grounded answer")
         yield ChatEvent(
             "complete",
@@ -391,7 +411,7 @@ async def test_fast_completed_job_persists_ai_provenance_without_notification(mo
             conversation_id=conversation.id,
             timestamp=datetime.now(UTC),
             role="user",
-            content="Explain the current server state",
+            content="What changed on my server today?",
             source="user",
             references={},
         )
@@ -407,7 +427,7 @@ async def test_fast_completed_job_persists_ai_provenance_without_notification(mo
                 "provider": "openai_compatible",
                 "model": "snapshot-model",
                 "endpoint": "http://model.invalid",
-                "tool_calling": "curated_context",
+                "tool_calling": "auto",
                 "background_threshold_seconds": 30,
             },
             [],
@@ -421,6 +441,7 @@ async def test_fast_completed_job_persists_ai_provenance_without_notification(mo
         assert job is not None
         assert job.status == "completed"
         assert captured_model == "snapshot-model"
+        assert captured_tool_calling == "curated_context"
         response = db.get(AIMessage, job.response_message_id)
         assert response is not None
         assert response.source == "sense_ai"

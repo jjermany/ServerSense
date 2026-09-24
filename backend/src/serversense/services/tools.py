@@ -49,6 +49,17 @@ def _elapsed_since(value: datetime | None) -> int | None:
     return max(0, int((datetime.now(UTC) - aware).total_seconds()))
 
 
+def _signed_bytes_display(value: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    amount = abs(float(value))
+    index = 0
+    while amount >= 1000 and index < len(units) - 1:
+        amount /= 1000
+        index += 1
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    return f"{sign}{amount:.1f} {units[index]}"
+
+
 def server_overview(db: Session, _: dict[str, Any]) -> dict[str, Any]:
     storage = latest_storage_sample(db)
     metrics = list(db.scalars(select(MetricSample).order_by(desc(MetricSample.timestamp)).limit(2)))
@@ -125,11 +136,31 @@ def storage_history(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         else datetime.now(UTC) - timedelta(days=days)
     )
     rows = current_storage_samples(db, since=cutoff)
+    first = rows[0] if rows else None
+    last = rows[-1] if rows else None
+    used_bytes_change = last.used_bytes - first.used_bytes if first and last else None
     return {
         "days": days,
         "period": "configured_timezone_today" if local_today else "rolling_days",
         "window_start_utc": cutoff.isoformat(),
         "storage_scope": storage_scope(rows[-1]) if rows else None,
+        "sample_count": len(rows),
+        "first_sampled_at_local_display": format_local_datetime(db, first.timestamp)
+        if first
+        else None,
+        "last_sampled_at_local_display": format_local_datetime(db, last.timestamp)
+        if last
+        else None,
+        "first_used_bytes": first.used_bytes if first else None,
+        "last_used_bytes": last.used_bytes if last else None,
+        "used_bytes_change": used_bytes_change,
+        "used_bytes_change_display": _signed_bytes_display(used_bytes_change)
+        if used_bytes_change is not None
+        else None,
+        "change_note": (
+            "used_bytes_change is the canonical measured change for this window. Report it once; "
+            "do not recalculate it from rounded capacity values or media event sizes."
+        ),
         "samples": [
             {
                 "timestamp": x.timestamp.isoformat(),
@@ -204,6 +235,11 @@ def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
         "container_id",
     )
     return {
+        "state_change_note": (
+            "state_changed_at records a status, health, restart-count change, or first observation. "
+            "It does not identify the cause and must not be described as a restart by itself. "
+            "restart_count is the current Docker-reported cumulative count, not a count for today."
+        ),
         "containers": [
             {
                 "name": x.name,
@@ -218,9 +254,12 @@ def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
                 "cpu_percent": x.cpu_percent,
                 "memory_bytes": x.memory_bytes,
                 "restart_count": x.restart_count,
+                "state_change_cause": "unknown_from_current_snapshot"
+                if x.state_changed_at
+                else None,
             }
             for x in rows
-        ]
+        ],
     }
 
 
@@ -384,7 +423,9 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "provider": row.provider,
                 "events": {},
                 "known_import_bytes": 0,
-                "explicit_upgrades": 0,
+                "confirmed_quality_upgrades": 0,
+                "explicit_upgrade_deletions": 0,
+                "upgrade_deletions_without_matching_import": 0,
             },
         )
         events: dict[str, int] = group["events"]
@@ -392,9 +433,11 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         if row.event_type == "imported" and row.bytes is not None:
             group["known_import_bytes"] += row.bytes
         if row.event_type == "imported" and row.id in upgrade_pairs:
-            group["explicit_upgrades"] += 1
-        elif row.event_type == "file_deleted" and row.is_upgrade and row.id not in paired_deletions:
-            group["explicit_upgrades"] += 1
+            group["confirmed_quality_upgrades"] += 1
+        elif row.event_type == "file_deleted" and row.is_upgrade:
+            group["explicit_upgrade_deletions"] += 1
+            if row.id not in paired_deletions:
+                group["upgrade_deletions_without_matching_import"] += 1
     storage = current_storage_samples(db, since=cutoff)
     measured_change = storage[-1].used_bytes - storage[0].used_bytes if len(storage) >= 2 else None
     return {
@@ -402,6 +445,13 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "period": "configured_timezone_today" if args.get("today", False) else "rolling_days",
         "instances": instances,
         "measured_storage_change_bytes": measured_change,
+        "quality_upgrade_definition": (
+            "confirmed_quality_upgrades counts imports paired one-to-one with a provider deletion "
+            "whose explicit reason is Upgrade. A matching grab corroborates the replacement. "
+            "A grab, import, rename, quality difference, or ordinary deletion alone is not a "
+            "quality upgrade. upgrade_deletions_without_matching_import is incomplete evidence, "
+            "not a confirmed replacement."
+        ),
         "evidence_note": (
             "known_import_bytes totals gross media import events; hardlinks, replacements, "
             "deletions, and incomplete size fields mean those totals do not prove net growth. "
@@ -624,7 +674,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         array_capacity,
     ),
     "get_storage_history": (
-        "Get measured combined array history for the current measurement source, excluding incompatible older sources.",
+        "Get measured combined-array history and its canonical used_bytes_change. Report used_bytes_change_display once instead of recalculating from rounded values.",
         {
             "type": "object",
             "properties": {
@@ -676,7 +726,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         disks,
     ),
     "get_container_status": (
-        "Get current Docker container states and health.",
+        "Get current Docker states. state_changed_at alone does not prove a restart; restart_count is cumulative, not today-only.",
         {"type": "object", "properties": {}, "additionalProperties": False},
         containers,
     ),
@@ -698,7 +748,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         system_resources,
     ),
     "get_media_activity_summary": (
-        "Summarize normalized Sonarr/Radarr activity by configurable instance. ServerSense does track quality upgrades: use this before answering questions about TV/movie upgrades, downloads, imports, or storage changes; heed its evidence note.",
+        "Summarize Sonarr/Radarr activity by instance. confirmed_quality_upgrades are paired Upgrade deletions/imports; unmatched upgrade deletions are incomplete evidence. Heed the definition and evidence notes.",
         {
             "type": "object",
             "properties": {

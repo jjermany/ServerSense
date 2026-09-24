@@ -229,21 +229,43 @@ def _curated_context(
     if not names:
         names.append("get_server_overview")
     context: dict[str, Any] = {
+        "context_kind": "broad_change_summary" if broad_change_summary else "request_context",
         "conversation_summary": str(snapshot.get("summary", ""))[: max_context_chars // 4],
         "prior_references": snapshot.get("references", {}),
         "telemetry": {},
     }
     remaining = max_telemetry_chars
-    for name in dict.fromkeys(names):
+    selected_names = list(dict.fromkeys(names))
+    for index, name in enumerate(selected_names):
         result = execute_tool(db, name, tool_arguments.get(name, {}))
+        if broad_change_summary and name == "get_storage_history":
+            result = dict(result)
+            samples = result.get("samples", [])
+            if isinstance(samples, list) and len(samples) > 2:
+                result["samples"] = [samples[0], samples[-1]]
+                result["samples_compacted_for_summary"] = len(samples) - 2
+        elif broad_change_summary and name == "get_media_activity_summary":
+            result = dict(result)
+            result.pop("measured_storage_change_bytes", None)
+            result["storage_change_reference"] = (
+                "Use get_storage_history.used_bytes_change_display as the only measured "
+                "storage delta. Media bytes are event totals, not array growth."
+            )
         encoded = json.dumps(result, default=str)
-        if len(encoded) > remaining:
+        allowance = (
+            max(0, remaining // (len(selected_names) - index))
+            if broad_change_summary
+            else remaining
+        )
+        if len(encoded) > allowance:
             context["telemetry"][name] = {
                 "truncated": True,
-                "json_excerpt": encoded[: max(0, remaining)],
+                "json_excerpt": encoded[:allowance],
             }
-            remaining = 0
+            remaining -= allowance
             context["truncated"] = True
+            if broad_change_summary:
+                continue
             break
         context["telemetry"][name] = result
         remaining -= len(encoded)
@@ -486,6 +508,11 @@ async def _run_job(job_id: str) -> None:
                 int(config.get("max_telemetry_chars", 20_000)),
             )
             config["curated_context"] = curated
+            if curated.get("context_kind") == "broad_change_summary":
+                # Broad summaries already contain all required sources. Keep one
+                # consistent snapshot instead of letting a long native tool loop
+                # mix measurements collected minutes apart.
+                config["tool_calling"] = "curated_context"
             history = list(snapshot.get("history", []))
             threshold = int(config.get("background_threshold_seconds", 30))
             job.status = "analyzing"

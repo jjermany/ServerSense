@@ -271,7 +271,10 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
         summary = execute_tool(
             db, "get_media_activity_summary", {"days": 1, "instance": "TV upgrades"}
         )
-        assert summary["instances"]["TV upgrades"]["explicit_upgrades"] == 1
+        assert summary["instances"]["TV upgrades"]["confirmed_quality_upgrades"] == 1
+        assert summary["instances"]["TV upgrades"]["explicit_upgrade_deletions"] == 1
+        assert summary["instances"]["TV upgrades"]["upgrade_deletions_without_matching_import"] == 0
+        assert "paired one-to-one" in summary["quality_upgrade_definition"]
         items = execute_tool(
             db,
             "get_quality_upgrades",
