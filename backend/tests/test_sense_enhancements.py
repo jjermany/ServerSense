@@ -113,6 +113,33 @@ def test_broad_change_summary_preloads_historical_sources(monkeypatch) -> None:
     assert ("get_media_activity_summary", {"days": 1, "today": True}) in calls
 
 
+def test_today_imports_preload_detailed_media_for_curated_context(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_tool(db, name, arguments):
+        calls.append((name, arguments))
+        return {"source": name}
+
+    monkeypatch.setattr("serversense.services.sense_jobs.execute_tool", fake_tool)
+    with SessionLocal() as db:
+        context = _curated_context(
+            db,
+            "Show me today's imports.",
+            "historical",
+            {},
+            30_000,
+            20_000,
+        )
+
+    assert context["telemetry"]["get_media_activity_items"] == {
+        "source": "get_media_activity_items"
+    }
+    assert (
+        "get_media_activity_items",
+        {"days": 1, "today": True, "limit": 100},
+    ) in calls
+
+
 def test_completed_conversation_message_includes_persisted_elapsed_time(
     authenticated_client: TestClient,
 ) -> None:

@@ -135,6 +135,12 @@ def test_quality_upgrade_challenge_requires_upgrade_evidence() -> None:
     assert _calendar_window_days("Wasn't that just a quality upgrade?", history) == 1
 
 
+def test_today_imports_require_detailed_media_evidence() -> None:
+    assert _required_tool("Show me today's imports.", ()) == "get_media_activity_items"
+    assert _calendar_window_days("Show me today's imports.", ()) == 1
+    assert _required_tool("Should I upgrade my CPU?", ()) is None
+
+
 async def test_tool_call_preamble_is_not_compiled_into_final_answer(
     monkeypatch: MonkeyPatch,
 ) -> None:

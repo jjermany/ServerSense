@@ -80,6 +80,63 @@ def test_mfa_migration_empty_database_and_round_trip(tmp_path: Path) -> None:
     }.issubset(columns)
 
 
+def test_media_correlation_migration_preserves_history_and_resets_cursor(
+    tmp_path: Path,
+) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    _alembic(backend, tmp_path, "e8a6f20b91c3")
+    database = tmp_path / "serversense.db"
+    now = "2026-09-24 12:00:00"
+    with sqlite3.connect(database) as connection:
+        cursor = connection.execute(
+            "INSERT INTO integrations (provider, name, enabled, config, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "radarr",
+                "Movies",
+                1,
+                json.dumps({"url": "http://radarr:7878", "last_collected_at": now}),
+                now,
+                now,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO media_activities "
+            "(integration_id, external_id, occurred_at, provider, instance_name, event_type, "
+            "media_type, title, parent_title, season_number, episode_number, quality, bytes, "
+            "is_upgrade) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                int(cursor.lastrowid),
+                "existing-import",
+                now,
+                "radarr",
+                "Movies",
+                "imported",
+                "movie",
+                "Existing Movie",
+                None,
+                None,
+                None,
+                "WEBDL-2160p",
+                2_000,
+                0,
+            ),
+        )
+        connection.commit()
+
+    _alembic(backend, tmp_path, "head")
+
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info('media_activities')")}
+        row = connection.execute(
+            "SELECT title, provider_media_id, download_id_hash FROM media_activities"
+        ).fetchone()
+        config = json.loads(connection.execute("SELECT config FROM integrations").fetchone()[0])
+    assert {"provider_media_id", "download_id_hash"}.issubset(columns)
+    assert row == ("Existing Movie", None, None)
+    assert "last_collected_at" not in config
+
+
 def test_media_schedule_migration_upgrades_existing_database(tmp_path: Path) -> None:
     backend = Path(__file__).resolve().parents[1]
     _alembic(backend, tmp_path, "a2c91d84e630")

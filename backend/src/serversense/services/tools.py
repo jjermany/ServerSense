@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -26,6 +27,8 @@ from serversense.services.storage import (
 from serversense.services.timezones import format_local_datetime, local_time, time_zone_details
 
 ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
+UPGRADE_PAIR_WINDOW = timedelta(minutes=10)
+UPGRADE_GRAB_LOOKBACK = timedelta(days=30)
 
 
 def _latest_by(rows: list[Any], attribute: str) -> list[Any]:
@@ -248,7 +251,7 @@ def recent_alerts(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _media_rows(db: Session, args: dict[str, Any]) -> tuple[int, list[MediaActivity]]:
+def _media_rows(db: Session, args: dict[str, Any]) -> tuple[int, datetime, list[MediaActivity]]:
     days = min(max(int(args.get("days", 30)), 1), 365)
     local_today = bool(args.get("today", False))
     cutoff = (
@@ -256,14 +259,15 @@ def _media_rows(db: Session, args: dict[str, Any]) -> tuple[int, list[MediaActiv
         if local_today
         else datetime.now(UTC) - timedelta(days=days)
     )
-    query = select(MediaActivity).where(MediaActivity.occurred_at >= cutoff)
+    # Load bounded precursor evidence before applying the requested reporting
+    # period or event filter. Otherwise an import-only request hides the grab
+    # and Upgrade deletion needed to classify that import.
+    query = select(MediaActivity).where(MediaActivity.occurred_at >= cutoff - UPGRADE_GRAB_LOOKBACK)
     if args.get("provider"):
         query = query.where(MediaActivity.provider == args["provider"])
     if args.get("instance"):
         query = query.where(MediaActivity.instance_name == args["instance"])
-    if args.get("event_type") and not args.get("upgrades_only", False):
-        query = query.where(MediaActivity.event_type == args["event_type"])
-    return days, list(db.scalars(query.order_by(desc(MediaActivity.occurred_at))))
+    return days, cutoff, list(db.scalars(query.order_by(desc(MediaActivity.occurred_at))))
 
 
 def _media_identity(row: MediaActivity) -> tuple[Any, ...]:
@@ -277,37 +281,90 @@ def _media_identity(row: MediaActivity) -> tuple[Any, ...]:
     )
 
 
-def _upgrade_pairs(rows: list[MediaActivity]) -> dict[int, MediaActivity]:
-    deletions: dict[tuple[Any, ...], list[MediaActivity]] = {}
-    for row in rows:
-        if row.event_type == "file_deleted" and row.is_upgrade:
-            deletions.setdefault(_media_identity(row), []).append(row)
-    pairs: dict[int, MediaActivity] = {}
-    used: set[int] = set()
+def _same_media(left: MediaActivity, right: MediaActivity) -> bool:
+    if left.integration_id != right.integration_id or left.media_type != right.media_type:
+        return False
+    if left.provider_media_id is not None and right.provider_media_id is not None:
+        return left.provider_media_id == right.provider_media_id
+    return _media_identity(left) == _media_identity(right)
+
+
+def _same_quality(left: MediaActivity, right: MediaActivity) -> bool:
+    return (
+        left.quality is None
+        or right.quality is None
+        or left.quality.casefold() == right.quality.casefold()
+    )
+
+
+@dataclass(frozen=True)
+class _UpgradeChain:
+    deleted: MediaActivity
+    grabbed: MediaActivity | None
+
+
+def _upgrade_pairs(rows: list[MediaActivity]) -> dict[int, _UpgradeChain]:
+    deletions = [row for row in rows if row.event_type == "file_deleted" and row.is_upgrade]
+    grabs = [row for row in rows if row.event_type == "grabbed"]
+    pairs: dict[int, _UpgradeChain] = {}
+    used_deletions: set[int] = set()
+    used_grabs: set[int] = set()
     for imported in (row for row in rows if row.event_type == "imported"):
         candidates = [
             deleted
-            for deleted in deletions.get(_media_identity(imported), [])
-            if deleted.id not in used
-            and abs(
-                (
-                    _aware_datetime(imported.occurred_at) - _aware_datetime(deleted.occurred_at)
-                ).total_seconds()
-            )
-            <= 600
+            for deleted in deletions
+            if deleted.id not in used_deletions
+            and _same_media(imported, deleted)
+            and timedelta(0)
+            <= _aware_datetime(imported.occurred_at) - _aware_datetime(deleted.occurred_at)
+            <= UPGRADE_PAIR_WINDOW
         ]
         if candidates:
             deleted = min(
                 candidates,
-                key=lambda row: abs(
-                    (
-                        _aware_datetime(imported.occurred_at) - _aware_datetime(row.occurred_at)
-                    ).total_seconds()
+                key=lambda row: (
+                    _aware_datetime(imported.occurred_at) - _aware_datetime(row.occurred_at)
                 ),
             )
-            pairs[imported.id] = deleted
-            used.add(deleted.id)
+            grabbed_candidates = [
+                grabbed
+                for grabbed in grabs
+                if grabbed.id not in used_grabs
+                and _same_media(imported, grabbed)
+                and grabbed.download_id_hash is not None
+                and grabbed.download_id_hash == imported.download_id_hash
+                and _same_quality(imported, grabbed)
+                and timedelta(0)
+                <= _aware_datetime(deleted.occurred_at) - _aware_datetime(grabbed.occurred_at)
+                <= UPGRADE_GRAB_LOOKBACK
+            ]
+            grabbed = (
+                min(
+                    grabbed_candidates,
+                    key=lambda row: (
+                        _aware_datetime(deleted.occurred_at) - _aware_datetime(row.occurred_at)
+                    ),
+                )
+                if grabbed_candidates
+                else None
+            )
+            pairs[imported.id] = _UpgradeChain(deleted=deleted, grabbed=grabbed)
+            used_deletions.add(deleted.id)
+            if grabbed is not None:
+                used_grabs.add(grabbed.id)
     return pairs
+
+
+def _upgrade_evidence(chain: _UpgradeChain) -> tuple[str, list[str]]:
+    if chain.grabbed is not None:
+        return (
+            "provider grab followed by deletion reason Upgrade and import",
+            ["grabbed", "file_deleted", "imported"],
+        )
+    return (
+        "provider deletion reason Upgrade followed by import",
+        ["file_deleted", "imported"],
+    )
 
 
 def _aware_datetime(value: datetime) -> datetime:
@@ -315,8 +372,10 @@ def _aware_datetime(value: datetime) -> datetime:
 
 
 def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
-    days, rows = _media_rows(db, args)
-    upgrade_pairs = _upgrade_pairs(rows)
+    days, cutoff, evidence_rows = _media_rows(db, args)
+    rows = [row for row in evidence_rows if _aware_datetime(row.occurred_at) >= cutoff]
+    upgrade_pairs = _upgrade_pairs(evidence_rows)
+    paired_deletions = {chain.deleted.id for chain in upgrade_pairs.values()}
     instances: dict[str, dict[str, Any]] = {}
     for row in rows:
         group = instances.setdefault(
@@ -332,15 +391,10 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         events[row.event_type] = events.get(row.event_type, 0) + 1
         if row.event_type == "imported" and row.bytes is not None:
             group["known_import_bytes"] += row.bytes
-        if row.event_type == "file_deleted" and row.is_upgrade:
+        if row.event_type == "imported" and row.id in upgrade_pairs:
             group["explicit_upgrades"] += 1
-        elif row.event_type == "imported" and row.is_upgrade and row.id not in upgrade_pairs:
+        elif row.event_type == "file_deleted" and row.is_upgrade and row.id not in paired_deletions:
             group["explicit_upgrades"] += 1
-    cutoff = (
-        local_time(db).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
-        if args.get("today", False)
-        else datetime.now(UTC) - timedelta(days=days)
-    )
     storage = current_storage_samples(db, since=cutoff)
     measured_change = storage[-1].used_bytes - storage[0].used_bytes if len(storage) >= 2 else None
     return {
@@ -355,19 +409,28 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
             "The values may correlate, but telemetry does not prove media activity caused the "
             "measured storage change. "
             "Quality upgrades are confirmed by a provider deletion event whose reason is Upgrade, "
-            "paired with a nearby import when available. They are not video conversions."
+            "paired with a nearby import. A matching prior grab is included as corroborating "
+            "evidence when available; a grab or import alone is not upgrade evidence. They are "
+            "not video conversions."
         ),
     }
 
 
 def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
-    days, rows = _media_rows(db, args)
+    days, cutoff, rows = _media_rows(db, args)
     limit = min(max(int(args.get("limit", 25)), 1), 100)
     upgrade_pairs = _upgrade_pairs(rows)
-    paired_deletions = {row.id for row in upgrade_pairs.values()}
+    paired_deletions = {chain.deleted.id for chain in upgrade_pairs.values()}
+    requested_event = args.get("event_type") if not args.get("upgrades_only", False) else None
     activities: list[dict[str, Any]] = []
     for row in rows:
-        deleted = upgrade_pairs.get(row.id)
+        if _aware_datetime(row.occurred_at) < cutoff:
+            continue
+        if requested_event and row.event_type != requested_event:
+            continue
+        chain = upgrade_pairs.get(row.id)
+        deleted = chain.deleted if chain else None
+        evidence, evidence_events = _upgrade_evidence(chain) if chain else (None, None)
         if args.get("upgrades_only", False):
             if deleted is not None:
                 activities.append(
@@ -390,7 +453,8 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                         "net_bytes_change": row.bytes - deleted.bytes
                         if row.bytes is not None and deleted.bytes is not None
                         else None,
-                        "evidence": "provider deletion reason Upgrade followed by import",
+                        "evidence": evidence,
+                        "evidence_events": evidence_events,
                     }
                 )
             elif (
@@ -416,33 +480,15 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                         "previous_bytes": row.bytes,
                         "replacement_bytes": None,
                         "net_bytes_change": None,
-                        "evidence": "provider deletion reason Upgrade; matching import is outside the selected window",
-                    }
-                )
-            elif row.event_type == "imported" and row.is_upgrade and deleted is None:
-                activities.append(
-                    {
-                        "timestamp": _aware_datetime(row.occurred_at).isoformat(),
-                        "timestamp_local_display": format_local_datetime(db, row.occurred_at),
-                        "provider": row.provider,
-                        "instance": row.instance_name,
-                        "event_type": "quality_upgraded",
-                        "media_type": row.media_type,
-                        "title": row.title,
-                        "series": row.parent_title,
-                        "season": row.season_number,
-                        "episode": row.episode_number,
-                        "previous_quality": None,
-                        "quality": row.quality,
-                        "bytes": row.bytes,
-                        "previous_bytes": None,
-                        "replacement_bytes": row.bytes,
-                        "net_bytes_change": None,
-                        "evidence": "import explicitly marked as an upgrade by the provider",
+                        "evidence": (
+                            "provider deletion reason Upgrade; no matching import was found "
+                            "in the bounded evidence window"
+                        ),
+                        "evidence_events": ["file_deleted"],
                     }
                 )
             continue
-        if row.id in paired_deletions:
+        if row.id in paired_deletions and requested_event != "file_deleted":
             continue
         activities.append(
             {
@@ -451,10 +497,10 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "provider": row.provider,
                 "instance": row.instance_name,
                 "event_type": "quality_upgraded"
-                if row.event_type == "imported" and (row.is_upgrade or deleted is not None)
+                if row.event_type == "imported" and deleted is not None
                 else row.event_type,
                 "classification": "confirmed_quality_upgrade"
-                if row.event_type == "imported" and (row.is_upgrade or deleted is not None)
+                if row.event_type == "imported" and deleted is not None
                 else "unclassified_import"
                 if row.event_type == "imported"
                 else row.event_type,
@@ -468,17 +514,15 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "bytes": row.bytes,
                 "previous_bytes": deleted.bytes if deleted else None,
                 "replacement_bytes": row.bytes
-                if row.event_type == "imported" and (row.is_upgrade or deleted is not None)
+                if row.event_type == "imported" and deleted is not None
                 else None,
                 "net_bytes_change": row.bytes - deleted.bytes
                 if row.bytes is not None and deleted is not None and deleted.bytes is not None
                 else None,
-                "explicit_upgrade": row.is_upgrade or deleted is not None,
-                "upgrade_evidence": "provider deletion reason Upgrade followed by import"
-                if deleted is not None
-                else "provider marked import as upgrade"
-                if row.is_upgrade
-                else None,
+                "explicit_upgrade": deleted is not None
+                or (row.event_type == "file_deleted" and row.is_upgrade),
+                "upgrade_evidence": evidence,
+                "upgrade_evidence_events": evidence_events,
             }
         )
     selected_activities = activities[:limit]
@@ -668,7 +712,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         media_activity_summary,
     ),
     "get_media_activity_items": (
-        "List bounded normalized Sonarr/Radarr activity with titles and source instance. A confirmed_quality_upgrade combines an import with the provider's explicit Upgrade deletion evidence; an unclassified_import is not proof of a new acquisition. File-renames are not upgrade evidence. Set upgrades_only=true to return confirmed upgrades only.",
+        "List bounded Sonarr/Radarr activity. Correlation runs before event filtering. confirmed_quality_upgrade requires an Upgrade deletion plus import and may include a matched grab. unclassified_import means unknown, not regular or new. Renames are not evidence. Set upgrades_only=true for confirmed upgrades.",
         {
             "type": "object",
             "properties": {
@@ -709,7 +753,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
         upcoming_media,
     ),
     "get_quality_upgrades": (
-        "List confirmed Sonarr/Radarr quality replacements and their provider-reported previous_bytes, replacement_bytes, per-item net_bytes_change, and known aggregate net change. Use this for questions such as 'how much space did upgrades add today?'. Never estimate a net change when either size is missing, and distinguish logical file-size change from measured array-storage change.",
+        "List provider-confirmed Sonarr/Radarr replacements from Upgrade deletion/import evidence, plus a matched grab when available. Includes provider-reported old/new sizes and logical net change. Never estimate missing sizes or call this measured array growth.",
         {
             "type": "object",
             "properties": {

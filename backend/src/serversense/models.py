@@ -244,6 +244,8 @@ class MediaActivity(Base):
     parent_title: Mapped[str | None] = mapped_column(String(300))
     season_number: Mapped[int | None] = mapped_column(Integer)
     episode_number: Mapped[int | None] = mapped_column(Integer)
+    provider_media_id: Mapped[int | None] = mapped_column(Integer)
+    download_id_hash: Mapped[str | None] = mapped_column(String(64))
     quality: Mapped[str | None] = mapped_column(String(100))
     bytes: Mapped[int | None] = mapped_column(Integer)
     is_upgrade: Mapped[bool] = mapped_column(Boolean, default=False)

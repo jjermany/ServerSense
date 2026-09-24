@@ -163,6 +163,28 @@ def _curated_context(
     broad_change_summary = "changed" in text and any(
         term in text for term in ("server", "today", "since", "recent")
     )
+    media_terms = ("movie", "episode", "tv", "sonarr", "radarr", "media", "title")
+    upgrade_request = any(term in text for term in ("quality upgrade", "quality upgraded")) or (
+        any(term in text for term in ("upgrade", "upgraded"))
+        and any(term in text for term in media_terms)
+    )
+    activity_request = any(
+        phrase in text
+        for phrase in (
+            "today's imports",
+            "todays imports",
+            "imports today",
+            "import today",
+            "recent imports",
+            "imported today",
+            "recent downloads",
+            "downloaded today",
+            "recently downloaded",
+            "recent grabs",
+            "grabbed today",
+            "media activity",
+        )
+    )
     if broad_change_summary:
         names.extend(
             (
@@ -197,6 +219,13 @@ def _curated_context(
         names.append("get_server_overview")
     if any(term in text for term in ("upcoming", "calendar", "release", "air date")):
         names.append("get_upcoming_media")
+    if upgrade_request:
+        names.append("get_quality_upgrades")
+    elif activity_request:
+        names.append("get_media_activity_items")
+    if upgrade_request or activity_request:
+        media_tool = "get_quality_upgrades" if upgrade_request else "get_media_activity_items"
+        tool_arguments[media_tool] = {"days": 1, "today": True, "limit": 100}
     if not names:
         names.append("get_server_overview")
     context: dict[str, Any] = {

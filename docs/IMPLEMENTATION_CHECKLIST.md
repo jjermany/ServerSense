@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-09-09
+Last updated: 2026-09-24
 
 ## Foundation
 
@@ -63,7 +63,7 @@ Last updated: 2026-09-09
 - [x] opt-in proactive LLM explanations layered on deterministic events with safe fallback
 - [x] AI-only, multi-instance Sonarr/Radarr history collection with encrypted keys and normalized records
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name, with explicit configured-timezone 12-hour display values for user-facing SENSE timestamps
-- [x] provider-confirmed quality-upgrade pairing, single-event normalization in general activity lists, evidence-required upgrade follow-ups, provider-size-based logical net change, and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
+- [x] provider-confirmed Sonarr/Radarr quality upgrades with bounded one-to-one grab → `Upgrade` deletion → import correlation across polling cycles and report filters, safe nearby deletion/import fallback, false-positive guards, single-event normalization, evidence-required follow-ups, provider-size-based logical net change, and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
 - [x] additive opt-in cached AI dashboard summary with isolated scheduling and database transactions, SQLite WAL reader/writer concurrency, configured runtime/output bounds, suppressed Ollama reasoning traces, safe failure diagnostics, deterministic fallback, 12-hour local times, and validated storage/media claims
 - [x] deterministic intent router with explicit ServerSense/SENSE AI provenance, configuration-aware sidebar status, and no-model factual telemetry responses
 - [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery

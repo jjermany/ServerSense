@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from serversense.db import SessionLocal
 from serversense.models import Integration, MediaActivity, MediaSchedule, StorageSample
 from serversense.services import http_requests
-from serversense.services.integrations import collect_integration
+from serversense.services.integrations import _activity, collect_integration
 from serversense.services.timezones import format_local_datetime
 from serversense.services.tools import execute_tool
 
@@ -66,6 +66,7 @@ def test_collects_normalized_history_and_deduplicates(
         now = datetime.now(UTC)
         imported_at = now - timedelta(hours=1)
         deleted_at = imported_at - timedelta(seconds=1)
+        grabbed_at = imported_at - timedelta(minutes=9)
 
         def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
             assert not db.in_transaction()
@@ -85,6 +86,8 @@ def test_collects_normalized_history_and_deduplicates(
                 "records": [
                     {
                         "id": 42,
+                        "movieId": 1001,
+                        "downloadId": "replacement-download",
                         "date": imported_at.isoformat(),
                         "eventType": "downloadFolderImported",
                         "sourceTitle": "/private/download/path.mkv",
@@ -94,11 +97,22 @@ def test_collects_normalized_history_and_deduplicates(
                     },
                     {
                         "id": 41,
+                        "movieId": 1001,
                         "date": deleted_at.isoformat(),
                         "eventType": "movieFileDeleted",
                         "sourceTitle": "/private/library/old-file.mkv",
                         "quality": {"quality": {"name": "WEBDL-1080p"}},
                         "data": {"reason": "Upgrade", "size": "800"},
+                        "movie": {"title": "Example Movie"},
+                    },
+                    {
+                        "id": 40,
+                        "movieId": 1001,
+                        "downloadId": "replacement-download",
+                        "date": grabbed_at.isoformat(),
+                        "eventType": "grabbed",
+                        "quality": {"quality": {"name": "Bluray-2160p"}},
+                        "data": {"size": "1234"},
                         "movie": {"title": "Example Movie"},
                     },
                 ]
@@ -107,7 +121,7 @@ def test_collects_normalized_history_and_deduplicates(
         from serversense.services import integrations
 
         monkeypatch.setattr(integrations, "_request", fake_request)  # type: ignore[attr-defined]
-        assert collect_integration(db, integration, now) == 2
+        assert collect_integration(db, integration, now) == 3
         integration.config = dict(integration.config) | {"last_collected_at": ""}
         db.commit()
         assert collect_integration(db, integration, now) == 0
@@ -123,10 +137,28 @@ def test_collects_normalized_history_and_deduplicates(
         assert row.quality == "Bluray-2160p"
         assert row.bytes == 1234
         assert row.is_upgrade is False
+        assert row.provider_media_id == 1001
+        assert row.download_id_hash is not None
         assert "private" not in str(row.__dict__)
         upgrades = execute_tool(db, "get_quality_upgrades", {"days": 1, "instance": "Anime"})
         assert upgrades["activities"][0]["previous_quality"] == "WEBDL-1080p"
         assert upgrades["activities"][0]["quality"] == "Bluray-2160p"
+        assert upgrades["activities"][0]["evidence_events"] == [
+            "grabbed",
+            "file_deleted",
+            "imported",
+        ]
+        imports = execute_tool(
+            db,
+            "get_media_activity_items",
+            {"days": 1, "instance": "Anime", "event_type": "imported"},
+        )
+        assert imports["activities"][0]["classification"] == "confirmed_quality_upgrade"
+        assert imports["activities"][0]["upgrade_evidence_events"] == [
+            "grabbed",
+            "file_deleted",
+            "imported",
+        ]
         schedule = db.scalar(
             select(MediaSchedule).where(MediaSchedule.integration_id == integration.id)
         )
@@ -196,38 +228,44 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
         integration = Integration(provider="sonarr", name="TV upgrades", enabled=True, config={})
         db.add(integration)
         db.flush()
-        common = {
-            "integration_id": integration.id,
-            "provider": "sonarr",
-            "instance_name": "TV upgrades",
-            "media_type": "episode",
-            "title": "The Episode",
-            "parent_title": "The Show",
-            "season_number": 2,
-            "episode_number": 4,
-        }
-        db.add_all(
-            [
-                MediaActivity(
-                    **common,
-                    external_id="upgrade-delete",
-                    occurred_at=now,
-                    event_type="file_deleted",
-                    quality="WEBDL-1080p",
-                    bytes=1_000,
-                    is_upgrade=True,
-                ),
-                MediaActivity(
-                    **common,
-                    external_id="upgrade-import",
-                    occurred_at=now + timedelta(seconds=3),
-                    event_type="imported",
-                    quality="Bluray-2160p",
-                    bytes=2_000,
-                    is_upgrade=False,
-                ),
-            ]
-        )
+        episode = {"id": 204, "title": "The Episode", "seasonNumber": 2, "episodeNumber": 4}
+        records = [
+            {
+                "id": "upgrade-grab",
+                "episodeId": 204,
+                "downloadId": "matching-download",
+                "date": (now - timedelta(minutes=9)).isoformat(),
+                "eventType": "grabbed",
+                "quality": {"quality": {"name": "Bluray-2160p"}},
+                "data": {"size": "2000"},
+                "episode": episode,
+                "series": {"title": "The Show"},
+            },
+            {
+                "id": "upgrade-delete",
+                "episodeId": 204,
+                "date": now.isoformat(),
+                "eventType": "episodeFileDeleted",
+                "quality": {"quality": {"name": "WEBDL-1080p"}},
+                "data": {"reason": "Upgrade", "size": "1000"},
+                "episode": episode,
+                "series": {"title": "The Show"},
+            },
+            {
+                "id": "upgrade-import",
+                "episodeId": 204,
+                "downloadId": "matching-download",
+                "date": (now + timedelta(seconds=3)).isoformat(),
+                "eventType": "downloadFolderImported",
+                "quality": {"quality": {"name": "Bluray-2160p"}},
+                "data": {"size": "2000"},
+                "episode": episode,
+                "series": {"title": "The Show"},
+            },
+        ]
+        activities = [_activity(integration, record) for record in records]
+        assert all(activity is not None for activity in activities)
+        db.add_all([activity for activity in activities if activity is not None])
         db.commit()
 
         summary = execute_tool(
@@ -257,7 +295,8 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
                 "previous_bytes": 1_000,
                 "replacement_bytes": 2_000,
                 "net_bytes_change": 1_000,
-                "evidence": "provider deletion reason Upgrade followed by import",
+                "evidence": "provider grab followed by deletion reason Upgrade and import",
+                "evidence_events": ["grabbed", "file_deleted", "imported"],
             }
         ]
         assert items["known_net_bytes_change"] == 1_000
@@ -266,7 +305,7 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
         all_items = execute_tool(
             db,
             "get_media_activity_items",
-            {"days": 1, "instance": "TV upgrades"},
+            {"days": 1, "instance": "TV upgrades", "event_type": "imported"},
         )
         assert len(all_items["activities"]) == 1
         assert all_items["activities"][0]["event_type"] == "quality_upgraded"
@@ -276,8 +315,13 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
         assert all_items["activities"][0]["replacement_bytes"] == 2_000
         assert all_items["activities"][0]["net_bytes_change"] == 1_000
         assert all_items["activities"][0]["upgrade_evidence"] == (
-            "provider deletion reason Upgrade followed by import"
+            "provider grab followed by deletion reason Upgrade and import"
         )
+        assert all_items["activities"][0]["upgrade_evidence_events"] == [
+            "grabbed",
+            "file_deleted",
+            "imported",
+        ]
 
 
 def test_quality_upgrade_net_change_stays_unknown_when_a_size_is_missing() -> None:
@@ -327,6 +371,75 @@ def test_quality_upgrade_net_change_stays_unknown_when_a_size_is_missing() -> No
         assert items["known_net_bytes_change"] == 0
         assert items["net_change_known_count"] == 0
         assert items["net_change_unknown_count"] == 1
+
+
+def test_grab_and_import_without_explicit_upgrade_deletion_stays_unclassified() -> None:
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        integration = Integration(
+            provider="radarr", name="Unconfirmed movies", enabled=True, config={}
+        )
+        db.add(integration)
+        db.flush()
+        common = {
+            "integration_id": integration.id,
+            "provider": "radarr",
+            "instance_name": "Unconfirmed movies",
+            "media_type": "movie",
+            "title": "Not Proven",
+            "parent_title": None,
+            "season_number": None,
+            "episode_number": None,
+            "provider_media_id": 909,
+        }
+        db.add_all(
+            [
+                MediaActivity(
+                    **common,
+                    external_id="ordinary-grab",
+                    occurred_at=now - timedelta(minutes=9),
+                    event_type="grabbed",
+                    quality="WEBDL-2160p",
+                    bytes=2_000,
+                    is_upgrade=False,
+                    download_id_hash="ordinary-download",
+                ),
+                MediaActivity(
+                    **common,
+                    external_id="ordinary-delete",
+                    occurred_at=now - timedelta(seconds=1),
+                    event_type="file_deleted",
+                    quality="WEBDL-1080p",
+                    bytes=1_000,
+                    is_upgrade=False,
+                    download_id_hash=None,
+                ),
+                MediaActivity(
+                    **common,
+                    external_id="ordinary-import",
+                    occurred_at=now,
+                    event_type="imported",
+                    quality="WEBDL-2160p",
+                    bytes=2_000,
+                    is_upgrade=False,
+                    download_id_hash="ordinary-download",
+                ),
+            ]
+        )
+        db.commit()
+
+        imports = execute_tool(
+            db,
+            "get_media_activity_items",
+            {"days": 1, "instance": "Unconfirmed movies", "event_type": "imported"},
+        )
+        assert imports["activities"][0]["classification"] == "unclassified_import"
+        assert imports["activities"][0]["explicit_upgrade"] is False
+        assert imports["activities"][0]["upgrade_evidence"] is None
+        upgrades = execute_tool(
+            db, "get_quality_upgrades", {"days": 1, "instance": "Unconfirmed movies"}
+        )
+        assert upgrades["activities"] == []
 
 
 def test_upcoming_media_is_normalized_and_not_described_as_guaranteed() -> None:

@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -105,8 +106,9 @@ def _date(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
-def _true(value: Any) -> bool:
-    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+def _download_id_hash(value: Any) -> str | None:
+    download_id = _text(value, 512)
+    return sha256(download_id.encode()).hexdigest() if download_id else None
 
 
 def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity | None:
@@ -119,8 +121,10 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
     quality_data = _mapping(record.get("quality"))
     quality = quality_data.get("quality")
     quality_name = _text(quality.get("name"), 100) if isinstance(quality, dict) else ""
-    reason = _text(data.get("reason"), 80).lower()
-    is_upgrade = _true(data.get("isUpgrade")) or "upgrade" in reason
+    reason = _text(data.get("reason"), 80).casefold()
+    # Only the provider's explicit deletion reason is authoritative upgrade
+    # evidence. A grab/import flag or quality difference cannot prove a replacement.
+    is_upgrade = event_type == "file_deleted" and reason == "upgrade"
 
     if integration.provider == "sonarr":
         episode = _mapping(record.get("episode"))
@@ -130,6 +134,7 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
         parent_title = _text(series.get("title"), 300) or None
         season = _integer(episode.get("seasonNumber"))
         number = _integer(episode.get("episodeNumber"))
+        provider_media_id = _integer(record.get("episodeId")) or _integer(episode.get("id"))
         size = _integer(data.get("size")) or _integer(episode_file.get("size"))
         media_type = "episode"
     else:
@@ -138,6 +143,7 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
         title = _text(movie.get("title"), 300)
         parent_title = None
         season = number = None
+        provider_media_id = _integer(record.get("movieId")) or _integer(movie.get("id"))
         size = _integer(data.get("size")) or _integer(movie_file.get("size"))
         media_type = "movie"
     return MediaActivity(
@@ -152,6 +158,8 @@ def _activity(integration: Integration, record: dict[str, Any]) -> MediaActivity
         parent_title=parent_title,
         season_number=season,
         episode_number=number,
+        provider_media_id=provider_media_id,
+        download_id_hash=_download_id_hash(record.get("downloadId")),
         quality=quality_name or None,
         bytes=size,
         is_upgrade=is_upgrade,
@@ -310,11 +318,19 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
         else:
             if activity.title != "Unknown title":
                 current.title = activity.title
-            for field in ("parent_title", "season_number", "episode_number", "quality", "bytes"):
+            for field in (
+                "parent_title",
+                "season_number",
+                "episode_number",
+                "provider_media_id",
+                "download_id_hash",
+                "quality",
+                "bytes",
+            ):
                 value = getattr(activity, field)
                 if value is not None:
                     setattr(current, field, value)
-            current.is_upgrade = current.is_upgrade or activity.is_upgrade
+            current.is_upgrade = activity.is_upgrade
     db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == integration.id))
     db.add_all(schedules)
     config["last_collected_at"] = now.isoformat()
