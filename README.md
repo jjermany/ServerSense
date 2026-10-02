@@ -34,6 +34,8 @@ Authenticated API responses are explicitly non-cacheable. Overview displays the 
 
 User-facing UI and SENSE summary times use a 12-hour clock with AM/PM in the configured timezone.
 
+Deterministic 7/30/90-day forecasts estimate net growth between substantial cleanup steps instead of comparing usage across those deletions. A cleanup step must exceed both 0.5% of capacity and eight times the median absolute sample change; immediate rebounds are treated as transient readings. Ordinary smaller deletions and sustained declines remain part of the net trend. Days remaining always uses the latest measured free space, and storage charts retain the actual deletion drops. This estimates continued consumption without assuming future bulk cleanups will recur.
+
 ## Published Docker image
 
 Every push builds and publishes an x86-64 image to GitHub Container Registry. Pull the latest default-branch build with:

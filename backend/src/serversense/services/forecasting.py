@@ -9,7 +9,7 @@ MAX_SLOPE_SAMPLES = 256
 
 
 @lru_cache(maxsize=12)
-def _robust_rate(points: tuple[tuple[float, float], ...]) -> float:
+def _robust_rate(points: tuple[tuple[float, float, int], ...]) -> float:
     # Evenly cover the selected window, retaining both endpoints. This bounds
     # the quadratic estimator at 32,640 slopes, even with five-minute samples.
     if len(points) > MAX_SLOPE_SAMPLES:
@@ -19,9 +19,9 @@ def _robust_rate(points: tuple[tuple[float, float], ...]) -> float:
         )
     slopes = [
         (y2 - y1) / (x2 - x1)
-        for index, (x1, y1) in enumerate(points)
-        for x2, y2 in points[index + 1 :]
-        if x2 > x1
+        for index, (x1, y1, segment1) in enumerate(points)
+        for x2, y2, segment2 in points[index + 1 :]
+        if x2 > x1 and segment1 == segment2
     ]
     return median(slopes) if slopes else 0.0
 
@@ -52,7 +52,27 @@ def calculate_forecast(samples: list[StorageSample], window_days: int) -> Foreca
     if len(selected) < 3 or (selected[-1].timestamp - selected[0].timestamp) < timedelta(days=2):
         return Forecast(window_days, None, None, None, "Insufficient data", len(selected))
 
-    points = tuple((_timestamp(sample.timestamp), float(sample.used_bytes)) for sample in selected)
+    # Separate substantial cleanup steps from sustained consumption. Detect
+    # them before downsampling so even a five-minute deletion is retained.
+    # The relative floor avoids treating small routine fluctuations as resets;
+    # the typical-change floor preserves sustained declining trends.
+    changes = [
+        current.used_bytes - previous.used_bytes
+        for previous, current in zip(selected, selected[1:], strict=False)
+    ]
+    typical_change = median(abs(change) for change in changes)
+    segment = 0
+    segmented_points: list[tuple[float, float, int]] = []
+    for index, sample in enumerate(selected):
+        if index:
+            drop = -changes[index - 1]
+            threshold = max(sample.total_bytes * 0.005, typical_change * 8)
+            # A rebound indicates a transient bad reading, not a cleanup.
+            rebound = changes[index] if index < len(changes) else 0
+            if drop > threshold and rebound < drop * 0.8:
+                segment += 1
+        segmented_points.append((_timestamp(sample.timestamp), float(sample.used_bytes), segment))
+    points = tuple(segmented_points)
     rate = _robust_rate(points)
     if rate <= 0:
         return Forecast(window_days, rate, None, None, "Low", len(selected))

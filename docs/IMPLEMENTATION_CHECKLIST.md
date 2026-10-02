@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-09-24
+Last updated: 2026-10-01
 
 ## Foundation
 
@@ -28,6 +28,7 @@ Last updated: 2026-09-24
 - [x] restricted Docker inventory collector
 - [x] scheduled collection and retention cleanup
 - [x] deterministic 7/30/90-day robust forecasting
+- [x] cleanup-aware deterministic growth estimation excluding slopes across substantial bulk deletions, with current measured free space and unchanged measured history
 - [x] dashboard with timezone-aware overall/source update times, range-aware local-time/date storage chart labels and hover timestamps, signed human-readable growth rates, disk cards, Docker table
 - [x] 24-hour storage chart excludes future forecast points and projection legends while longer-range views retain projections
 - [x] metric-driven storage, forecast, SMART, temperature, and container rules with a 10-minute stopped-container grace period

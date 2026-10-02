@@ -59,3 +59,43 @@ def test_tiny_growth_does_not_overflow_exhaustion_date() -> None:
     result = calculate_forecast(samples, 30)
     assert result.days_remaining == 10**15
     assert result.exhaustion_date is None
+
+
+@pytest.mark.parametrize("hours_per_sample", [1, 24])
+def test_bulk_cleanups_preserve_growth_and_actual_free_space(hours_per_sample: int) -> None:
+    now = datetime.now(UTC)
+    total = 72 * 10**12
+    growth = 100 * 10**9
+    samples = []
+    for hour in range(0, 721, hours_per_sample):
+        cleanup = (2 * 10**12 if hour >= 48 else 0) + (2 * 10**12 if hour >= 408 else 0)
+        used = 70 * 10**12 + growth * hour // 24 - cleanup
+        samples.append(
+            StorageSample(
+                timestamp=now - timedelta(hours=720 - hour),
+                total_bytes=total,
+                used_bytes=used,
+                free_bytes=total - used,
+            )
+        )
+    result = calculate_forecast(samples, 30)
+    assert result.bytes_per_day == pytest.approx(growth)
+    assert result.days_remaining == pytest.approx(samples[-1].free_bytes / growth)
+    assert result.sample_count == len(samples)
+    assert result.confidence == "High"
+
+
+def test_small_routine_deletions_remain_in_net_trend() -> None:
+    samples = make_samples(30, 100_000)
+    for index, sample in enumerate(samples):
+        removed = index // 5 * 200_000
+        sample.used_bytes -= removed
+        sample.free_bytes += removed
+    result = calculate_forecast(samples, 30)
+    assert result.bytes_per_day == pytest.approx(60_000)
+
+
+def test_large_sustained_decline_is_not_a_cleanup_reset() -> None:
+    result = calculate_forecast(make_samples(30, -100_000), 30)
+    assert result.bytes_per_day == -100_000
+    assert result.days_remaining is None
