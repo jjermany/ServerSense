@@ -5,6 +5,46 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_container_grace_index_migration_preserves_history_and_indexes_queries(
+    tmp_path: Path, existing: bool
+) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    if existing:
+        _alembic(backend, tmp_path, "81160105e312")
+        with sqlite3.connect(tmp_path / "serversense.db") as connection:
+            connection.execute(
+                "INSERT INTO docker_samples "
+                "(timestamp, container_id, name, image, status, restart_count) "
+                "VALUES ('2026-10-01 12:00:00', 'app', 'App', 'example/app', 'exited', 0)"
+            )
+            connection.commit()
+    _alembic(backend, tmp_path, "head")
+    with sqlite3.connect(tmp_path / "serversense.db") as connection:
+        columns = [
+            row[2]
+            for row in connection.execute(
+                "PRAGMA index_info('ix_docker_samples_container_timestamp')"
+            )
+        ]
+        assert columns == ["container_id", "timestamp"]
+        assert connection.execute("SELECT COUNT(*) FROM docker_samples").fetchone()[0] == int(
+            existing
+        )
+        for query in (
+            "SELECT status FROM docker_samples WHERE container_id = 'app' "
+            "AND timestamp <= '2026-10-01 12:10:00' ORDER BY timestamp DESC LIMIT 1",
+            "SELECT id FROM docker_samples WHERE container_id = 'app' "
+            "AND timestamp > '2026-10-01 12:10:00' AND timestamp <= '2026-10-01 12:20:00' "
+            "AND lower(status) IN ('running', 'created') LIMIT 1",
+        ):
+            plan = str(connection.execute("EXPLAIN QUERY PLAN " + query).fetchall())
+            assert "ix_docker_samples_container_timestamp" in plan
+            assert "TEMP B-TREE" not in plan
+
 
 def _alembic(backend: Path, config_dir: Path, target: str) -> None:
     environment = os.environ | {

@@ -19,6 +19,7 @@ from serversense.models import (
 from serversense.services.forecasting import calculate_all
 from serversense.services.metrics import calculate_network_rates
 from serversense.services.permissions import ActionRequest, ActionRisk, policy
+from serversense.services.snapshots import latest_inventory
 from serversense.services.storage import (
     current_storage_samples,
     latest_storage_sample,
@@ -29,17 +30,6 @@ from serversense.services.timezones import format_local_datetime, local_time, ti
 ToolHandler = Callable[[Session, dict[str, Any]], dict[str, Any]]
 UPGRADE_PAIR_WINDOW = timedelta(minutes=10)
 UPGRADE_GRAB_LOOKBACK = timedelta(days=30)
-
-
-def _latest_by(rows: list[Any], attribute: str) -> list[Any]:
-    if not rows:
-        return []
-    latest_timestamp = rows[0].timestamp
-    result: dict[str, Any] = {}
-    for row in rows:
-        if row.timestamp == latest_timestamp:
-            result.setdefault(str(getattr(row, attribute)), row)
-    return list(result.values())
 
 
 def _elapsed_since(value: datetime | None) -> int | None:
@@ -201,9 +191,7 @@ def storage_forecast(db: Session, _: dict[str, Any]) -> dict[str, Any]:
 
 
 def disks(db: Session, args: dict[str, Any]) -> dict[str, Any]:
-    rows = _latest_by(
-        list(db.scalars(select(DiskSample).order_by(desc(DiskSample.timestamp)))), "disk_id"
-    )
+    rows = latest_inventory(db, DiskSample)
     disk_id = args.get("disk_id")
     if disk_id:
         rows = [row for row in rows if row.disk_id == disk_id]
@@ -230,10 +218,7 @@ def disks(db: Session, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def containers(db: Session, _: dict[str, Any]) -> dict[str, Any]:
-    rows = _latest_by(
-        list(db.scalars(select(DockerSample).order_by(desc(DockerSample.timestamp)))),
-        "container_id",
-    )
+    rows = latest_inventory(db, DockerSample)
     return {
         "state_change_note": (
             "state_changed_at records a status, health, restart-count change, or first observation. "

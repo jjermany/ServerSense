@@ -2,7 +2,9 @@ import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
+from docker.errors import DockerException
 from pytest import LogCaptureFixture, MonkeyPatch
 
 from serversense.config import Settings
@@ -12,6 +14,15 @@ from serversense.services.collectors import (
     UnraidCollector,
     _container_state_changed_at,
 )
+
+
+def test_docker_client_is_closed_when_inventory_collection_fails(monkeypatch: MonkeyPatch) -> None:
+    client = Mock()
+    client.containers.list.side_effect = DockerException("daemon unavailable")
+    monkeypatch.setattr("serversense.services.collectors.docker.DockerClient", lambda **_: client)
+    collector = LinuxCollector(Settings(secret_key="collector-test-secret-key"))
+    assert collector._docker_containers() == []
+    client.close.assert_called_once()
 
 
 def test_container_state_change_time_is_carried_forward_without_history_scan() -> None:

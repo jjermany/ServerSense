@@ -1,47 +1,49 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, DiskSample, DockerSample
 from serversense.services.forecasting import calculate_forecast
+from serversense.services.snapshots import latest_inventory
 from serversense.services.storage import current_storage_samples
 
 CONTAINER_STOPPED_GRACE_PERIOD = timedelta(minutes=10)
 RUNNING_CONTAINER_STATES = {"running", "created"}
 
 
-def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
 def _containers_stopped_beyond_grace_period(
-    samples: list[DockerSample],
+    db: Session,
 ) -> list[DockerSample]:
-    """Return current containers continuously non-running for at least the grace period."""
-    if not samples:
-        return []
-    newest_timestamp = samples[0].timestamp
-    current = {
-        sample.container_id: sample for sample in samples if sample.timestamp == newest_timestamp
-    }
-    history: dict[str, list[DockerSample]] = {}
-    for sample in samples:
-        if sample.container_id in current:
-            history.setdefault(sample.container_id, []).append(sample)
-
+    """Check the grace boundary and recent running evidence without loading history."""
     stopped: list[DockerSample] = []
-    for container_id, latest in current.items():
+    for latest in latest_inventory(db, DockerSample):
         if latest.status.lower() in RUNNING_CONTAINER_STATES:
             continue
-        continuous_samples = history[container_id]
-        stopped_since = latest.timestamp
-        for sample in continuous_samples[1:]:
-            if sample.status.lower() in RUNNING_CONTAINER_STATES:
-                break
-            stopped_since = sample.timestamp
-        if _as_utc(latest.timestamp) - _as_utc(stopped_since) >= CONTAINER_STOPPED_GRACE_PERIOD:
+        cutoff = latest.timestamp - CONTAINER_STOPPED_GRACE_PERIOD
+        boundary_status = db.scalar(
+            select(DockerSample.status)
+            .where(
+                DockerSample.container_id == latest.container_id,
+                DockerSample.timestamp <= cutoff,
+            )
+            .order_by(DockerSample.timestamp.desc())
+            .limit(1)
+        )
+        if boundary_status is None or boundary_status.lower() in RUNNING_CONTAINER_STATES:
+            continue
+        resumed = db.scalar(
+            select(DockerSample.id)
+            .where(
+                DockerSample.container_id == latest.container_id,
+                DockerSample.timestamp > cutoff,
+                DockerSample.timestamp <= latest.timestamp,
+                func.lower(DockerSample.status).in_(RUNNING_CONTAINER_STATES),
+            )
+            .limit(1)
+        )
+        if resumed is None:
             stopped.append(latest)
     return stopped
 
@@ -114,10 +116,7 @@ def evaluate_alerts(
             )
             if alert:
                 created.append(alert)
-    latest_disks: dict[str, DiskSample] = {}
-    for disk in db.scalars(select(DiskSample).order_by(DiskSample.timestamp.desc())):
-        latest_disks.setdefault(disk.disk_id, disk)
-    for disk in latest_disks.values():
+    for disk in latest_inventory(db, DiskSample):
         if disk.smart_status in ("warning", "critical"):
             alert = _upsert(
                 db,
@@ -142,10 +141,7 @@ def evaluate_alerts(
             )
             if alert:
                 created.append(alert)
-    container_samples = list(
-        db.scalars(select(DockerSample).order_by(DockerSample.timestamp.desc()))
-    )
-    for container in _containers_stopped_beyond_grace_period(container_samples):
+    for container in _containers_stopped_beyond_grace_period(db):
         alert = _upsert(
             db,
             "container_stopped",

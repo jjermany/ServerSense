@@ -136,6 +136,7 @@ class LinuxCollector(Collector):
         )
 
     def _docker_containers(self) -> list[dict[str, Any]]:
+        client: docker.DockerClient | None = None
         try:
             client = docker.DockerClient(base_url=self.settings.docker_socket, timeout=5)
             result = []
@@ -185,11 +186,13 @@ class LinuxCollector(Collector):
                         "restart_count": container.attrs.get("RestartCount", 0),
                     }
                 )
-            client.close()
             return result
         except DockerException as exc:
             logger.info("Docker telemetry unavailable: %s", type(exc).__name__)
             return []
+        finally:
+            if client is not None:
+                client.close()
 
 
 class UnraidCollector(LinuxCollector):

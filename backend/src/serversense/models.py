@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -87,6 +88,7 @@ class DiskSample(Base):
 
 class DockerSample(Base):
     __tablename__ = "docker_samples"
+    __table_args__ = (Index("ix_docker_samples_container_timestamp", "container_id", "timestamp"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     container_id: Mapped[str] = mapped_column(String(80), index=True)

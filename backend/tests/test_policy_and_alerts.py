@@ -2,8 +2,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import create_engine, event, insert
+from sqlalchemy.orm import Session
 
-from serversense.db import SessionLocal
+from serversense.db import Base, SessionLocal
 from serversense.models import Alert, DiskSample, DockerSample, StorageSample
 from serversense.security import LoginRateLimiter
 from serversense.services.alerting import (
@@ -16,7 +18,7 @@ from serversense.services.permissions import (
     PermissionDenied,
     policy,
 )
-from serversense.services.tools import TOOLS, execute_tool
+from serversense.services.tools import TOOLS, containers, disks, execute_tool
 
 
 def test_tool_registry_has_only_read_only_allowlisted_tools() -> None:
@@ -116,6 +118,18 @@ def _docker_sample(timestamp: datetime, status: str) -> DockerSample:
     )
 
 
+def _stopped(samples: list[DockerSample]) -> list[DockerSample]:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine, expire_on_commit=False) as db:
+            db.add_all(samples)
+            db.commit()
+            return _containers_stopped_beyond_grace_period(db)
+    finally:
+        engine.dispose()
+
+
 def test_stopped_container_requires_ten_continuous_minutes() -> None:
     now = datetime.now(UTC)
     nine_minutes = [
@@ -123,7 +137,7 @@ def test_stopped_container_requires_ten_continuous_minutes() -> None:
         _docker_sample(now - timedelta(minutes=9), "exited"),
         _docker_sample(now - timedelta(minutes=10), "running"),
     ]
-    assert _containers_stopped_beyond_grace_period(nine_minutes) == []
+    assert _stopped(nine_minutes) == []
 
     ten_minutes = [
         _docker_sample(now, "exited"),
@@ -131,7 +145,7 @@ def test_stopped_container_requires_ten_continuous_minutes() -> None:
         _docker_sample(now - timedelta(minutes=10), "exited"),
         _docker_sample(now - timedelta(minutes=11), "running"),
     ]
-    assert _containers_stopped_beyond_grace_period(ten_minutes) == [ten_minutes[0]]
+    assert _stopped(ten_minutes) == [ten_minutes[0]]
 
 
 def test_container_restart_resets_stopped_grace_period() -> None:
@@ -142,4 +156,100 @@ def test_container_restart_resets_stopped_grace_period() -> None:
         _docker_sample(now - timedelta(minutes=5), "running"),
         _docker_sample(now - timedelta(minutes=20), "exited"),
     ]
-    assert _containers_stopped_beyond_grace_period(samples) == []
+    assert _stopped(samples) == []
+
+
+@pytest.mark.parametrize("status", ["running", "created", "RUNNING"])
+def test_running_sample_at_grace_boundary_resets_stopped_timer(status: str) -> None:
+    now = datetime.now(UTC)
+    assert (
+        _stopped(
+            [
+                _docker_sample(now, "exited"),
+                _docker_sample(now - timedelta(minutes=10), status),
+                _docker_sample(now - timedelta(days=30), "exited"),
+            ]
+        )
+        == []
+    )
+
+
+def test_recently_first_seen_and_removed_containers_do_not_alert() -> None:
+    now = datetime.now(UTC)
+    assert _stopped([_docker_sample(now, "exited")]) == []
+    removed = _docker_sample(now - timedelta(days=2), "exited")
+    removed.container_id = "removed"
+    assert _stopped([_docker_sample(now, "running"), removed]) == []
+
+
+def test_inventory_and_alert_checks_do_not_materialize_retained_history() -> None:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(UTC)
+    loaded: list[type] = []
+    try:
+        with Session(engine) as db:
+            # Retained rows include a removed hot disk and removed stopped container.
+            db.execute(
+                insert(DockerSample),
+                [
+                    {
+                        "timestamp": now - timedelta(days=2, seconds=index),
+                        "container_id": "removed",
+                        "name": "Removed",
+                        "image": "example/removed",
+                        "status": "exited",
+                    }
+                    for index in range(5000)
+                ],
+            )
+            db.execute(
+                insert(DiskSample),
+                [
+                    {
+                        "timestamp": now - timedelta(days=2, seconds=index),
+                        "disk_id": "removed-disk",
+                        "name": "Removed hot disk",
+                        "role": "data",
+                        "total_bytes": 1000,
+                        "used_bytes": 500,
+                        "temperature_c": 80,
+                        "smart_status": "critical",
+                    }
+                    for index in range(5000)
+                ],
+            )
+            db.add_all(
+                [
+                    _docker_sample(now, "exited"),
+                    _docker_sample(now - timedelta(minutes=11), "exited"),
+                    DiskSample(
+                        timestamp=now,
+                        disk_id="current-disk",
+                        name="Current disk",
+                        role="data",
+                        total_bytes=1000,
+                        used_bytes=500,
+                        temperature_c=30,
+                        smart_status="healthy",
+                    ),
+                ]
+            )
+            db.commit()
+            db.expunge_all()
+
+            def record_load(_: Session, instance: object) -> None:
+                loaded.append(type(instance))
+
+            event.listen(db, "loaded_as_persistent", record_load)
+            assert len(disks(db, {})["disks"]) == 1
+            assert len(containers(db, {})["containers"]) == 1
+            created = evaluate_alerts(db)
+            assert [(alert.alert_type, alert.data) for alert in created] == [
+                ("container_stopped", {"container_id": "appdata"})
+            ]
+            # Only current inventory objects, never the 10,000 retained objects.
+            assert loaded.count(DockerSample) <= 2
+            assert loaded.count(DiskSample) <= 2
+    finally:
+        engine.dispose()

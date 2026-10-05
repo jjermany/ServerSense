@@ -25,6 +25,7 @@ from serversense.services.dashboard_insights import latest_dashboard_summary
 from serversense.services.forecasting import calculate_all
 from serversense.services.maintenance import create_backup, diagnostic_bundle
 from serversense.services.metrics import calculate_network_rates
+from serversense.services.snapshots import latest_inventory
 from serversense.services.storage import (
     current_storage_samples,
     latest_storage_sample,
@@ -62,10 +63,7 @@ def backup_database() -> dict[str, str]:
 
 
 def latest_snapshot(db: Session, model: type[DiskSample] | type[DockerSample]) -> list[Any]:
-    timestamp = db.scalar(select(model.timestamp).order_by(desc(model.timestamp)).limit(1))
-    if timestamp is None:
-        return []
-    return list(db.scalars(select(model).where(model.timestamp == timestamp)))
+    return latest_inventory(db, model)
 
 
 def elapsed_since(value: datetime | None) -> int | None:
