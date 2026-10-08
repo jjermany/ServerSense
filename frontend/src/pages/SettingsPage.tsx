@@ -1,3 +1,4 @@
+import { nonCredentialInput } from "../autofill";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
@@ -38,6 +39,8 @@ type AIConfig = {
   temperature: number;
   timeout_seconds: number;
   max_tool_calls: number;
+  codex_reasoning_effort?: string;
+  fallback_codex_reasoning_effort?: string;
   max_output_tokens: number;
   tool_calling: "auto" | "native" | "curated_context";
   background_threshold_seconds: number;
@@ -611,7 +614,7 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-            <form className="settings-form" onSubmit={submit}>
+            <form {...nonCredentialInput} className="settings-form" onSubmit={submit}>
               <section className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>01</span><h3>Model connection</h3></div>
@@ -631,7 +634,7 @@ export default function SettingsPage() {
                     Model
                     {selectedProvider === "codex" ? <CodexModelPicker name="model" value={model} onChange={setModel} /> : <>
                     <span className="input-action">
-                      <input name="model" value={model} onChange={(event) => setModel(event.target.value)} list="ai-model-list" placeholder="e.g. llama3.2:3b" />
+                      <input {...nonCredentialInput} name="model" value={model} onChange={(event) => setModel(event.target.value)} list="ai-model-list" placeholder="e.g. llama3.2:3b" />
                       <button type="button" className="secondary" onClick={() => void discoverModels()} disabled={actions["ai-models"]?.phase === "pending"}>
                         <RefreshCw size={14} /> Refresh
                       </button>
@@ -639,16 +642,16 @@ export default function SettingsPage() {
                     <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist></>}
                   </label>
                 </div>
-                {selectedProvider === "codex" ? <><input type="hidden" name="endpoint" value="" /></> : <div className="field-grid">
+                {selectedProvider === "codex" ? <><input {...nonCredentialInput} type="hidden" name="endpoint" value="" /></> : <div className="field-grid">
                   <label>
                     Endpoint
-                    <input name="endpoint" type="url" defaultValue={config.endpoint} placeholder="http://host.docker.internal:11434" />
+                    <input {...nonCredentialInput} name="endpoint" type="url" defaultValue={config.endpoint} placeholder="http://host.docker.internal:11434" />
                     <small>ServerSense adds /v1/chat/completions when sending requests.</small>
                   </label>
                   <div className="credential-field">
                     <label>
                       API key
-                      <input name="api_key" type="password" placeholder={config.api_key_configured ? "Configured — leave blank to keep" : "Optional for local endpoints"} autoComplete="new-password" />
+                      <input {...nonCredentialInput} name="api_key" type="password" placeholder={config.api_key_configured ? "Configured — leave blank to keep" : "Optional for local endpoints"} />
                     </label>
                     {config.api_key_configured && (
                       <button type="button" className="secondary" onClick={() => void clearApiKey()} disabled={actions["ai-key-clear"]?.phase === "pending"}>
@@ -671,17 +674,17 @@ export default function SettingsPage() {
                   <label>Fallback provider<select name="fallback_provider" value={fallbackProvider} onChange={(event) => setFallbackProvider(event.target.value)}>
                     <option value="disabled">No fallback</option><option value="ollama">Ollama-compatible</option><option value="openai_compatible">OpenAI-compatible API</option><option value="codex">Codex (ChatGPT subscription)</option>
                   </select></label>
-                  <label>Fallback model{fallbackProvider === "codex" ? <CodexModelPicker name="fallback_model" value={fallbackModel} onChange={setFallbackModel} /> : <input name="fallback_model" value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)} placeholder="e.g. llama3.2:3b" />}</label>
-                  <label>Fallback endpoint<input name="fallback_endpoint" type="url" defaultValue={config.fallback_endpoint ?? ""} placeholder="http://host.docker.internal:11434" /><small>Required for Ollama and OpenAI-compatible providers.</small></label>
+                  <label>Fallback model{fallbackProvider === "codex" ? <CodexModelPicker name="fallback_model" value={fallbackModel} onChange={setFallbackModel} /> : <input {...nonCredentialInput} name="fallback_model" value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)} placeholder="e.g. llama3.2:3b" />}</label>
+                  <label>Fallback endpoint<input {...nonCredentialInput} name="fallback_endpoint" type="url" defaultValue={config.fallback_endpoint ?? ""} placeholder="http://host.docker.internal:11434" /><small>Required for Ollama and OpenAI-compatible providers.</small></label>
                   <div className="credential-field">
-                    <label>Fallback API key<input name="fallback_api_key" type="password" autoComplete="new-password" placeholder={config.fallback_api_key_configured ? "Configured - leave blank to keep" : "Optional for local endpoints"} /></label>
+                    <label>Fallback API key<input {...nonCredentialInput} name="fallback_api_key" type="password" placeholder={config.fallback_api_key_configured ? "Configured - leave blank to keep" : "Optional for local endpoints"} /></label>
                     {config.fallback_api_key_configured && <button type="button" className="secondary" onClick={() => void runAction("fallback-clear", "Clearing fallback key...", async () => { const updated = await api<AIConfig>("/api/settings/ai/fallback/api-key", { method: "DELETE" }); setConfig(updated); return updated; }, "Fallback key cleared.")}>Clear saved fallback key</button>}
                   </div>
                 </div>
                 <div className="settings-control-grid">
-                  <label>Fallback context window<input name="fallback_context_window" type="number" min="1024" max="262144" defaultValue={config.fallback_context_window ?? 4096} /></label>
-                  <label>Fallback temperature<input name="fallback_temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.fallback_temperature ?? 0.2} /></label>
-                  <label>Fallback inactivity timeout (seconds)<input name="fallback_timeout_seconds" type="number" min="5" max="600" defaultValue={config.fallback_timeout_seconds ?? 120} /></label>
+                  <label>Fallback context window<input {...nonCredentialInput} name="fallback_context_window" type="number" min="1024" max="262144" defaultValue={config.fallback_context_window ?? 4096} /></label>
+                  <label>Fallback temperature<input {...nonCredentialInput} name="fallback_temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.fallback_temperature ?? 0.2} /></label>
+                  <label>Fallback inactivity timeout (seconds)<input {...nonCredentialInput} name="fallback_timeout_seconds" type="number" min="5" max="600" defaultValue={config.fallback_timeout_seconds ?? 120} /></label>
                   <label>Fallback tool compatibility<select name="fallback_tool_calling" defaultValue={config.fallback_tool_calling ?? "auto"}><option value="auto">Auto compatibility</option><option value="native">Require native tools</option><option value="curated_context">Curated context only</option></select></label>
                 </div>
                 <button type="button" className="secondary" disabled={actions["fallback-test"]?.phase === "pending"} onClick={() => void runAction("fallback-test", "Testing fallback...", () => api<{ detail: string }>("/api/settings/ai/test?target=fallback", { method: "POST" }), (result) => result.detail)}>Test fallback connection</button>
@@ -695,11 +698,13 @@ export default function SettingsPage() {
                   <p>Control response size, model behavior, and provider timeouts.</p>
                 </div>
                 <div className="settings-control-grid">
-                  <label>Context window<input name="context_window" type="number" min="1024" defaultValue={config.context_window} /><small>Total token capacity used to budget SENSE instructions, context, tools, and the response.</small></label>
-                  <label>Temperature<input name="temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.temperature} /></label>
-                  <label>Maximum tool calls<input name="max_tool_calls" type="number" min="1" max="12" defaultValue={config.max_tool_calls} /></label>
-                  <label>Provider inactivity timeout (seconds)<input name="timeout_seconds" type="number" min="5" max="600" defaultValue={config.timeout_seconds} /><small>Maximum wait for response data. This can stop a stalled request before the overall job runtime limit.</small></label>
-                  <label>Maximum response tokens<input name="max_output_tokens" type="number" min="64" max="4096" defaultValue={config.max_output_tokens} /><small>Generation space reserved within the context window.</small></label>
+                  <label>Context window<input {...nonCredentialInput} name="context_window" type="number" min="1024" defaultValue={config.context_window} /><small>Total token capacity used to budget SENSE instructions, context, tools, and the response.</small></label>
+                  <label>Temperature<input {...nonCredentialInput} name="temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.temperature} /></label>
+                  <label>Codex reasoning<select {...nonCredentialInput} name="codex_reasoning_effort" defaultValue={config.codex_reasoning_effort ?? "medium"}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><small>Higher effort allows deeper investigation but can take longer and use more allowance. Tool calls and runtime remain bounded.</small></label>
+                  <label>Fallback Codex reasoning<select {...nonCredentialInput} name="fallback_codex_reasoning_effort" defaultValue={config.fallback_codex_reasoning_effort ?? "medium"}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><small>Used when the fallback provider is Codex. Background summaries use low effort.</small></label>
+                  <label>Maximum tool calls<input {...nonCredentialInput} name="max_tool_calls" type="number" min="1" max="12" defaultValue={config.max_tool_calls} /></label>
+                  <label>Provider inactivity timeout (seconds)<input {...nonCredentialInput} name="timeout_seconds" type="number" min="5" max="600" defaultValue={config.timeout_seconds} /><small>Maximum wait for response data. This can stop a stalled request before the overall job runtime limit.</small></label>
+                  <label>Maximum response tokens<input {...nonCredentialInput} name="max_output_tokens" type="number" min="64" max="4096" defaultValue={config.max_output_tokens} /><small>Generation space reserved within the context window.</small></label>
                   <label>Tool compatibility<select name="tool_calling" defaultValue={config.tool_calling}><option value="auto">Auto fallback</option><option value="native">Require native tools</option><option value="curated_context">Curated context only</option></select></label>
                 </div>
               </section>
@@ -710,13 +715,13 @@ export default function SettingsPage() {
                   <p>Set hard resource boundaries for model work.</p>
                 </div>
                 <div className="settings-control-grid">
-                  <label>Background after (seconds)<input name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} /><small>Changes presentation only; processing continues.</small></label>
-                  <label>Maximum runtime (seconds)<input name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Overall wall-clock limit. Provider inactivity and connection limits can stop a request sooner.</small></label>
-                  <label>Concurrent AI jobs<input name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} /></label>
-                  <label>Maximum queued jobs<input name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} /></label>
-                  <label>Conversation retention (days)<input name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} /></label>
-                  <label>Maximum AI context (characters)<input name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} /><small>Secondary safety cap; SENSE applies whichever prompt limit is lower.</small></label>
-                  <label>Maximum telemetry (characters)<input name="max_telemetry_chars" type="number" min="2000" max="100000" step="1000" defaultValue={config.max_telemetry_chars} /></label>
+                  <label>Background after (seconds)<input {...nonCredentialInput} name="background_threshold_seconds" type="number" min="5" max="600" defaultValue={config.background_threshold_seconds} /><small>Changes presentation only; processing continues.</small></label>
+                  <label>Maximum runtime (seconds)<input {...nonCredentialInput} name="max_runtime_seconds" type="number" min="30" max="3600" defaultValue={config.max_runtime_seconds} /><small>Overall wall-clock limit. Provider inactivity and connection limits can stop a request sooner.</small></label>
+                  <label>Concurrent AI jobs<input {...nonCredentialInput} name="max_concurrent_jobs" type="number" min="1" max="4" defaultValue={config.max_concurrent_jobs} /></label>
+                  <label>Maximum queued jobs<input {...nonCredentialInput} name="max_queued_jobs" type="number" min="1" max="100" defaultValue={config.max_queued_jobs} /></label>
+                  <label>Conversation retention (days)<input {...nonCredentialInput} name="conversation_retention_days" type="number" min="1" max="365" defaultValue={config.conversation_retention_days} /></label>
+                  <label>Maximum AI context (characters)<input {...nonCredentialInput} name="max_context_chars" type="number" min="12000" max="200000" step="1000" defaultValue={config.max_context_chars} /><small>Secondary safety cap; SENSE applies whichever prompt limit is lower.</small></label>
+                  <label>Maximum telemetry (characters)<input {...nonCredentialInput} name="max_telemetry_chars" type="number" min="2000" max="100000" step="1000" defaultValue={config.max_telemetry_chars} /></label>
                 </div>
               </section>
 
@@ -726,10 +731,10 @@ export default function SettingsPage() {
                   <p>These optional features run separately from deterministic monitoring.</p>
                 </div>
                 <div className="settings-toggle-grid">
-                  <label className="check"><input name="notify_long_running_jobs" type="checkbox" defaultChecked={config.notify_long_running_jobs} /><span><b>Long-running job notifications</b><small>Use notifications by default when a long SENSE request finishes.</small></span></label>
-                  <label className="check"><input name="browser_notifications" type="checkbox" defaultChecked={config.browser_notifications} /><span><b>Browser notifications</b><small>Allow eligible completed jobs to show a system notification.</small></span></label>
-                  <label className="check"><input name="proactive_insights" type="checkbox" defaultChecked={config.proactive_insights} /><span><b>Explain new alerts with SENSE</b><small>Request a model explanation after deterministic alerts are safely recorded.</small></span></label>
-                  <label className="check"><input name="dashboard_summaries" type="checkbox" defaultChecked={config.dashboard_summaries} /><span><b>Add a cached AI dashboard summary</b><small>First attempt occurs within about five minutes. It needs a configured model and one storage sample; a forecast may still be learning.</small></span></label>
+                  <label className="check"><input {...nonCredentialInput} name="notify_long_running_jobs" type="checkbox" defaultChecked={config.notify_long_running_jobs} /><span><b>Long-running job notifications</b><small>Use notifications by default when a long SENSE request finishes.</small></span></label>
+                  <label className="check"><input {...nonCredentialInput} name="browser_notifications" type="checkbox" defaultChecked={config.browser_notifications} /><span><b>Browser notifications</b><small>Allow eligible completed jobs to show a system notification.</small></span></label>
+                  <label className="check"><input {...nonCredentialInput} name="proactive_insights" type="checkbox" defaultChecked={config.proactive_insights} /><span><b>Explain new alerts with SENSE</b><small>Request a model explanation after deterministic alerts are safely recorded.</small></span></label>
+                  <label className="check"><input {...nonCredentialInput} name="dashboard_summaries" type="checkbox" defaultChecked={config.dashboard_summaries} /><span><b>Add a cached AI dashboard summary</b><small>First attempt occurs within about five minutes. It needs a configured model and one storage sample; a forecast may still be learning.</small></span></label>
                 </div>
                 <div className="summary-timing-note">
                   <RefreshCw size={16} />
@@ -796,11 +801,11 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-            <form onSubmit={saveAlerts}>
+            <form {...nonCredentialInput} onSubmit={saveAlerts}>
               <div className="field-grid three">
                 <label>
                   Free storage threshold (%)
-                  <input
+                  <input {...nonCredentialInput}
                     name="free_percent_threshold"
                     type="number"
                     min="1"
@@ -810,7 +815,7 @@ export default function SettingsPage() {
                 </label>
                 <label>
                   Notify before projected exhaustion (days)
-                  <input
+                  <input {...nonCredentialInput}
                     name="forecast_days_threshold"
                     type="number"
                     min="1"
@@ -820,7 +825,7 @@ export default function SettingsPage() {
                 </label>
                 <label>
                   Disk temperature (°C)
-                  <input
+                  <input {...nonCredentialInput}
                     name="temperature_c_threshold"
                     type="number"
                     min="30"
@@ -838,7 +843,7 @@ export default function SettingsPage() {
                 </p>
                 <div className="field-grid">
                   <label className="check">
-                    <input
+                    <input {...nonCredentialInput}
                       name="notify_storage_low"
                       type="checkbox"
                       defaultChecked={alerts.notify_storage_low}
@@ -846,7 +851,7 @@ export default function SettingsPage() {
                     <span>Low free storage</span>
                   </label>
                   <label className="check">
-                    <input
+                    <input {...nonCredentialInput}
                       name="notify_forecast_low"
                       type="checkbox"
                       defaultChecked={alerts.notify_forecast_low}
@@ -854,7 +859,7 @@ export default function SettingsPage() {
                     <span>Projected storage exhaustion</span>
                   </label>
                   <label className="check">
-                    <input
+                    <input {...nonCredentialInput}
                       name="notify_disk_smart"
                       type="checkbox"
                       defaultChecked={alerts.notify_disk_smart}
@@ -862,7 +867,7 @@ export default function SettingsPage() {
                     <span>SMART warnings and failures</span>
                   </label>
                   <label className="check">
-                    <input
+                    <input {...nonCredentialInput}
                       name="notify_disk_temperature"
                       type="checkbox"
                       defaultChecked={alerts.notify_disk_temperature}
@@ -870,7 +875,7 @@ export default function SettingsPage() {
                     <span>High disk temperature</span>
                   </label>
                   <label className="check">
-                    <input
+                    <input {...nonCredentialInput}
                       name="notify_container_stopped"
                       type="checkbox"
                       defaultChecked={alerts.notify_container_stopped}
@@ -878,7 +883,7 @@ export default function SettingsPage() {
                     <span>Containers stopped over 10 minutes</span>
                   </label>
                   <label className="check">
-                    <input
+                    <input {...nonCredentialInput}
                       name="notify_sense_jobs"
                       type="checkbox"
                       defaultChecked={alerts.notify_sense_jobs}
@@ -934,10 +939,10 @@ export default function SettingsPage() {
               <div className="form-error">{general.timezone_warning}</div>
             )}
             {general.timezone_configurable ? (
-              <form onSubmit={saveTimezone}>
+              <form {...nonCredentialInput} onSubmit={saveTimezone}>
                 <label>
                   Display timezone
-                  <input
+                  <input {...nonCredentialInput}
                     name="timezone"
                     defaultValue={general.timezone}
                     placeholder="America/Chicago"
@@ -990,10 +995,10 @@ export default function SettingsPage() {
                 <p>Connect alert delivery and installed read-only providers.</p>
               </div>
             </div>
-            <form onSubmit={saveWebhook}>
+            <form {...nonCredentialInput} onSubmit={saveWebhook}>
               <div className="notification-option">
                 <label className="check">
-                  <input
+                  <input {...nonCredentialInput}
                     name="webhook_enabled"
                     type="checkbox"
                     defaultChecked={alerts.webhook_enabled}
@@ -1005,7 +1010,7 @@ export default function SettingsPage() {
                 </label>
                 <label>
                   Webhook URL
-                  <input
+                  <input {...nonCredentialInput}
                     name="webhook_url"
                     type="url"
                     placeholder={secretPlaceholder(
@@ -1022,7 +1027,7 @@ export default function SettingsPage() {
               </div>
               <div className="notification-option">
                 <label className="check">
-                  <input
+                  <input {...nonCredentialInput}
                     name="discord_enabled"
                     type="checkbox"
                     defaultChecked={alerts.discord_enabled}
@@ -1034,7 +1039,7 @@ export default function SettingsPage() {
                 </label>
                 <label>
                   Discord webhook URL
-                  <input
+                  <input {...nonCredentialInput}
                     name="discord_webhook_url"
                     type="url"
                     placeholder={secretPlaceholder(
@@ -1051,7 +1056,7 @@ export default function SettingsPage() {
               </div>
               <div className="notification-option">
                 <label className="check">
-                  <input
+                  <input {...nonCredentialInput}
                     name="pushover_enabled"
                     type="checkbox"
                     defaultChecked={alerts.pushover_enabled}
@@ -1064,10 +1069,10 @@ export default function SettingsPage() {
                 <div className="field-grid">
                   <label>
                     User key
-                    <input
+                    <input {...nonCredentialInput}
                       name="pushover_user_key"
                       type="password"
-                      autoComplete="new-password"
+
                       placeholder={secretPlaceholder(
                         alerts.pushover_user_key_configured,
                         "Pushover user key",
@@ -1076,10 +1081,10 @@ export default function SettingsPage() {
                   </label>
                   <label>
                     Application token
-                    <input
+                    <input {...nonCredentialInput}
                       name="pushover_app_token"
                       type="password"
-                      autoComplete="new-password"
+
                       placeholder={secretPlaceholder(
                         alerts.pushover_app_token_configured,
                         "Application API token",
@@ -1095,7 +1100,7 @@ export default function SettingsPage() {
               </div>
               <div className="notification-option">
                 <label className="check">
-                  <input
+                  <input {...nonCredentialInput}
                     name="email_enabled"
                     type="checkbox"
                     defaultChecked={alerts.email_enabled}
@@ -1108,11 +1113,11 @@ export default function SettingsPage() {
                 <div className="field-grid three">
                   <label>
                     SMTP host
-                    <input name="smtp_host" defaultValue={alerts.smtp_host} />
+                    <input {...nonCredentialInput} name="smtp_host" defaultValue={alerts.smtp_host} />
                   </label>
                   <label>
                     Port
-                    <input
+                    <input {...nonCredentialInput}
                       name="smtp_port"
                       type="number"
                       min="1"
@@ -1132,32 +1137,32 @@ export default function SettingsPage() {
                 <div className="field-grid">
                   <label>
                     SMTP username
-                    <input
+                    <input {...nonCredentialInput}
                       name="smtp_username"
                       placeholder={secretPlaceholder(
                         alerts.smtp_username_configured,
                         "Optional username",
                       )}
-                      autoComplete="new-password"
+
                     />
                   </label>
                   <label>
                     SMTP password
-                    <input
+                    <input {...nonCredentialInput}
                       name="smtp_password"
                       type="password"
                       placeholder={secretPlaceholder(
                         alerts.smtp_password_configured,
                         "Optional password",
                       )}
-                      autoComplete="new-password"
+
                     />
                   </label>
                 </div>
                 <div className="field-grid">
                   <label>
                     From address
-                    <input
+                    <input {...nonCredentialInput}
                       name="email_from"
                       type="email"
                       defaultValue={alerts.email_from}
@@ -1165,7 +1170,7 @@ export default function SettingsPage() {
                   </label>
                   <label>
                     To address
-                    <input
+                    <input {...nonCredentialInput}
                       name="email_to"
                       type="email"
                       defaultValue={alerts.email_to}
@@ -1209,7 +1214,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               {integrations.configured.map((item) => (
-                <form
+                <form {...nonCredentialInput}
                   className="media-integration-editor"
                   key={item.id}
                   onSubmit={(event) => void saveMediaIntegration(event, item.id)}
@@ -1217,7 +1222,7 @@ export default function SettingsPage() {
                   <div className="field-grid three">
                     <label>
                       Type
-                      <input type="hidden" name="provider" value={item.provider} />
+                      <input {...nonCredentialInput} type="hidden" name="provider" value={item.provider} />
                       <select value={item.provider} disabled>
                         <option value="sonarr">Sonarr</option>
                         <option value="radarr">Radarr</option>
@@ -1225,20 +1230,20 @@ export default function SettingsPage() {
                     </label>
                     <label>
                       Instance name
-                      <input name="name" defaultValue={item.name} required />
+                      <input {...nonCredentialInput} name="name" defaultValue={item.name} required />
                     </label>
                     <label>
                       URL
-                      <input name="url" type="url" defaultValue={item.url} required />
+                      <input {...nonCredentialInput} name="url" type="url" defaultValue={item.url} required />
                     </label>
                   </div>
                   <div className="field-grid">
                     <label>
                       API key
-                      <input
+                      <input {...nonCredentialInput}
                         name="api_key"
                         type="password"
-                        autoComplete="new-password"
+
                         placeholder={secretPlaceholder(
                           item.api_key_configured,
                           "Sonarr or Radarr API key",
@@ -1246,7 +1251,7 @@ export default function SettingsPage() {
                       />
                     </label>
                     <label className="check media-enabled">
-                      <input name="enabled" type="checkbox" defaultChecked={item.enabled} />
+                      <input {...nonCredentialInput} name="enabled" type="checkbox" defaultChecked={item.enabled} />
                       <span>Collect AI context</span>
                     </label>
                   </div>
@@ -1284,7 +1289,7 @@ export default function SettingsPage() {
                   </div>
                 </form>
               ))}
-              <form
+              <form {...nonCredentialInput}
                 className="media-integration-editor add"
                 onSubmit={(event) => void saveMediaIntegration(event)}
               >
@@ -1299,20 +1304,20 @@ export default function SettingsPage() {
                   </label>
                   <label>
                     Instance name
-                    <input name="name" placeholder="Movies or Anime" required />
+                    <input {...nonCredentialInput} name="name" placeholder="Movies or Anime" required />
                   </label>
                   <label>
                     URL
-                    <input name="url" type="url" placeholder="http://radarr:7878" required />
+                    <input {...nonCredentialInput} name="url" type="url" placeholder="http://radarr:7878" required />
                   </label>
                 </div>
                 <div className="field-grid">
                   <label>
                     API key
-                    <input name="api_key" type="password" required autoComplete="new-password" />
+                    <input {...nonCredentialInput} name="api_key" type="password" required />
                   </label>
                   <label className="check media-enabled">
-                    <input name="enabled" type="checkbox" defaultChecked />
+                    <input {...nonCredentialInput} name="enabled" type="checkbox" defaultChecked />
                     <span>Collect AI context</span>
                   </label>
                 </div>

@@ -272,6 +272,19 @@ def test_quality_upgrades_pair_provider_upgrade_deletion_with_import() -> None:
             db, "get_media_activity_summary", {"days": 1, "instance": "TV upgrades"}
         )
         assert summary["instances"]["TV upgrades"]["confirmed_quality_upgrades"] == 1
+        assert summary["confirmed_upgrade_titles"] == [
+            {
+                "provider": "sonarr",
+                "instance": "TV upgrades",
+                "media_type": "episode",
+                "title": "The Episode",
+                "series": "The Show",
+                "season": 2,
+                "episode": 4,
+            }
+        ]
+        assert summary["upgrade_titles_truncated"] is False
+
         assert summary["instances"]["TV upgrades"]["explicit_upgrade_deletions"] == 1
         assert summary["instances"]["TV upgrades"]["upgrade_deletions_without_matching_import"] == 0
         assert "paired one-to-one" in summary["quality_upgrade_definition"]

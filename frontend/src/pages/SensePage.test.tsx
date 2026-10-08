@@ -15,6 +15,15 @@ describe("SENSE requests", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the assistant prompt out of credential autofill", async () => {
+    render(<SensePage />);
+    const prompt = await screen.findByPlaceholderText(/Ask about telemetry or request deeper analysis/);
+    expect(prompt).toHaveAttribute("autocomplete", "off");
+    expect(prompt).toHaveAttribute("data-1p-ignore", "true");
+    expect(prompt).toHaveAttribute("data-lpignore", "true");
+    expect(prompt).toHaveAttribute("data-bwignore", "true");
+  });
+
   it("stops the active backend request without saving a partial answer", async () => {
     const encoder = new TextEncoder();
     const fetchMock = vi.fn((path: string | URL | Request, init?: RequestInit) => {

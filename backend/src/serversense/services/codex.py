@@ -473,7 +473,7 @@ def complete(config: dict[str, Any], messages: list[dict[str, Any]], max_tokens:
 
     async def run() -> str:
         output = ""
-        bounded = config | {"max_output_tokens": max_tokens}
+        bounded = config | {"max_output_tokens": max_tokens, "codex_reasoning_effort": "low"}
         async with asyncio.timeout(float(config.get("max_runtime_seconds", 300))):
             async for item in provider_turn(
                 {"messages": messages, "model": config["model"]}, bounded
@@ -569,7 +569,7 @@ async def provider_turn(
                 "threadId": thread_id,
                 "input": [{"type": "text", "text": prompt}],
                 "environments": [],
-                "effort": "low",
+                "effort": config.get("codex_reasoning_effort", "medium"),
                 "summary": "none",
             },
         )

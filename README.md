@@ -182,3 +182,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for security boundaries and col
 ## License
 
 No license has been selected yet. All rights reserved until one is added.
+
+
+### SENSE investigation and input autofill
+
+Ordinary SENSE prompts and configuration inputs opt out of credential autofill using browser and password-manager hints; authentication and MFA inputs retain their normal autofill semantics. Quality-upgrade title follow-ups must fetch fresh paired evidence, inherit the most recent requested period, and prefer an explicit current period. Broad snapshots carry up to 100 confirmed movie/episode identities from the same history records as their counts, with truncation labeled.
+
+Interactive Codex reasoning is configurable as low, medium (default), or high for primary and fallback providers. Snapshot the effort with each durable job; existing queued jobs without the option retain low effort. Background Codex explanations remain low effort. New configurations allow six tool calls by default; saved limits remain unchanged. SENSE may investigate missing evidence with relevant allowlisted read-only tools within its configured shared tool-call, context, and runtime budgets; it has no command or server-mutation access.

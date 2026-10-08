@@ -16,6 +16,7 @@ FALLBACK_FIELDS = (
     "temperature",
     "timeout_seconds",
     "tool_calling",
+    "codex_reasoning_effort",
 )
 
 

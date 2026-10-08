@@ -423,12 +423,27 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
             group["explicit_upgrade_deletions"] += 1
             if row.id not in paired_deletions:
                 group["upgrade_deletions_without_matching_import"] += 1
+    confirmed = [row for row in rows if row.event_type == "imported" and row.id in upgrade_pairs]
+    upgrade_titles = [
+        {
+            "provider": row.provider,
+            "instance": row.instance_name,
+            "media_type": row.media_type,
+            "title": row.title,
+            "series": row.parent_title,
+            "season": row.season_number,
+            "episode": row.episode_number,
+        }
+        for row in confirmed[:100]
+    ]
     storage = current_storage_samples(db, since=cutoff)
     measured_change = storage[-1].used_bytes - storage[0].used_bytes if len(storage) >= 2 else None
     return {
         "days": days,
         "period": "configured_timezone_today" if args.get("today", False) else "rolling_days",
         "instances": instances,
+        "confirmed_upgrade_titles": upgrade_titles,
+        "upgrade_titles_truncated": len(confirmed) > len(upgrade_titles),
         "measured_storage_change_bytes": measured_change,
         "quality_upgrade_definition": (
             "confirmed_quality_upgrades counts imports paired one-to-one with a provider deletion "
@@ -565,6 +580,9 @@ def media_activity_items(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "days": days,
         "period": "configured_timezone_today" if args.get("today", False) else "rolling_days",
         "activities": selected_activities,
+        "matched_count": len(activities),
+        "returned_count": len(selected_activities),
+        "truncated": len(activities) > len(selected_activities),
     }
     if args.get("upgrades_only", False):
         known_changes = [

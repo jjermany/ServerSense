@@ -102,11 +102,15 @@ test("fresh installation completes every setup stage and serves the application"
   await page.getByLabel("Fallback model", { exact: true }).fill("llama-backup");
   await page.getByLabel("Fallback endpoint").fill("http://ollama.test:11434");
   await page.getByLabel("Fallback context window").fill("8192");
+  await page.locator('select[name="codex_reasoning_effort"]').selectOption("high");
+  await expect(page.locator('input[name="fallback_model"]')).toHaveAttribute("autocomplete", "off");
+  await expect(page.locator('input[name="fallback_model"]')).toHaveAttribute("data-1p-ignore", "true");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await expect(page.getByText("AI settings saved securely.")).toBeVisible();
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("gpt-5.4");
   await expect(page.locator('select[name="fallback_provider"]')).toHaveValue("ollama");
+  await expect(page.locator('select[name="codex_reasoning_effort"]')).toHaveValue("high");
   await expect(page.getByLabel("Fallback model", { exact: true })).toHaveValue("llama-backup");
   await expect(page.getByLabel("Fallback context window")).toHaveValue("8192");
   await page.locator(".settings-form-section").filter({ has: page.getByRole("heading", { name: "Fallback model" }) }).screenshot({ path: testInfo.outputPath("fallback-settings.png") });
@@ -118,6 +122,9 @@ test("fresh installation completes every setup stage and serves the application"
   await expect(page.getByText("cache", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "Ask SENSE", exact: true }).click();
+  await expect(page.locator('input[name="message"]')).toHaveAttribute("autocomplete", "off");
+  await expect(page.locator('input[name="message"]')).toHaveAttribute("data-lpignore", "true");
+
   await page
     .getByRole("button", { name: "How long until I run out of storage?" })
     .click();

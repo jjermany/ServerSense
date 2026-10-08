@@ -69,6 +69,21 @@ describe("AI settings", () => {
   });
   afterEach(cleanup);
 
+  it("excludes settings values from credential autofill and saves Codex reasoning", async () => {
+    const { container } = render(<SettingsPage />);
+    const model = await screen.findByLabelText("Model");
+    expect(model).toHaveAttribute("autocomplete", "off");
+    expect(model).toHaveAttribute("data-1p-ignore", "true");
+    const credential = container.querySelector('input[name="api_key"]');
+    expect(credential).toHaveAttribute("autocomplete", "off");
+    expect(credential).toHaveAttribute("data-lpignore", "true");
+    fireEvent.change(screen.getByLabelText(/Codex reasoningHigher/), { target: { value: "high" } });
+    fireEvent.submit(model.closest("form")!);
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/settings/ai", expect.objectContaining({
+      method: "PUT", body: expect.stringContaining('"codex_reasoning_effort":"high"'),
+    })));
+  });
+
   it("shows loading progress and can retry a failed initial request", async () => {
     let rejectLoad: ((reason?: unknown) => void) | undefined;
     vi.mocked(api).mockImplementationOnce(

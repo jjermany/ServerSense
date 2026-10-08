@@ -740,3 +740,64 @@ def test_restart_reconciliation_marks_active_job_interrupted() -> None:
         response = db.get(AIMessage, job.response_message_id)
         assert response is not None
         assert "Persisted before restart" in response.content
+
+
+def test_curated_upgrade_title_follow_up_uses_current_evidence(monkeypatch) -> None:
+    from serversense.services.sense_jobs import _curated_context
+
+    calls = []
+
+    def tool(db, name, arguments):
+        calls.append((name, arguments))
+        return {"activities": [{"title": "Current movie", "event_type": "quality_upgraded"}]}
+
+    monkeypatch.setattr("serversense.services.sense_jobs.execute_tool", tool)
+    snapshot = {
+        "history": [
+            {"role": "user", "content": "How many quality upgrades today?"},
+            {"role": "assistant", "content": "Two confirmed upgrades. I can list the titles."},
+        ]
+    }
+    with SessionLocal() as db:
+        context = _curated_context(
+            db, "Which TV shows and which movie?", "historical", snapshot, 30000, 20000
+        )
+    assert calls == [("get_quality_upgrades", {"limit": 100, "days": 1, "today": True})]
+    assert context["telemetry"]["get_quality_upgrades"]["activities"][0]["title"] == "Current movie"
+
+
+def test_curated_calendar_today_uses_supported_tool_arguments(monkeypatch) -> None:
+    from serversense.services.sense_jobs import _curated_context
+    from serversense.services.tools import _validate_arguments
+
+    def tool(db, name, arguments):
+        _validate_arguments(name, arguments)
+        return {"items": []}
+
+    monkeypatch.setattr("serversense.services.sense_jobs.execute_tool", tool)
+    with SessionLocal() as db:
+        context = _curated_context(db, "What is upcoming today?", "historical", {}, 30000, 20000)
+    assert "get_upcoming_media" in context["telemetry"]
+
+
+def test_broad_snapshot_compacts_upgrade_titles_without_losing_counts(monkeypatch) -> None:
+    from serversense.services.sense_jobs import _curated_context
+
+    def tool(db, name, arguments):
+        if name == "get_media_activity_summary":
+            return {
+                "instances": {"Movies": {"confirmed_quality_upgrades": 100}},
+                "confirmed_upgrade_titles": [{"title": "A" * 200} for _ in range(100)],
+                "upgrade_titles_truncated": False,
+            }
+        return {}
+
+    monkeypatch.setattr("serversense.services.sense_jobs.execute_tool", tool)
+    with SessionLocal() as db:
+        context = _curated_context(
+            db, "What changed on the server today?", "historical", {}, 30000, 20000
+        )
+    summary = context["telemetry"]["get_media_activity_summary"]
+    assert summary["instances"]["Movies"]["confirmed_quality_upgrades"] == 100
+    assert summary["upgrade_titles_truncated"] is True
+    assert len(summary["confirmed_upgrade_titles"]) < 100

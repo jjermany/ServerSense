@@ -419,3 +419,26 @@ async def test_empty_length_limited_completion_is_not_saved_as_an_answer(
                     "timeout_seconds": 5,
                 },
             )
+
+
+def test_upgrade_title_follow_up_requires_fresh_evidence_and_inherits_period() -> None:
+    from serversense.services.ai import _media_window_args
+
+    history = [
+        {"role": "user", "content": "What was added this month?"},
+        {"role": "assistant", "content": "Some movies were imported."},
+        {"role": "user", "content": "How many quality upgrades have we had today?"},
+        {
+            "role": "assistant",
+            "content": "4 confirmed quality upgrades: 2 TV episodes and 2 movies. I can list the matching titles.",
+        },
+    ]
+    question = "which tv shows and which movie?"
+    assert _required_tool(question, history) == "get_quality_upgrades"
+    assert _media_window_args(question, history) == {"days": 1, "today": True}
+    assert _media_window_args("Which movies this week?", history) == {"days": 7}
+    assert _required_tool("Show CPU usage", history) is None
+    assert (
+        _required_tool(question, history + [{"role": "assistant", "content": "CPU is at 10%."}])
+        is None
+    )

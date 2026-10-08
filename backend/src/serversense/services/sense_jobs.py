@@ -20,7 +20,7 @@ from serversense.models import (
     Alert,
     InAppNotification,
 )
-from serversense.services.ai import chat_stream
+from serversense.services.ai import _media_window_args, _required_tool, chat_stream
 from serversense.services.ai_config import read_ai_config
 from serversense.services.model_fallback import FALLBACK_FIELDS, eligible_failure, fallback_config
 from serversense.services.notifications import dispatch_notifications
@@ -96,6 +96,7 @@ def config_snapshot(config: dict[str, Any]) -> dict[str, Any]:
         "max_tool_calls",
         "max_output_tokens",
         "tool_calling",
+        "codex_reasoning_effort",
         "background_threshold_seconds",
         "max_runtime_seconds",
         "max_context_chars",
@@ -170,28 +171,6 @@ def _curated_context(
     broad_change_summary = "changed" in text and any(
         term in text for term in ("server", "today", "since", "recent")
     )
-    media_terms = ("movie", "episode", "tv", "sonarr", "radarr", "media", "title")
-    upgrade_request = any(term in text for term in ("quality upgrade", "quality upgraded")) or (
-        any(term in text for term in ("upgrade", "upgraded"))
-        and any(term in text for term in media_terms)
-    )
-    activity_request = any(
-        phrase in text
-        for phrase in (
-            "today's imports",
-            "todays imports",
-            "imports today",
-            "import today",
-            "recent imports",
-            "imported today",
-            "recent downloads",
-            "downloaded today",
-            "recently downloaded",
-            "recent grabs",
-            "grabbed today",
-            "media activity",
-        )
-    )
     if broad_change_summary:
         names.extend(
             (
@@ -226,13 +205,15 @@ def _curated_context(
         names.append("get_server_overview")
     if any(term in text for term in ("upcoming", "calendar", "release", "air date")):
         names.append("get_upcoming_media")
-    if upgrade_request:
-        names.append("get_quality_upgrades")
-    elif activity_request:
-        names.append("get_media_activity_items")
-    if upgrade_request or activity_request:
-        media_tool = "get_quality_upgrades" if upgrade_request else "get_media_activity_items"
-        tool_arguments[media_tool] = {"days": 1, "today": True, "limit": 100}
+    history = snapshot.get("history", [])
+    media_tool = _required_tool(question, history)
+    if media_tool:
+        names.insert(0, media_tool)
+        tool_arguments[media_tool] = {"limit": 100} | _media_window_args(question, history)
+        if media_tool == "get_upcoming_media":
+            tool_arguments[media_tool].pop("today", None)
+        if media_tool != "get_upcoming_media" and not _media_window_args(question, history):
+            tool_arguments[media_tool].update({"days": 1, "today": True})
     if not names:
         names.append("get_server_overview")
     context: dict[str, Any] = {
@@ -264,6 +245,14 @@ def _curated_context(
             if broad_change_summary
             else remaining
         )
+        if name == "get_media_activity_summary" and len(encoded) > allowance:
+            result = dict(result)
+            titles = list(result.get("confirmed_upgrade_titles", []))
+            while titles and len(encoded) > allowance:
+                titles.pop()
+                result["confirmed_upgrade_titles"] = titles
+                result["upgrade_titles_truncated"] = True
+                encoded = json.dumps(result, default=str)
         if len(encoded) > allowance:
             context["telemetry"][name] = {
                 "truncated": True,
@@ -509,7 +498,14 @@ async def _run_job(job_id: str) -> None:
             config = read_ai_config(db, include_secret=True)
             # Model/provider/endpoint/options are immutable per job; the current credential is
             # read at execution time and is never persisted in the snapshot.
-            config.update({"fallback_provider": "disabled"} | (job.config_snapshot or {}))
+            config.update(
+                {
+                    "fallback_provider": "disabled",
+                    "codex_reasoning_effort": "low",
+                    "fallback_codex_reasoning_effort": "low",
+                }
+                | (job.config_snapshot or {})
+            )
             curated = _curated_context(
                 db,
                 message.content,

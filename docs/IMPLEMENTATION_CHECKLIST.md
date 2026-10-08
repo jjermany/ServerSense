@@ -110,3 +110,10 @@ Last updated: 2026-10-01
 - [x] bounded cached forecast estimation, relevant-window queries, current disk-history selection, and normalized media gathering before database writes
 - [x] production image audit with zero known OS/Python findings on updated Alpine 3.24; native modules, migrations and packaged browser flow verified; historical Debian findings retained without ignore rules
 - [x] decompression-time response limits for HTTP and model streams, with compressed-bomb allocation and chunk-boundary regression coverage
+
+
+### SENSE investigation and input autofill
+
+Ordinary SENSE prompts and configuration inputs opt out of credential autofill using browser and password-manager hints; authentication and MFA inputs retain their normal autofill semantics. Quality-upgrade title follow-ups must fetch fresh paired evidence, inherit the most recent requested period, and prefer an explicit current period. Broad snapshots carry up to 100 confirmed movie/episode identities from the same history records as their counts, with truncation labeled.
+
+Interactive Codex reasoning is configurable as low, medium (default), or high for primary and fallback providers. Snapshot the effort with each durable job; existing queued jobs without the option retain low effort. Background Codex explanations remain low effort. New configurations allow six tool calls by default; saved limits remain unchanged. SENSE may investigate missing evidence with relevant allowlisted read-only tools within its configured shared tool-call, context, and runtime budgets; it has no command or server-mutation access.

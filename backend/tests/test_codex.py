@@ -580,3 +580,90 @@ def test_codex_catalog_does_not_require_a_saved_provider(
     assert fake_codex.instances[-1].closed
     authenticated_client.post("/api/auth/logout")
     assert authenticated_client.get("/api/settings/ai/codex/models").status_code == 401
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+async def test_codex_reasoning_effort_is_snapshotted_and_sent(fake_codex, effort) -> None:
+    config = CONFIG | {"codex_reasoning_effort": effort, "fallback_codex_reasoning_effort": "high"}
+    snapshot = config_snapshot(config)
+    assert snapshot["codex_reasoning_effort"] == effort
+    assert snapshot["fallback_codex_reasoning_effort"] == "high"
+    fake_codex.events = [
+        {"method": "item/agentMessage/delta", "params": {"delta": "Measured answer."}},
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+    ]
+    async for _ in codex.provider_turn(
+        {"model": "test", "messages": [{"role": "user", "content": "Investigate"}]}, config
+    ):
+        pass
+    turn = next(
+        params for method, params in fake_codex.instances[0].calls if method == "turn/start"
+    )
+    assert turn["effort"] == effort
+
+
+async def test_codex_upgrade_title_follow_up_fetches_evidence_before_inference(
+    fake_codex, monkeypatch
+) -> None:
+    calls = []
+
+    def tool(db, name, arguments):
+        assert not fake_codex.instances
+        calls.append((name, arguments))
+        return {
+            "activities": [
+                {
+                    "event_type": "quality_upgraded",
+                    "title": "Actual movie",
+                    "quality": "Bluray-2160p",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("serversense.services.ai.execute_tool", tool)
+    fake_codex.events = [
+        {"method": "item/agentMessage/delta", "params": {"delta": "Actual movie was upgraded."}},
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+    ]
+    with SessionLocal() as db:
+        answer, used, _ = await chat(
+            db,
+            "Which TV shows and which movie?",
+            CONFIG,
+            [
+                {"role": "user", "content": "How many quality upgrades today?"},
+                {"role": "assistant", "content": "4 upgrades. I can list the matching titles."},
+            ],
+        )
+    assert calls == [("get_quality_upgrades", {"days": 1, "today": True})]
+    assert used == ["get_quality_upgrades"]
+    assert "Actual movie" in answer
+    turn = next(
+        params for method, params in fake_codex.instances[0].calls if method == "turn/start"
+    )
+    assert "Actual movie" in turn["input"][0]["text"]
+
+
+def test_codex_background_keeps_low_reasoning(fake_codex) -> None:
+    fake_codex.events = [
+        {"method": "item/agentMessage/delta", "params": {"delta": "Bounded summary."}},
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+    ]
+    result = codex.complete(
+        CONFIG | {"codex_reasoning_effort": "high"}, [{"role": "user", "content": "Summarize"}], 512
+    )
+    assert result == "Bounded summary."
+    turn = next(
+        params for method, params in fake_codex.instances[0].calls if method == "turn/start"
+    )
+    assert turn["effort"] == "low"
+
+
+def test_codex_reasoning_settings_are_validated() -> None:
+    from pydantic import ValidationError
+
+    from serversense.schemas import AISettings
+
+    for field in ("codex_reasoning_effort", "fallback_codex_reasoning_effort"):
+        with pytest.raises(ValidationError):
+            AISettings(**{field: "unbounded"})

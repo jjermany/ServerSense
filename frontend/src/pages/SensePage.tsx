@@ -1,3 +1,4 @@
+import { nonCredentialInput } from "../autofill";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
@@ -501,7 +502,7 @@ export default function SensePage() {
         <aside className="conversation-list">
           <div className="conversation-list-header"><div className="conversation-heading"><span className="eyebrow">CONVERSATIONS</span></div><button className="history-toggle" aria-expanded={showHistory} onClick={() => setShowHistory((value) => !value)}><span><span className="eyebrow">CONVERSATIONS</span><small>{conversation ? conversations.find((item) => item.id === conversation)?.title : "Start or open a chat"}</small></span><ChevronDown size={16} /></button><button onClick={() => { setConversation(undefined); setMessages([]); setShowHistory(false); }}>New</button></div>
           <div className={`conversation-list-body ${showHistory ? "open" : ""}`}>
-            <label className="conversation-search"><Search size={14} /><input aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label>
+            <label className="conversation-search"><Search size={14} /><input {...nonCredentialInput} aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" /></label>
             {conversations.map((item) => (
               <div className="conversation-item" key={item.id}>
                 <button className={conversation === item.id ? "active" : ""} onClick={() => void openConversation(item.id)}>
@@ -546,7 +547,7 @@ export default function SensePage() {
                       <p>{streamNotice || "You can stay here and continue watching, or leave this page and return later."}</p>
                     </div>
                     <label>
-                      <input
+                      <input {...nonCredentialInput}
                         type="checkbox"
                         checked={foregroundNotify}
                         onChange={(event) => void setJobNotification(longRunningJob, event.target.checked)}
@@ -554,8 +555,8 @@ export default function SensePage() {
                       Notify me when complete
                     </label>
                   </div>
-                  <form className="quick-telemetry" onSubmit={(event) => void askQuickTelemetry(event)}>
-                    <input name="quick_message" placeholder="Ask a current telemetry question while SENSE AI works…" />
+                  <form {...nonCredentialInput} className="quick-telemetry" onSubmit={(event) => void askQuickTelemetry(event)}>
+                    <input {...nonCredentialInput} name="quick_message" placeholder="Ask a current telemetry question while SENSE AI works…" />
                     <button>Ask ServerSense</button>
                   </form>
                   {quickTelemetryError && <small className="quick-telemetry-error">{quickTelemetryError}</small>}
@@ -578,7 +579,7 @@ export default function SensePage() {
                     {job.partial_response && <ReactMarkdown>{job.partial_response}</ReactMarkdown>}
                     {job.backgrounded && (
                       <label className="job-notify-toggle">
-                        <input
+                        <input {...nonCredentialInput}
                           type="checkbox"
                           checked={job.notify_on_completion}
                           onChange={(event) => void setJobNotification(job.id, event.target.checked)}
@@ -602,7 +603,7 @@ export default function SensePage() {
               ))}
             </div>
           )}
-          <form className="chat-input" onSubmit={submit}><input name="message" placeholder="Ask about telemetry or request deeper analysis…" autoComplete="off" disabled={busy} />{busy ? <button type="button" className="stop" aria-label="Stop response" onClick={stop}><Square /></button> : <button aria-label="Send"><Send /></button>}</form>
+          <form {...nonCredentialInput} className="chat-input" onSubmit={submit}><input {...nonCredentialInput} name="message" placeholder="Ask about telemetry or request deeper analysis…" disabled={busy} />{busy ? <button type="button" className="stop" aria-label="Stop response" onClick={stop}><Square /></button> : <button aria-label="Send"><Send /></button>}</form>
         </div>
       </div>
     </div>
