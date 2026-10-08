@@ -358,7 +358,11 @@ async def stream_chat(
                         },
                     )
                 if current.status == "completed":
-                    response = stream_db.get(AIMessage, current.response_message_id)
+                    response = (
+                        stream_db.get(AIMessage, current.response_message_id)
+                        if current.response_message_id is not None
+                        else None
+                    )
                     yield _sse(
                         "message",
                         {
@@ -378,7 +382,11 @@ async def stream_chat(
                     )
                     return
                 if current.status in {"failed", "cancelled", "timed_out", "interrupted"}:
-                    response = stream_db.get(AIMessage, current.response_message_id)
+                    response = (
+                        stream_db.get(AIMessage, current.response_message_id)
+                        if current.response_message_id is not None
+                        else None
+                    )
                     yield _sse(
                         "terminal",
                         {

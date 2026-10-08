@@ -554,3 +554,29 @@ async def test_packaged_codex_exposes_no_host_tools(
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_codex_catalog_does_not_require_a_saved_provider(
+    authenticated_client: TestClient, fake_codex: type[FakeClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (
+        authenticated_client.put("/api/settings/ai", json={"provider": "disabled"}).status_code
+        == 200
+    )
+    original = FakeClient.rpc
+
+    async def catalog(
+        self: FakeClient, method: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        if method == "model/list":
+            assert params == {"limit": 100, "includeHidden": False}
+            return {"data": [{"id": "catalog-id", "model": "actual-model"}, {"id": "second-model"}]}
+        return await original(self, method, params)
+
+    monkeypatch.setattr(FakeClient, "rpc", catalog)
+    response = authenticated_client.get("/api/settings/ai/codex/models")
+    assert response.status_code == 200
+    assert [model["id"] for model in response.json()["models"]] == ["actual-model", "second-model"]
+    assert fake_codex.instances[-1].closed
+    authenticated_client.post("/api/auth/logout")
+    assert authenticated_client.get("/api/settings/ai/codex/models").status_code == 401

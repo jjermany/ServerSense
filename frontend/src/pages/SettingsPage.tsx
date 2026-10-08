@@ -19,6 +19,7 @@ import { api } from "../api";
 import { Card, PageHeader } from "../components/UI";
 import SecuritySettings from "../components/SecuritySettings";
 import CodexSettings from "../components/CodexSettings";
+import CodexModelPicker from "../components/CodexModelPicker";
 import { useTimeZone } from "../timeZoneContext";
 type AIConfig = {
   provider: string;
@@ -171,6 +172,8 @@ function TestNotificationButton({
 export default function SettingsPage() {
   const { setTimeZone } = useTimeZone();
   const [config, setConfig] = useState<AIConfig>();
+  const [model, setModel] = useState("");
+  const [fallbackModel, setFallbackModel] = useState("");
   const [fallbackProvider, setFallbackProvider] = useState("disabled");
   const [selectedProvider, setSelectedProvider] = useState("disabled");
   const [alerts, setAlerts] = useState<AlertConfig>();
@@ -193,6 +196,8 @@ export default function SettingsPage() {
         api<IntegrationsConfig>("/api/integrations"),
       ]);
       setConfig(ai);
+      setModel(ai.model);
+      setFallbackModel(ai.fallback_model ?? "");
       setSelectedProvider(ai.provider);
       setFallbackProvider(ai.fallback_provider ?? "disabled");
       setAlerts(alertConfig);
@@ -624,13 +629,14 @@ export default function SettingsPage() {
                   </label>
                   <label>
                     Model
+                    {selectedProvider === "codex" ? <CodexModelPicker name="model" value={model} onChange={setModel} /> : <>
                     <span className="input-action">
-                      <input name="model" defaultValue={config.model} list="ai-model-list" placeholder="e.g. llama3.2:3b" />
+                      <input name="model" value={model} onChange={(event) => setModel(event.target.value)} list="ai-model-list" placeholder="e.g. llama3.2:3b" />
                       <button type="button" className="secondary" onClick={() => void discoverModels()} disabled={actions["ai-models"]?.phase === "pending"}>
                         <RefreshCw size={14} /> Refresh
                       </button>
                     </span>
-                    <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist>
+                    <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist></>}
                   </label>
                 </div>
                 {selectedProvider === "codex" ? <><input type="hidden" name="endpoint" value="" /></> : <div className="field-grid">
@@ -665,7 +671,7 @@ export default function SettingsPage() {
                   <label>Fallback provider<select name="fallback_provider" value={fallbackProvider} onChange={(event) => setFallbackProvider(event.target.value)}>
                     <option value="disabled">No fallback</option><option value="ollama">Ollama-compatible</option><option value="openai_compatible">OpenAI-compatible API</option><option value="codex">Codex (ChatGPT subscription)</option>
                   </select></label>
-                  <label>Fallback model<input name="fallback_model" defaultValue={config.fallback_model ?? ""} placeholder="e.g. llama3.2:3b" /></label>
+                  <label>Fallback model{fallbackProvider === "codex" ? <CodexModelPicker name="fallback_model" value={fallbackModel} onChange={setFallbackModel} /> : <input name="fallback_model" value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)} placeholder="e.g. llama3.2:3b" />}</label>
                   <label>Fallback endpoint<input name="fallback_endpoint" type="url" defaultValue={config.fallback_endpoint ?? ""} placeholder="http://host.docker.internal:11434" /><small>Required for Ollama and OpenAI-compatible providers.</small></label>
                   <div className="credential-field">
                     <label>Fallback API key<input name="fallback_api_key" type="password" autoComplete="new-password" placeholder={config.fallback_api_key_configured ? "Configured - leave blank to keep" : "Optional for local endpoints"} /></label>

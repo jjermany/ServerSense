@@ -55,6 +55,7 @@ Last updated: 2026-10-01
 - [x] built-in deterministic no-model mode
 - [x] OpenAI-compatible tool-calling provider
 - [x] Codex ChatGPT-subscription provider with managed device-code Settings login/cancel/logout, private persistent `/config/codex` credentials, pinned Alpine-compatible runtime, durable streamed SENSE conversations, model catalog/access test, provider-reported usage/reset windows, safe exhaustion errors, and environment-free ephemeral inference limited to the existing read-only registry
+- [x] Automatically loaded primary/fallback Codex model dropdowns with preserved selections and refresh/retry; terminal streams safely handle jobs without a response message
 - [x] Independently configured fallback provider/model with encrypted credentials and connection testing; single availability/usage failover within the original job runtime, immutable credential-free queued snapshots, answering-model provenance, incomplete primary partial history, and tool-free optional background fallback
 
 - [x] Ollama-compatible `/v1` endpoint configuration with bounded low-reasoning interactive responses, a no-reasoning empty-response retry, and suppressed reasoning for short background responses

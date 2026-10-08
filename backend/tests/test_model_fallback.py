@@ -1,4 +1,5 @@
 import asyncio
+import warnings
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -7,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import SAWarning
 
 from serversense.db import SessionLocal
 from serversense.models import AIConversation, AIJob, AIMessage, Setting, User
@@ -285,3 +287,40 @@ async def test_switching_models_does_not_reset_the_tool_budget(
     with SessionLocal() as db:
         job = db.get(AIJob, job_id)
         assert job and job.status == "failed" and "tool-call limit" in job.error
+
+
+def test_failed_job_stream_without_output_does_not_load_a_null_message(
+    authenticated_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from serversense.api import ai as ai_api
+
+    def enqueue(db: Any, user: Any, conversation: Any, payload: Any, routed: Any) -> AIJob:
+        conversation = AIConversation(title="Failed without output")
+        db.add(conversation)
+        db.flush()
+        message = AIMessage(
+            conversation_id=conversation.id,
+            timestamp=datetime.now(UTC),
+            role="user",
+            content=payload.message,
+            source="user",
+            references={},
+        )
+        db.add(message)
+        db.flush()
+        job = sense_jobs.create_job(db, user.id, conversation, message, "analysis", CONFIG, [])
+        job.status = "failed"
+        job.error = "Provider unavailable before output."
+        db.commit()
+        assert job.response_message_id is None
+        return job
+
+    monkeypatch.setattr(ai_api, "_enqueue", enqueue)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", SAWarning)
+        response = authenticated_client.post(
+            "/api/ai/chat/stream", json={"message": "Analyze the server and explain your findings."}
+        )
+    assert response.status_code == 200
+    assert "event: terminal" in response.text
+    assert "Provider unavailable before output." in response.text

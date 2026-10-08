@@ -81,7 +81,9 @@ test("fresh installation completes every setup stage and serves the application"
   ).not.toBeChecked();
   await page.route("**/api/settings/ai/codex/**", async (route) => {
     const method = route.request().method();
-    const body = method === "POST"
+    const body = route.request().url().endsWith("/models")
+      ? { models: [{ id: "gpt-5.4" }, { id: "gpt-5.3-codex" }] }
+      : method === "POST"
       ? { state: "pending", verification_url: "https://auth.openai.com/codex/device", user_code: "TEST-1234" }
       : method === "DELETE" ? { ok: true }
       : { signed_in: false, plan: null, login: null, limits: [], measured_at: "2030-01-01T00:00:00Z" };
@@ -95,7 +97,7 @@ test("fresh installation completes every setup stage and serves the application"
   await page.locator(".codex-settings").screenshot({ path: testInfo.outputPath("codex-device-login.png") });
   await page.getByRole("button", { name: "Cancel sign-in" }).click();
   await expect(page.getByText("TEST-1234", { exact: true })).toHaveCount(0);
-  await page.locator('input[name="model"]').fill("gpt-5.4");
+  await page.getByRole("combobox", { name: "Model", exact: true }).selectOption("gpt-5.4");
   await page.locator('select[name="fallback_provider"]').selectOption("ollama");
   await page.getByLabel("Fallback model", { exact: true }).fill("llama-backup");
   await page.getByLabel("Fallback endpoint").fill("http://ollama.test:11434");
@@ -103,11 +105,12 @@ test("fresh installation completes every setup stage and serves the application"
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await expect(page.getByText("AI settings saved securely.")).toBeVisible();
   await page.reload();
+  await expect(page.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("gpt-5.4");
   await expect(page.locator('select[name="fallback_provider"]')).toHaveValue("ollama");
   await expect(page.getByLabel("Fallback model", { exact: true })).toHaveValue("llama-backup");
   await expect(page.getByLabel("Fallback context window")).toHaveValue("8192");
   await page.locator(".settings-form-section").filter({ has: page.getByRole("heading", { name: "Fallback model" }) }).screenshot({ path: testInfo.outputPath("fallback-settings.png") });
-  await page.unroute("**/api/settings/ai/codex/**");
+  // Keep provider calls mocked throughout this UI test; it does not sign in to a live account.
   await page.getByRole("link", { name: "Storage", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Storage pools" }),

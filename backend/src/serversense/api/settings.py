@@ -222,31 +222,42 @@ async def discover_ai_models(
     config = _target_config(db, target)
     db.commit()
     if config.get("provider") == "codex":
-        client = codex.CodexClient(timeout=5)
-        try:
-            await client.start()
-            result = await client.rpc("model/list", {"limit": 100, "includeHidden": False})
-            models = [
-                {"id": str(item.get("model") or item["id"])[:200], "supports_tools": True}
-                for item in result.get("data", [])[:100]
-                if isinstance(item, dict) and (item.get("model") or item.get("id"))
-            ]
-            return {
-                "models": models,
-                "provider": "codex",
-                "selected_exists": any(item["id"] == config.get("model") for item in models),
-            }
-        except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
-            raise HTTPException(
-                502,
-                "Could not load the Codex model catalog. Check the runtime and sign-in, then retry.",
-            ) from exc
-        finally:
-            await client.close()
+        return await _codex_models(str(config.get("model", "")))
     try:
         return await asyncio.to_thread(_discover_models, config)
     except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(502, f"Could not discover models: {type(exc).__name__}") from exc
+
+
+async def _codex_models(selected: str = "") -> dict[str, Any]:
+    client = codex.CodexClient(timeout=5)
+    try:
+        await client.start()
+        result = await client.rpc("model/list", {"limit": 100, "includeHidden": False})
+        models = [
+            {"id": str(item.get("model") or item["id"])[:200], "supports_tools": True}
+            for item in result.get("data", [])[:100]
+            if isinstance(item, dict) and (item.get("model") or item.get("id"))
+        ]
+        return {
+            "models": models,
+            "provider": "codex",
+            "selected_exists": any(item["id"] == selected for item in models),
+        }
+    except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
+        raise HTTPException(
+            502,
+            "Could not load the Codex model catalog. Check the runtime and sign-in, then retry.",
+        ) from exc
+    finally:
+        await client.close()
+
+
+@router.get("/ai/codex/models")
+async def discover_codex_models(db: Session = Depends(get_db)) -> dict[str, Any]:
+    # Catalog discovery is independent of saved provider/model selection.
+    db.commit()
+    return await _codex_models()
 
 
 @router.get("/ai/codex/account")
