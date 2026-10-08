@@ -1,11 +1,11 @@
 import asyncio
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from serversense.db import get_db
@@ -14,6 +14,7 @@ from serversense.schemas import AISettings, AlertSettings, GeneralSettingsUpdate
 from serversense.security import current_user
 from serversense.services import codex, http_requests
 from serversense.services.ai_config import read_ai_config
+from serversense.services.model_fallback import fallback_config
 from serversense.services.notifications import DELIVERY_ERRORS, provider_from_config
 from serversense.services.secrets import decrypt_secret, encrypt_secret
 from serversense.services.timezones import time_zone_details, validate_time_zone
@@ -79,8 +80,23 @@ def update_ai_settings(payload: AISettings, db: Session = Depends(get_db)) -> di
             payload.endpoint = validate_http_url(payload.endpoint)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+    if payload.fallback_endpoint:
+        try:
+            payload.fallback_endpoint = validate_http_url(payload.fallback_endpoint)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    if payload.fallback_provider != "disabled" and not payload.fallback_model.strip():
+        raise HTTPException(422, "Select a fallback model or disable fallback.")
+    if payload.fallback_provider not in {"disabled", "codex"} and not payload.fallback_endpoint:
+        raise HTTPException(422, "A fallback endpoint is required.")
     current = db.get(Setting, "ai")
-    value = payload.model_dump(exclude={"api_key"})
+    value = payload.model_dump(exclude={"api_key", "fallback_api_key"})
+    if payload.fallback_provider == "codex":
+        value["fallback_endpoint"] = ""
+    if payload.fallback_api_key:
+        value["fallback_api_key_encrypted"] = encrypt_secret(payload.fallback_api_key)
+    elif current and current.value.get("fallback_api_key_encrypted"):
+        value["fallback_api_key_encrypted"] = current.value["fallback_api_key_encrypted"]
     if payload.provider == "codex":
         value["endpoint"] = ""
     if payload.api_key:
@@ -106,9 +122,32 @@ def clear_ai_api_key(db: Session = Depends(get_db)) -> dict[str, Any]:
     return read_ai_config(db)
 
 
-@router.post("/ai/test")
-async def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
+@router.delete("/ai/fallback/api-key")
+def clear_fallback_api_key(db: Session = Depends(get_db)) -> dict[str, Any]:
+    current = db.get(Setting, "ai")
+    if current:
+        value = dict(current.value)
+        value.pop("fallback_api_key_encrypted", None)
+        current.value = value
+        db.commit()
+    return read_ai_config(db)
+
+
+def _target_config(db: Session, target: str) -> dict[str, Any]:
     config = read_ai_config(db, include_secret=True)
+    if target == "fallback":
+        selected = fallback_config(config | {"provider": "configured"})
+        if selected is None:
+            raise HTTPException(422, "Configure and save a fallback model first.")
+        return selected
+    return config
+
+
+@router.post("/ai/test")
+async def test_ai_settings(
+    target: Literal["primary", "fallback"] = "primary", db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    config = _target_config(db, target)
     db.commit()
     if config.get("provider") == "disabled":
         return {"healthy": True, "detail": "SENSE is using built-in deterministic mode"}
@@ -177,8 +216,10 @@ def _test_compatible_ai(config: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/ai/models")
-async def discover_ai_models(db: Session = Depends(get_db)) -> dict[str, Any]:
-    config = read_ai_config(db, include_secret=True)
+async def discover_ai_models(
+    target: Literal["primary", "fallback"] = "primary", db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    config = _target_config(db, target)
     db.commit()
     if config.get("provider") == "codex":
         client = codex.CodexClient(timeout=5)
@@ -263,7 +304,10 @@ def _require_codex_idle(db: Session) -> None:
     active = db.scalar(
         select(AIJob.id)
         .where(
-            AIJob.provider == "codex",
+            or_(
+                AIJob.provider == "codex",
+                AIJob.config_snapshot["fallback_provider"].as_string() == "codex",
+            ),
             AIJob.status.not_in(("completed", "failed", "cancelled", "timed_out", "interrupted")),
         )
         .limit(1)

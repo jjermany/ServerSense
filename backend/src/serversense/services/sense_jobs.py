@@ -22,6 +22,7 @@ from serversense.models import (
 )
 from serversense.services.ai import chat_stream
 from serversense.services.ai_config import read_ai_config
+from serversense.services.model_fallback import FALLBACK_FIELDS, eligible_failure, fallback_config
 from serversense.services.notifications import dispatch_notifications
 from serversense.services.sense_router import Intent
 from serversense.services.tools import execute_tool
@@ -54,6 +55,9 @@ def public_job(job: AIJob, queue_position: int | None = None) -> dict[str, Any]:
         "intent": job.intent,
         "provider": job.provider,
         "model": job.model,
+        "active_provider": (job.tools_used or {}).get("active_provider", job.provider),
+        "active_model": (job.tools_used or {}).get("active_model", job.model),
+        "fallback_reason": (job.tools_used or {}).get("fallback_reason"),
         "partial_response": job.partial_response,
         "tools_used": list((job.tools_used or {}).get("names", [])),
         "error": job.error,
@@ -97,7 +101,10 @@ def config_snapshot(config: dict[str, Any]) -> dict[str, Any]:
         "max_context_chars",
         "max_telemetry_chars",
     }
-    return {key: value for key, value in config.items() if key in allowed}
+    allowed.update(f"fallback_{key}" for key in FALLBACK_FIELDS)
+    return {"fallback_provider": "disabled"} | {
+        key: value for key, value in config.items() if key in allowed
+    }
 
 
 def create_job(
@@ -429,9 +436,13 @@ def _persist_partial_terminal(
             role="assistant",
             content=content,
             source="sense_ai",
-            provider=job.provider,
-            model=job.model,
-            references={"incomplete": True, "job_status": status},
+            provider=(job.tools_used or {}).get("active_provider", job.provider),
+            model=(job.tools_used or {}).get("active_model", job.model),
+            references={
+                "incomplete": True,
+                "job_status": status,
+                "fallback_reason": (job.tools_used or {}).get("fallback_reason"),
+            },
         )
         db.add(message)
         db.flush()
@@ -498,7 +509,7 @@ async def _run_job(job_id: str) -> None:
             config = read_ai_config(db, include_secret=True)
             # Model/provider/endpoint/options are immutable per job; the current credential is
             # read at execution time and is never persisted in the snapshot.
-            config.update(job.config_snapshot or {})
+            config.update({"fallback_provider": "disabled"} | (job.config_snapshot or {}))
             curated = _curated_context(
                 db,
                 message.content,
@@ -524,6 +535,9 @@ async def _run_job(job_id: str) -> None:
             model = job.model
             partial_limit = int(config.get("max_output_tokens", 512)) * 8
             max_runtime = float(config.get("max_runtime_seconds", 300))
+            config["_tool_budget"] = {"used": 0}
+            backup = fallback_config(config)
+            active_provider = job.provider
             attempted_curated_fallback = config.get("tool_calling", "auto") == "curated_context"
             async with asyncio.timeout(max_runtime):
                 while True:
@@ -549,12 +563,13 @@ async def _run_job(job_id: str) -> None:
                                 model = event.model
                             db.commit()
                         break
-                    except httpx.HTTPStatusError as exc:
+                    except Exception as exc:
                         # Several OpenAI-compatible local providers implement chat streaming but
                         # reject the native tools fields. In auto mode, retry once with the same
                         # curated telemetry and no native tool schema.
                         if (
-                            not attempted_curated_fallback
+                            isinstance(exc, httpx.HTTPStatusError)
+                            and not attempted_curated_fallback
                             and config.get("tool_calling", "auto") == "auto"
                             and exc.response.status_code in {400, 404, 405, 422, 501}
                         ):
@@ -564,6 +579,44 @@ async def _run_job(job_id: str) -> None:
                             job.partial_response = ""
                             job.first_token_at = None
                             job.status = "analyzing"
+                            db.commit()
+                            continue
+                        if backup is not None and eligible_failure(exc):
+                            reason = _safe_error(exc, config)
+                            if answer.strip():
+                                db.add(
+                                    AIMessage(
+                                        conversation_id=conversation.id,
+                                        timestamp=datetime.now(UTC),
+                                        role="assistant",
+                                        content=f"## Partial SENSE AI response\n\n{answer}\n\n_{reason} Using the fallback model._",
+                                        source="sense_ai",
+                                        provider=active_provider,
+                                        model=model,
+                                        references={
+                                            "incomplete": True,
+                                            "job_status": "failed",
+                                            "superseded_by_fallback": True,
+                                        },
+                                    )
+                                )
+                            config = backup
+                            backup = None
+                            active_provider = str(config["provider"])
+                            model = str(config["model"])
+                            attempted_curated_fallback = (
+                                config.get("tool_calling", "auto") == "curated_context"
+                            )
+                            answer = ""
+                            job.partial_response = ""
+                            job.first_token_at = None
+                            job.status = "analyzing"
+                            job.tools_used = {
+                                "names": [],
+                                "active_provider": active_provider,
+                                "active_model": model,
+                                "fallback_reason": reason,
+                            }
                             db.commit()
                             continue
                         raise
@@ -576,9 +629,12 @@ async def _run_job(job_id: str) -> None:
                 role="assistant",
                 content=answer,
                 source="sense_ai",
-                provider=job.provider,
+                provider=active_provider,
                 model=model,
-                references={"tools": list(used)},
+                references={
+                    "tools": list(used),
+                    "fallback_reason": (job.tools_used or {}).get("fallback_reason"),
+                },
             )
             db.add(assistant)
             db.flush()
@@ -597,7 +653,11 @@ async def _run_job(job_id: str) -> None:
             job.response_message_id = assistant.id
             job.partial_response = answer
             job.generated_tokens = max(1, (len(answer) + 3) // 4)
-            job.tools_used = {"names": list(used)}
+            job.tools_used = dict(job.tools_used or {}) | {
+                "names": list(used),
+                "active_provider": active_provider,
+                "active_model": model,
+            }
             job.status = "completed"
             job.completed_at = now
             external_notice: Alert | None = None
@@ -652,7 +712,12 @@ async def _run_job(job_id: str) -> None:
                     db,
                     job,
                     "failed",
-                    _safe_error(exc, job.config_snapshot)
+                    _safe_error(
+                        exc,
+                        fallback_config(job.config_snapshot)
+                        if (job.tools_used or {}).get("fallback_reason")
+                        else job.config_snapshot,
+                    )
                     + " ServerSense monitoring and direct telemetry remain available.",
                     notify=True,
                 )

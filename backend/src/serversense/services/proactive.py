@@ -3,10 +3,12 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, Event
 from serversense.services import codex, http_requests
+from serversense.services.model_fallback import complete_with_fallback
 from serversense.services.timezones import local_time, time_zone_details
 from serversense.services.urls import validate_http_url
 
@@ -30,14 +32,6 @@ def explain_alerts(db: Session, alerts: Sequence[Alert], config: dict[str, Any])
         return None
     if provider not in {"ollama", "openai_compatible", "codex"}:
         raise ValueError("Unsupported AI provider")
-    endpoint = (
-        ""
-        if provider == "codex"
-        else validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
-    )
-    if provider != "codex" and not endpoint.startswith(("http://", "https://")):
-        raise ValueError("AI endpoint must use HTTP or HTTPS")
-
     records = [
         {
             "id": alert.id,
@@ -50,9 +44,6 @@ def explain_alerts(db: Session, alerts: Sequence[Alert], config: dict[str, Any])
         for alert in alerts
     ]
     timezone = time_zone_details(db)
-    headers = {"Content-Type": "application/json"}
-    if config.get("api_key"):
-        headers["Authorization"] = f"Bearer {config['api_key']}"
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -72,17 +63,37 @@ def explain_alerts(db: Session, alerts: Sequence[Alert], config: dict[str, Any])
     if provider == "ollama":
         payload["reasoning_effort"] = "none"
     db.commit()
-    if provider == "codex":
-        content = codex.complete(config, payload["messages"], 240)
-    else:
+
+    def request(selected: dict[str, Any]) -> Any:
+        selected_provider = selected["provider"]
+        if selected_provider == "codex":
+            return codex.complete(selected, payload["messages"], 240)
+        selected_endpoint = validate_http_url(str(selected.get("endpoint", ""))).rstrip("/")
+        selected_headers = {"Content-Type": "application/json"}
+        if selected.get("api_key"):
+            selected_headers["Authorization"] = f"Bearer {selected['api_key']}"
+        selected_payload = payload | {
+            "model": selected["model"],
+            "temperature": min(float(selected.get("temperature", 0.2)), 0.4),
+        }
+        selected_payload.pop("reasoning_effort", None)
+        if selected_provider == "ollama":
+            selected_payload["reasoning_effort"] = "none"
+        request_timeout = min(
+            float(selected.get("timeout_seconds", 60)),
+            float(selected.get("max_runtime_seconds", 300)),
+        )
         response = http_requests.post(
-            f"{endpoint}/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=float(config.get("timeout_seconds", 60)),
+            f"{selected_endpoint}/v1/chat/completions",
+            headers=selected_headers,
+            json=selected_payload,
+            timeout=httpx.Timeout(request_timeout, connect=min(10.0, request_timeout)),
         )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"].get("content")
+        return response.json()["choices"][0]["message"].get("content")
+
+    content, selected = complete_with_fallback(config, request)
+    provider, model = str(selected["provider"]), str(selected["model"])
     if not isinstance(content, str):
         raise ValueError("SENSE returned an invalid proactive explanation")
     explanation = " ".join(content.replace("\x00", "").split()).strip()

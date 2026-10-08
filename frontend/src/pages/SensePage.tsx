@@ -29,6 +29,7 @@ type Message = {
   model?: string | null;
   provider?: string | null;
   source?: "user" | "serversense" | "sense_ai";
+  references?: { fallback_reason?: string | null };
   elapsed_seconds?: number | null;
 };
 type Conversation = { id: number; title: string; updated_at: string; summary?: string };
@@ -38,6 +39,9 @@ type Job = {
   user_message_id?: number;
   status: string;
   model: string;
+  active_model?: string;
+  active_provider?: string;
+  fallback_reason?: string | null;
   partial_response: string;
   queue_position?: number | null;
   backgrounded: boolean;
@@ -227,6 +231,8 @@ export default function SensePage() {
             conversation_id?: number;
             tools_used?: string[];
             model?: string;
+            provider?: string;
+            fallback_reason?: string | null;
             source?: "serversense" | "sense_ai";
             request_id?: string;
             job_id?: string;
@@ -246,7 +252,9 @@ export default function SensePage() {
           if (event === "status") {
             if (data.started_at) setActiveStartedAt(data.started_at);
             setActivity(
-              data.status === "queued"
+              data.fallback_reason
+                ? `Using fallback ${data.model}: ${data.fallback_reason}`
+                : data.status === "queued"
                 ? `Queued${data.queue_position ? ` (#${data.queue_position})` : ""}…`
                 : data.status === "gathering_context"
                   ? "Gathering relevant telemetry…"
@@ -281,6 +289,8 @@ export default function SensePage() {
                 content: data.message,
                 tools: data.tools_used,
                 model: data.model,
+                provider: data.provider,
+                references: { fallback_reason: data.fallback_reason },
                 source: data.source,
                 elapsed_seconds: data.elapsed_seconds,
               },
@@ -298,6 +308,8 @@ export default function SensePage() {
                 role: "assistant",
                 content: data.message || data.error || `SENSE job was ${data.status}.`,
                 model: data.model,
+                provider: data.provider,
+                references: { fallback_reason: data.fallback_reason },
                 source: "sense_ai",
                 elapsed_seconds: data.elapsed_seconds,
               },
@@ -510,7 +522,7 @@ export default function SensePage() {
               {messages.map((message, index) => (
                 <article key={message.id ?? index} className={message.role}>
                   <span>{message.role === "assistant" ? message.source === "serversense" ? <Server /> : <Bot /> : <User />}</span>
-                  <div>{message.tools?.map((tool) => <small className="tool" key={tool}>Checked {tool.replace("get_", "").replaceAll("_", " ")}</small>)}<ReactMarkdown>{message.content}</ReactMarkdown>{message.role === "assistant" && <small className={`model ${message.source ?? "sense_ai"}`}>{message.source === "serversense" ? "ServerSense · live telemetry" : `SENSE AI · ${message.model ?? "configured model"}${message.elapsed_seconds != null ? ` · Elapsed ${formatElapsed(message.elapsed_seconds)}` : ""}`}</small>}</div>
+                  <div>{message.tools?.map((tool) => <small className="tool" key={tool}>Checked {tool.replace("get_", "").replaceAll("_", " ")}</small>)}{message.references?.fallback_reason && <small className="model">Fallback used: {message.references.fallback_reason}</small>}<ReactMarkdown>{message.content}</ReactMarkdown>{message.role === "assistant" && <small className={`model ${message.source ?? "sense_ai"}`}>{message.source === "serversense" ? "ServerSense · live telemetry" : `SENSE AI · ${message.model ?? "configured model"}${message.elapsed_seconds != null ? ` · Elapsed ${formatElapsed(message.elapsed_seconds)}` : ""}`}</small>}</div>
                 </article>
               ))}
               {busy && (
@@ -555,13 +567,14 @@ export default function SensePage() {
                   <div>
                     <b>SENSE AI · {job.status.replaceAll("_", " ")}</b>
                     <small>
-                      {job.model}
+                      {job.active_model ?? job.model}
                       {job.queue_position ? ` · queue #${job.queue_position}` : ""}
                       {job.queue_wait_seconds != null ? ` · waited ${Math.floor(job.queue_wait_seconds)}s` : ""}
                       {job.time_to_first_token_seconds != null ? ` · first token ${job.time_to_first_token_seconds.toFixed(1)}s` : ""}
                       {jobElapsed(job) != null ? ` · Elapsed ${formatElapsed(jobElapsed(job)!)}` : ""}
                       {job.generated_tokens != null ? ` · ~${job.generated_tokens} tokens` : ""}
                     </small>
+                    {job.fallback_reason && <small>Fallback used: {job.fallback_reason}</small>}
                     {job.partial_response && <ReactMarkdown>{job.partial_response}</ReactMarkdown>}
                     {job.backgrounded && (
                       <label className="job-notify-toggle">

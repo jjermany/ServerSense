@@ -15,6 +15,13 @@ AI_DEFAULTS: dict[str, Any] = {
     "max_tool_calls": 3,
     "max_output_tokens": 512,
     "tool_calling": "auto",
+    "fallback_provider": "disabled",
+    "fallback_model": "",
+    "fallback_endpoint": "",
+    "fallback_context_window": 4096,
+    "fallback_temperature": 0.2,
+    "fallback_timeout_seconds": 120,
+    "fallback_tool_calling": "auto",
     "background_threshold_seconds": 30,
     "max_runtime_seconds": 300,
     "max_concurrent_jobs": 1,
@@ -37,4 +44,9 @@ def read_ai_config(db: Session, include_secret: bool = False) -> dict[str, Any]:
         value["api_key"] = decrypt_secret(encrypted) if encrypted else ""
     else:
         value["api_key_configured"] = bool(encrypted)
+    fallback_encrypted = str(value.pop("fallback_api_key_encrypted", ""))
+    if include_secret:
+        value["fallback_api_key"] = decrypt_secret(fallback_encrypted) if fallback_encrypted else ""
+    else:
+        value["fallback_api_key_configured"] = bool(fallback_encrypted)
     return value

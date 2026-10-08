@@ -398,6 +398,7 @@ async def chat_stream(
     used: list[str] = []
     completed_calls: dict[str, dict[str, Any]] = {}
     max_calls = int(config.get("max_tool_calls", 5))
+    tool_budget = config.get("_tool_budget", {"used": 0})
     timeout_seconds = float(config.get("timeout_seconds", 60))
     timeout = httpx.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds))
     native_tools = config.get("tool_calling", "auto") != "curated_context"
@@ -547,9 +548,10 @@ async def chat_stream(
                 call_key = json.dumps([name, arguments], sort_keys=True, default=str)
                 result = completed_calls.get(call_key)
                 if result is None:
-                    if len(used) >= max_calls:
+                    if int(tool_budget["used"]) >= max_calls:
                         raise ValueError("SENSE exceeded the configured tool-call limit")
                     result = execute_tool(db, name, arguments)
+                    tool_budget["used"] += 1
                     completed_calls[call_key] = result
                     used.append(name)
                     yield ChatEvent(

@@ -232,7 +232,7 @@ async def send_chat(
                         conversation_id=current.conversation_id,
                         message=message.content,
                         tools_used=list((current.tools_used or {}).get("names", [])),
-                        model=current.model,
+                        model=str((current.tools_used or {}).get("active_model", current.model)),
                         source="sense_ai",
                         job_id=current.id,
                     )
@@ -243,7 +243,7 @@ async def send_chat(
                         conversation_id=current.conversation_id,
                         message=message.content,
                         tools_used=list((current.tools_used or {}).get("names", [])),
-                        model=current.model,
+                        model=str((current.tools_used or {}).get("active_model", current.model)),
                         source="sense_ai",
                         job_id=current.id,
                     )
@@ -320,15 +320,20 @@ async def stream_chat(
                 if not current:
                     yield _sse("error", {"message": "SENSE job no longer exists"})
                     return
-                if current.status != prior_status:
-                    prior_status = current.status
+                status_key = f"{current.status}:{(current.tools_used or {}).get('active_provider', current.provider)}:{(current.tools_used or {}).get('active_model', current.model)}"
+                if status_key != prior_status:
+                    prior_status = status_key
                     yield _sse(
                         "status",
                         {
                             "job_id": current.id,
                             "status": current.status,
                             "queue_position": queue_position(stream_db, current),
-                            "model": current.model,
+                            "model": (current.tools_used or {}).get("active_model", current.model),
+                            "provider": (current.tools_used or {}).get(
+                                "active_provider", current.provider
+                            ),
+                            "fallback_reason": (current.tools_used or {}).get("fallback_reason"),
                             "notify_on_completion": current.notify_on_completion,
                             "started_at": current.started_at,
                             "first_token_at": current.first_token_at,
@@ -361,7 +366,11 @@ async def stream_chat(
                             "message_id": current.response_message_id,
                             "message": response.content if response else current.partial_response,
                             "tools_used": list((current.tools_used or {}).get("names", [])),
-                            "model": current.model,
+                            "model": (current.tools_used or {}).get("active_model", current.model),
+                            "provider": (current.tools_used or {}).get(
+                                "active_provider", current.provider
+                            ),
+                            "fallback_reason": (current.tools_used or {}).get("fallback_reason"),
                             "source": "sense_ai",
                             "job_id": current.id,
                             "elapsed_seconds": _job_elapsed_seconds(current),
@@ -377,7 +386,11 @@ async def stream_chat(
                             "message_id": current.response_message_id,
                             "message": response.content if response else "",
                             "error": current.error or f"SENSE job was {current.status}",
-                            "model": current.model,
+                            "model": (current.tools_used or {}).get("active_model", current.model),
+                            "provider": (current.tools_used or {}).get(
+                                "active_provider", current.provider
+                            ),
+                            "fallback_reason": (current.tools_used or {}).get("fallback_reason"),
                             "source": "sense_ai",
                             "job_id": current.id,
                             "status": current.status,

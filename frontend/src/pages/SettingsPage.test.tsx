@@ -58,6 +58,7 @@ const integrationsConfig = { available_providers: [], configured: [] };
 
 describe("AI settings", () => {
   beforeEach(() => {
+    vi.mocked(api).mockClear();
     vi.mocked(api).mockImplementation((path: string) => {
       if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
       if (path.endsWith("/general")) return Promise.resolve(generalConfig);
@@ -102,6 +103,26 @@ describe("AI settings", () => {
     expect(await screen.findByText("Provider inactivity timeout (seconds)")).toBeInTheDocument();
     expect(screen.getByText(/This can stop a stalled request before the overall job runtime limit/)).toBeInTheDocument();
     expect(screen.getByText(/Provider inactivity and connection limits can stop a request sooner/)).toBeInTheDocument();
+  });
+
+  it("saves an independent Ollama fallback and tests that saved connection", async () => {
+    render(<SettingsPage />);
+    const provider = await screen.findByLabelText("Fallback provider");
+    fireEvent.change(provider, { target: { value: "ollama" } });
+    fireEvent.change(screen.getByLabelText("Fallback model"), { target: { value: "llama-backup" } });
+    fireEvent.change(screen.getByLabelText(/Fallback endpoint/), { target: { value: "http://ollama.test:11434" } });
+    fireEvent.change(screen.getByLabelText("Fallback context window"), { target: { value: "8192" } });
+    fireEvent.submit(provider.closest("form")!);
+    await waitFor(() => {
+      const call = vi.mocked(api).mock.calls.find(([path, options]) => path === "/api/settings/ai" && options?.method === "PUT");
+      const payload = JSON.parse(String(call?.[1]?.body));
+      expect(payload.fallback_provider).toBe("ollama");
+      expect(payload.fallback_model).toBe("llama-backup");
+      expect(payload.fallback_context_window).toBe(8192);
+      expect(payload.model).toBe("local-model");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Test fallback connection" }));
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/api/settings/ai/test?target=fallback", { method: "POST" }));
   });
 
   it("requires an explicit opt-in for proactive model explanations", async () => {

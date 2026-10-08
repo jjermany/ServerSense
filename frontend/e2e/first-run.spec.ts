@@ -95,6 +95,18 @@ test("fresh installation completes every setup stage and serves the application"
   await page.locator(".codex-settings").screenshot({ path: testInfo.outputPath("codex-device-login.png") });
   await page.getByRole("button", { name: "Cancel sign-in" }).click();
   await expect(page.getByText("TEST-1234", { exact: true })).toHaveCount(0);
+  await page.locator('input[name="model"]').fill("gpt-5.4");
+  await page.locator('select[name="fallback_provider"]').selectOption("ollama");
+  await page.getByLabel("Fallback model", { exact: true }).fill("llama-backup");
+  await page.getByLabel("Fallback endpoint").fill("http://ollama.test:11434");
+  await page.getByLabel("Fallback context window").fill("8192");
+  await page.getByRole("button", { name: "Save settings", exact: true }).click();
+  await expect(page.getByText("AI settings saved securely.")).toBeVisible();
+  await page.reload();
+  await expect(page.locator('select[name="fallback_provider"]')).toHaveValue("ollama");
+  await expect(page.getByLabel("Fallback model", { exact: true })).toHaveValue("llama-backup");
+  await expect(page.getByLabel("Fallback context window")).toHaveValue("8192");
+  await page.locator(".settings-form-section").filter({ has: page.getByRole("heading", { name: "Fallback model" }) }).screenshot({ path: testInfo.outputPath("fallback-settings.png") });
   await page.unroute("**/api/settings/ai/codex/**");
   await page.getByRole("link", { name: "Storage", exact: true }).click();
   await expect(

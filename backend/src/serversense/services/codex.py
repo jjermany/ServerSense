@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 import tempfile
 from collections import deque
 from collections.abc import AsyncIterator
@@ -70,6 +71,10 @@ shell_snapshot = false
 class CodexError(RuntimeError):
     """Only application-authored, credential-free errors cross this boundary."""
 
+    def __init__(self, message: str, *, fallback_eligible: bool = False) -> None:
+        super().__init__(message)
+        self.fallback_eligible = fallback_eligible
+
 
 class LimitWindow(BaseModel):
     usedPercent: float = Field(ge=0, le=100)
@@ -127,28 +132,52 @@ def limit_error(windows: list[dict[str, Any]], timezone_name: str) -> CodexError
         message += f" The reported exhausted windows reset by {value:%b %d, %Y at %I:%M %p} ({timezone_name})."
     else:
         message += " OpenAI has not supplied a future reset time; check your ChatGPT usage."
-    return CodexError(message + " Retry after your allowance becomes available.")
+    return CodexError(
+        message + " Retry after your allowance becomes available.", fallback_eligible=True
+    )
 
 
 def provider_error(error: dict[str, Any], windows: list[dict[str, Any]], zone: str) -> CodexError:
     info = error.get("codexErrorInfo")
     if info == "usageLimitExceeded":
         return limit_error(windows, zone)
+    availability_failure = isinstance(info, str) and info in {
+        "rateLimitExceeded",
+        "flexUnavailable",
+        "serverOverloaded",
+        "internalServerError",
+        "unauthorized",
+    }
     if isinstance(info, dict):
         status = next(
             (value.get("httpStatusCode") for value in info.values() if isinstance(value, dict)),
             None,
         )
+        availability_failure = status in {401, 403, 404, 408, 429, 500, 502, 503, 504} or (
+            status is None
+            and bool(
+                set(info)
+                & {
+                    "httpConnectionFailed",
+                    "responseStreamConnectionFailed",
+                    "responseStreamDisconnected",
+                    "responseTooManyFailedAttempts",
+                }
+            )
+        )
         if status in {401, 403}:
             return CodexError(
-                "Codex authentication expired or access was denied. Sign in with ChatGPT again in Settings."
+                "Codex authentication expired or access was denied. Sign in with ChatGPT again in Settings.",
+                fallback_eligible=True,
             )
         if status == 429:
             return CodexError(
-                "Codex is temporarily rate limited. Retry later; subscription reset details are available in Settings when OpenAI reports them."
+                "Codex is temporarily rate limited. Retry later; subscription reset details are available in Settings when OpenAI reports them.",
+                fallback_eligible=True,
             )
     return CodexError(
-        "Codex could not complete this response. Check the account and selected model in Settings, then retry."
+        "Codex could not complete this response. Check the account and selected model in Settings, then retry.",
+        fallback_eligible=availability_failure,
     )
 
 
@@ -166,7 +195,8 @@ class CodexClient:
         binary = shutil.which(get_settings().codex_binary)
         if not binary:
             raise CodexError(
-                "Codex runtime is unavailable. Install the packaged Codex runtime or rebuild the ServerSense image."
+                "Codex runtime is unavailable. Install the packaged Codex runtime or rebuild the ServerSense image.",
+                fallback_eligible=True,
             )
         home = get_settings().config_dir.resolve() / "codex"
         home.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -198,19 +228,24 @@ class CodexClient:
             }
         }
         env.update(CODEX_HOME=str(home), HOME=str(home), USERPROFILE=str(home), RUST_LOG="off")
-        kwargs: dict[str, Any] = {"umask": 0o077} if os.name != "nt" else {}
+        command = [binary, "app-server", "--listen", "stdio://"]
+        if os.name != "nt":
+            # uvloop does not accept subprocess umask. Set it inside a fixed
+            # child launcher, leaving the threaded application's umask untouched.
+            command = [
+                sys.executable,
+                "-c",
+                "import os, sys; os.umask(0o077); os.execv(sys.argv[1], sys.argv[1:])",
+                *command,
+            ]
         self.process = await asyncio.create_subprocess_exec(
-            binary,
-            "app-server",
-            "--listen",
-            "stdio://",
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
             cwd=workspace,
             env=env,
             limit=MAX_EVENT_BYTES + 1,
-            **kwargs,
         )
         await self.rpc(
             "initialize",
@@ -237,16 +272,22 @@ class CodexClient:
 
     async def send(self, message: dict[str, Any]) -> None:
         if self.process is None or self.process.stdin is None:
-            raise CodexError("Codex runtime is disconnected. Retry the request.")
+            raise CodexError(
+                "Codex runtime is disconnected. Retry the request.", fallback_eligible=True
+            )
         self.process.stdin.write((json.dumps(message, separators=(",", ":")) + "\n").encode())
         try:
             await asyncio.wait_for(self.process.stdin.drain(), self.timeout)
         except (BrokenPipeError, ConnectionResetError) as exc:
-            raise CodexError("Codex runtime disconnected. Retry the request.") from exc
+            raise CodexError(
+                "Codex runtime disconnected. Retry the request.", fallback_eligible=True
+            ) from exc
 
     async def receive(self) -> dict[str, Any]:
         if self.process is None or self.process.stdout is None:
-            raise CodexError("Codex runtime is disconnected. Retry the request.")
+            raise CodexError(
+                "Codex runtime is disconnected. Retry the request.", fallback_eligible=True
+            )
         try:
             line = await asyncio.wait_for(self.process.stdout.readline(), self.timeout)
         except TimeoutError as exc:
@@ -254,7 +295,9 @@ class CodexClient:
         except (ValueError, asyncio.LimitOverrunError) as exc:
             raise CodexError("Codex exceeded the event size limit.") from exc
         if not line:
-            raise CodexError("Codex runtime disconnected before completing the request.")
+            raise CodexError(
+                "Codex runtime disconnected before completing the request.", fallback_eligible=True
+            )
         self.total_bytes += len(line)
         self.events += 1
         if (

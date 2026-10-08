@@ -17,6 +17,7 @@ from serversense.models import (
     MetricSample,
 )
 from serversense.services import codex, http_requests
+from serversense.services.model_fallback import complete_with_fallback
 from serversense.services.storage import latest_storage_sample
 from serversense.services.timezones import format_local_datetime, time_zone_details
 from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
@@ -308,13 +309,6 @@ def refresh_dashboard_summary(
         return None
     if provider not in {"ollama", "openai_compatible", "codex"}:
         raise ValueError("Unsupported AI provider")
-    endpoint = (
-        ""
-        if provider == "codex"
-        else validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
-    )
-    if provider != "codex" and not endpoint.startswith(("http://", "https://")):
-        raise ValueError("AI endpoint must use HTTP or HTTPS")
     facts = _facts(db)
     if facts is None:
         return None
@@ -322,9 +316,6 @@ def refresh_dashboard_summary(
     # long provider call so a monitoring write cannot enter SQLite's pending state
     # and block new dashboard readers behind this worker.
     db.rollback()
-    headers = {"Content-Type": "application/json"}
-    if config.get("api_key"):
-        headers["Authorization"] = f"Bearer {config['api_key']}"
     # AISettings constrains this value for normal writes. Keep the defensive
     # bounds here as well for legacy or directly seeded configuration rows.
     # Dashboard generation is one complete inference, so it uses the same
@@ -348,19 +339,34 @@ def refresh_dashboard_summary(
         # separate reasoning trace prevents thinking-capable models from
         # consuming the output budget before message.content is produced.
         payload["reasoning_effort"] = "none"
-    if provider == "codex":
-        content = codex.complete(
-            config | {"max_runtime_seconds": timeout}, payload["messages"], payload["max_tokens"]
-        )
-    else:
+
+    def request(selected: dict[str, Any]) -> Any:
+        selected_provider = selected["provider"]
+        if selected_provider == "codex":
+            return codex.complete(selected, payload["messages"], payload["max_tokens"])
+        selected_endpoint = validate_http_url(str(selected.get("endpoint", ""))).rstrip("/")
+        selected_headers = {"Content-Type": "application/json"}
+        if selected.get("api_key"):
+            selected_headers["Authorization"] = f"Bearer {selected['api_key']}"
+        selected_payload = payload | {
+            "model": selected["model"],
+            "temperature": min(float(selected.get("temperature", 0.2)), 0.3),
+        }
+        selected_payload.pop("reasoning_effort", None)
+        if selected_provider == "ollama":
+            selected_payload["reasoning_effort"] = "none"
+        request_timeout = float(selected.get("max_runtime_seconds", 300))
         response = http_requests.post(
-            f"{endpoint}/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
+            f"{selected_endpoint}/v1/chat/completions",
+            headers=selected_headers,
+            json=selected_payload,
+            timeout=httpx.Timeout(request_timeout, connect=min(10.0, request_timeout)),
         )
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"].get("content")
+        return response.json()["choices"][0]["message"].get("content")
+
+    content, selected = complete_with_fallback(config | {"max_runtime_seconds": timeout}, request)
+    provider, model = str(selected["provider"]), str(selected["model"])
     if not isinstance(content, str):
         raise ValueError("SENSE returned an invalid dashboard summary")
     summary = _normalize_summary_times(" ".join(content.replace("\x00", "").split()).strip())

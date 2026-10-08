@@ -25,6 +25,14 @@ type AIConfig = {
   model: string;
   endpoint: string;
   api_key_configured: boolean;
+  fallback_provider?: string;
+  fallback_model?: string;
+  fallback_endpoint?: string;
+  fallback_api_key_configured?: boolean;
+  fallback_context_window?: number;
+  fallback_temperature?: number;
+  fallback_timeout_seconds?: number;
+  fallback_tool_calling?: string;
   context_window: number;
   temperature: number;
   timeout_seconds: number;
@@ -163,6 +171,7 @@ function TestNotificationButton({
 export default function SettingsPage() {
   const { setTimeZone } = useTimeZone();
   const [config, setConfig] = useState<AIConfig>();
+  const [fallbackProvider, setFallbackProvider] = useState("disabled");
   const [selectedProvider, setSelectedProvider] = useState("disabled");
   const [alerts, setAlerts] = useState<AlertConfig>();
   const [general, setGeneral] = useState<GeneralConfig>();
@@ -185,6 +194,7 @@ export default function SettingsPage() {
       ]);
       setConfig(ai);
       setSelectedProvider(ai.provider);
+      setFallbackProvider(ai.fallback_provider ?? "disabled");
       setAlerts(alertConfig);
       setGeneral(generalConfig);
       setIntegrations(integrationsConfig);
@@ -316,6 +326,9 @@ export default function SettingsPage() {
           method: "PUT",
           body: JSON.stringify({
             ...raw,
+            fallback_context_window: Number(raw.fallback_context_window ?? 4096),
+            fallback_temperature: Number(raw.fallback_temperature ?? 0.2),
+            fallback_timeout_seconds: Number(raw.fallback_timeout_seconds ?? 120),
             context_window: Number(raw.context_window),
             temperature: Number(raw.temperature),
             timeout_seconds: Number(raw.timeout_seconds),
@@ -338,6 +351,8 @@ export default function SettingsPage() {
         window.dispatchEvent(new Event("serversense:ai-settings-updated"));
         const apiKeyInput = formElement.elements.namedItem("api_key");
         if (apiKeyInput instanceof HTMLInputElement) apiKeyInput.value = "";
+        const fallbackKey = formElement.elements.namedItem("fallback_api_key");
+        if (fallbackKey instanceof HTMLInputElement) fallbackKey.value = "";
         return updated;
       },
       "AI settings saved securely.",
@@ -618,7 +633,7 @@ export default function SettingsPage() {
                     <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist>
                   </label>
                 </div>
-                {selectedProvider === "codex" ? <><input type="hidden" name="endpoint" value="" /><CodexSettings /></> : <div className="field-grid">
+                {selectedProvider === "codex" ? <><input type="hidden" name="endpoint" value="" /></> : <div className="field-grid">
                   <label>
                     Endpoint
                     <input name="endpoint" type="url" defaultValue={config.endpoint} placeholder="http://host.docker.internal:11434" />
@@ -643,7 +658,34 @@ export default function SettingsPage() {
 
               <section className="settings-form-section">
                 <div className="settings-section-heading">
-                  <div><span>02</span><h3>Generation behavior</h3></div>
+                  <div><span>02</span><h3>Fallback model</h3></div>
+                  <p>Try this model once if the primary provider is unavailable, rate limited, or out of allowance. Both attempts share the maximum job runtime and response limits. Save before testing.</p>
+                </div>
+                <div className="field-grid">
+                  <label>Fallback provider<select name="fallback_provider" value={fallbackProvider} onChange={(event) => setFallbackProvider(event.target.value)}>
+                    <option value="disabled">No fallback</option><option value="ollama">Ollama-compatible</option><option value="openai_compatible">OpenAI-compatible API</option><option value="codex">Codex (ChatGPT subscription)</option>
+                  </select></label>
+                  <label>Fallback model<input name="fallback_model" defaultValue={config.fallback_model ?? ""} placeholder="e.g. llama3.2:3b" /></label>
+                  <label>Fallback endpoint<input name="fallback_endpoint" type="url" defaultValue={config.fallback_endpoint ?? ""} placeholder="http://host.docker.internal:11434" /><small>Required for Ollama and OpenAI-compatible providers.</small></label>
+                  <div className="credential-field">
+                    <label>Fallback API key<input name="fallback_api_key" type="password" autoComplete="new-password" placeholder={config.fallback_api_key_configured ? "Configured - leave blank to keep" : "Optional for local endpoints"} /></label>
+                    {config.fallback_api_key_configured && <button type="button" className="secondary" onClick={() => void runAction("fallback-clear", "Clearing fallback key...", async () => { const updated = await api<AIConfig>("/api/settings/ai/fallback/api-key", { method: "DELETE" }); setConfig(updated); return updated; }, "Fallback key cleared.")}>Clear saved fallback key</button>}
+                  </div>
+                </div>
+                <div className="settings-control-grid">
+                  <label>Fallback context window<input name="fallback_context_window" type="number" min="1024" max="262144" defaultValue={config.fallback_context_window ?? 4096} /></label>
+                  <label>Fallback temperature<input name="fallback_temperature" type="number" min="0" max="2" step="0.1" defaultValue={config.fallback_temperature ?? 0.2} /></label>
+                  <label>Fallback inactivity timeout (seconds)<input name="fallback_timeout_seconds" type="number" min="5" max="600" defaultValue={config.fallback_timeout_seconds ?? 120} /></label>
+                  <label>Fallback tool compatibility<select name="fallback_tool_calling" defaultValue={config.fallback_tool_calling ?? "auto"}><option value="auto">Auto compatibility</option><option value="native">Require native tools</option><option value="curated_context">Curated context only</option></select></label>
+                </div>
+                <button type="button" className="secondary" disabled={actions["fallback-test"]?.phase === "pending"} onClick={() => void runAction("fallback-test", "Testing fallback...", () => api<{ detail: string }>("/api/settings/ai/test?target=fallback", { method: "POST" }), (result) => result.detail)}>Test fallback connection</button>
+                <ActionFeedback status={actions["fallback-test"]} /><ActionFeedback status={actions["fallback-clear"]} />
+              </section>
+              {(selectedProvider === "codex" || fallbackProvider === "codex") && <CodexSettings />}
+
+              <section className="settings-form-section">
+                <div className="settings-section-heading">
+                  <div><span>03</span><h3>Generation behavior</h3></div>
                   <p>Control response size, model behavior, and provider timeouts.</p>
                 </div>
                 <div className="settings-control-grid">
@@ -658,7 +700,7 @@ export default function SettingsPage() {
 
               <section className="settings-form-section">
                 <div className="settings-section-heading">
-                  <div><span>03</span><h3>Jobs, context, and retention</h3></div>
+                  <div><span>04</span><h3>Jobs, context, and retention</h3></div>
                   <p>Set hard resource boundaries for model work.</p>
                 </div>
                 <div className="settings-control-grid">
@@ -674,7 +716,7 @@ export default function SettingsPage() {
 
               <section className="settings-form-section">
                 <div className="settings-section-heading">
-                  <div><span>04</span><h3>Automation and notifications</h3></div>
+                  <div><span>05</span><h3>Automation and notifications</h3></div>
                   <p>These optional features run separately from deterministic monitoring.</p>
                 </div>
                 <div className="settings-toggle-grid">
