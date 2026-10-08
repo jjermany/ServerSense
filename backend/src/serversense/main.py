@@ -14,6 +14,7 @@ from serversense.config import get_settings
 from serversense.db import SessionLocal, initialize_database
 from serversense.logging import configure_logging
 from serversense.middleware import APIProtectionMiddleware
+from serversense.services.codex import account as codex_account
 from serversense.services.demo import seed_demo_data
 from serversense.services.jobs import dashboard_summary_loop, monitoring_loop
 from serversense.services.sense_jobs import sense_job_loop, stop_sense_jobs
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
             with suppress(asyncio.CancelledError):
                 await task
         await stop_sense_jobs()
+        await codex_account.close()
 
 
 app = FastAPI(title="ServerSense API", version="1.0.0", lifespan=lifespan)

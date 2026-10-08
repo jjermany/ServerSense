@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     retention_days: int = Field(default=365, ge=7)
     array_path: Path = Path("/mnt/user")
     docker_socket: str = "unix:///var/run/docker.sock"
+    codex_binary: str = "codex"
     secure_cookies: bool = False
 
     @property

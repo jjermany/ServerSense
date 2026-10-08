@@ -63,7 +63,7 @@ class ForecastResponse(BaseModel):
 
 
 class AISettings(BaseModel):
-    provider: str = Field(default="disabled", pattern="^(disabled|ollama|openai_compatible)$")
+    provider: str = Field(default="disabled", pattern="^(disabled|ollama|openai_compatible|codex)$")
     model: str = Field(default="", max_length=200)
     endpoint: str = Field(default="", max_length=2000)
     api_key: str | None = Field(default=None, max_length=500)

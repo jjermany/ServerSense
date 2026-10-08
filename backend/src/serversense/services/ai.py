@@ -7,6 +7,7 @@ from typing import Any, Literal
 import httpx
 from sqlalchemy.orm import Session
 
+from serversense.services import codex
 from serversense.services.http_requests import BoundedDecoder
 from serversense.services.timezones import local_time, time_zone_details
 from serversense.services.tools import execute_tool, tool_definitions
@@ -381,8 +382,12 @@ async def chat_stream(
         )
         return
 
-    endpoint = validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
-    if not endpoint.startswith(("http://", "https://")):
+    endpoint = (
+        ""
+        if provider == "codex"
+        else validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
+    )
+    if provider != "codex" and not endpoint.startswith(("http://", "https://")):
         raise ValueError("AI endpoint must use HTTP or HTTPS")
     headers = {"Content-Type": "application/json"}
     if config.get("api_key"):
@@ -470,7 +475,12 @@ async def chat_stream(
             can_retry_without_reasoning = provider == "ollama"
             while True:
                 db.commit()
-                async for item in _provider_turn(client, endpoint, headers, payload):
+                provider_stream = (
+                    codex.provider_turn(payload, config | {"display_timezone": timezone.name})
+                    if provider == "codex"
+                    else _provider_turn(client, endpoint, headers, payload)
+                )
+                async for item in provider_stream:
                     if isinstance(item, str):
                         turn_parts.append(item)
                         yield ChatEvent("delta", item)

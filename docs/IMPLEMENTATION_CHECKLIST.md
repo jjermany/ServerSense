@@ -54,6 +54,7 @@ Last updated: 2026-10-01
 - [x] read-only allowlisted structured tool registry
 - [x] built-in deterministic no-model mode
 - [x] OpenAI-compatible tool-calling provider
+- [x] Codex ChatGPT-subscription provider with managed device-code Settings login/cancel/logout, private persistent `/config/codex` credentials, pinned Alpine-compatible runtime, durable streamed SENSE conversations, model catalog/access test, provider-reported usage/reset windows, safe exhaustion errors, and environment-free ephemeral inference limited to the existing read-only registry
 - [x] Ollama-compatible `/v1` endpoint configuration with bounded low-reasoning interactive responses, a no-reasoning empty-response retry, and suppressed reasoning for short background responses
 - [x] encrypted provider key, health test, enforced token-window prompt budget, context/temperature/timeout/tool settings UI
 - [x] explicit removal of a previously saved AI provider API key without resetting other AI settings

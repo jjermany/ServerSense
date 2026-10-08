@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from serversense.models import Alert, Event
-from serversense.services import http_requests
+from serversense.services import codex, http_requests
 from serversense.services.timezones import local_time, time_zone_details
 from serversense.services.urls import validate_http_url
 
@@ -28,10 +28,14 @@ def explain_alerts(db: Session, alerts: Sequence[Alert], config: dict[str, Any])
         or not model
     ):
         return None
-    if provider not in {"ollama", "openai_compatible"}:
+    if provider not in {"ollama", "openai_compatible", "codex"}:
         raise ValueError("Unsupported AI provider")
-    endpoint = validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
-    if not endpoint.startswith(("http://", "https://")):
+    endpoint = (
+        ""
+        if provider == "codex"
+        else validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
+    )
+    if provider != "codex" and not endpoint.startswith(("http://", "https://")):
         raise ValueError("AI endpoint must use HTTP or HTTPS")
 
     records = [
@@ -68,14 +72,17 @@ def explain_alerts(db: Session, alerts: Sequence[Alert], config: dict[str, Any])
     if provider == "ollama":
         payload["reasoning_effort"] = "none"
     db.commit()
-    response = http_requests.post(
-        f"{endpoint}/v1/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=float(config.get("timeout_seconds", 60)),
-    )
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"].get("content")
+    if provider == "codex":
+        content = codex.complete(config, payload["messages"], 240)
+    else:
+        response = http_requests.post(
+            f"{endpoint}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=float(config.get("timeout_seconds", 60)),
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"].get("content")
     if not isinstance(content, str):
         raise ValueError("SENSE returned an invalid proactive explanation")
     explanation = " ".join(content.replace("\x00", "").split()).strip()

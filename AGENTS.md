@@ -8,6 +8,8 @@ Everything persistent must live below `/config`. The production schema changes o
 
 ## Architecture
 
+The Codex provider uses the packaged pinned app-server only for managed device login and model inference, with its private credential home below `/config/codex`. Keep both thread and turn environments empty, sessions ephemeral, built-in execution features disabled, and ServerSense's existing tool registry as the sole execution boundary. Preserve durable ServerSense conversation history and re-enforce the prompt budget between model turns. Keep OAuth tokens out of settings, jobs, exports, diagnostics, logs, and browser responses. Distinguish provider-confirmed subscription exhaustion from generic rate limiting; use only reported reset times with configured-timezone 12-hour display. Codex temperature is provider-managed and its response setting is a conservative visible-character cap because app-server has no per-turn output-token option. Device login is for local/self-hosted use; registered Sign in with ChatGPT is a separate integration for hosted/commercial services.
+
 - FastAPI backend: `backend/src/serversense`
 - React strict TypeScript frontend: `frontend/src`
 - SQLite/SQLAlchemy models: `backend/src/serversense/models.py`

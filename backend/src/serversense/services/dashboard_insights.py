@@ -16,7 +16,7 @@ from serversense.models import (
     MediaActivity,
     MetricSample,
 )
-from serversense.services import http_requests
+from serversense.services import codex, http_requests
 from serversense.services.storage import latest_storage_sample
 from serversense.services.timezones import format_local_datetime, time_zone_details
 from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
@@ -306,10 +306,14 @@ def refresh_dashboard_summary(
         or not _refresh_due(db, now)
     ):
         return None
-    if provider not in {"ollama", "openai_compatible"}:
+    if provider not in {"ollama", "openai_compatible", "codex"}:
         raise ValueError("Unsupported AI provider")
-    endpoint = validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
-    if not endpoint.startswith(("http://", "https://")):
+    endpoint = (
+        ""
+        if provider == "codex"
+        else validate_http_url(str(config.get("endpoint", ""))).rstrip("/")
+    )
+    if provider != "codex" and not endpoint.startswith(("http://", "https://")):
         raise ValueError("AI endpoint must use HTTP or HTTPS")
     facts = _facts(db)
     if facts is None:
@@ -344,14 +348,19 @@ def refresh_dashboard_summary(
         # separate reasoning trace prevents thinking-capable models from
         # consuming the output budget before message.content is produced.
         payload["reasoning_effort"] = "none"
-    response = http_requests.post(
-        f"{endpoint}/v1/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
-    )
-    response.raise_for_status()
-    content = response.json()["choices"][0]["message"].get("content")
+    if provider == "codex":
+        content = codex.complete(
+            config | {"max_runtime_seconds": timeout}, payload["messages"], payload["max_tokens"]
+        )
+    else:
+        response = http_requests.post(
+            f"{endpoint}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=httpx.Timeout(timeout, connect=min(10.0, timeout)),
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"].get("content")
     if not isinstance(content, str):
         raise ValueError("SENSE returned an invalid dashboard summary")
     summary = _normalize_summary_times(" ".join(content.replace("\x00", "").split()).strip())

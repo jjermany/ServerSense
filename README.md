@@ -94,6 +94,14 @@ Settings includes dedicated Monitoring and Integrations sections, active respons
 
 SENSE can call only the read-only functions in `services/tools.py`. It has no shell, file, Docker-control, or Unraid mutation tool.
 
+Select **Codex (ChatGPT subscription)** under **Settings → SENSE AI** to use a ChatGPT plan. Choose **Sign in with ChatGPT**, open the official device-login link, and enter the one-time code. Device-code authentication must be enabled in your ChatGPT security settings or workspace permissions. Save the provider choice, refresh the model catalog, select and save a model, then test the connection; the catalog alone does not confirm account entitlement. A context window of at least 32768 is recommended for SENSE's tool schema and telemetry. The Docker image packages Codex CLI 0.161.0; local development needs a Codex executable on PATH, or an explicit `SERVERSENSE_CODEX_BINARY` installation path.
+
+Codex manages credential renewal in a private `/config/codex` directory. Its `auth.json` contains sensitive OAuth credentials protected by directory/file permissions; it is not a ServerSense API key and is excluded from Settings exports and diagnostic bundles. Preserve the `/config` mount across upgrades. Sign out in Settings to remove Codex authentication, after queued or active Codex jobs finish or are cancelled. Use this device-login integration for a local, self-hosted installation; OpenAI's [app-server authentication documentation](https://learn.chatgpt.com/docs/app-server) directs commercial and hosted services to the separately registered Sign in with ChatGPT flow.
+
+Codex responses use the existing durable SENSE jobs, streaming UI, cancellation, history, and retention. Each model turn receives bounded conversation context in an ephemeral, environment-free Codex session; ServerSense validates and executes only its existing read-only tools between turns. No shell, arbitrary log/file reading, approvals for server changes, or Docker/Unraid controls are added. Temperature is managed by Codex. The response-token setting reserves prompt space and conservatively caps visible output at three characters per configured token; Codex's app-server does not expose a per-turn output-token limit. Overall runtime, inactivity, stream bytes/events, text, and tool arguments are separately bounded.
+
+Settings shows provider-reported allowance windows, usage percentages, and reset times in the configured timezone, with the usage measurement timestamp and a refresh control. A subscription-exhaustion failure explains the reported future reset times; absent reset information is explicitly unknown, and a generic HTTP 429 is treated as temporary rate limiting rather than proof of exhausted subscription allowance. Other Codex clients, optional dashboard summaries, and proactive alert explanations can consume the same plan allowance. No paid fallback or automatic credit purchase is performed.
+
 ## Local development
 
 Backend (PowerShell):

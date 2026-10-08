@@ -79,6 +79,23 @@ test("fresh installation completes every setup stage and serves the application"
   await expect(
     page.getByLabel(/Explain new alerts with SENSE/),
   ).not.toBeChecked();
+  await page.route("**/api/settings/ai/codex/**", async (route) => {
+    const method = route.request().method();
+    const body = method === "POST"
+      ? { state: "pending", verification_url: "https://auth.openai.com/codex/device", user_code: "TEST-1234" }
+      : method === "DELETE" ? { ok: true }
+      : { signed_in: false, plan: null, login: null, limits: [], measured_at: "2030-01-01T00:00:00Z" };
+    await route.fulfill({ json: body });
+  });
+  await page.getByRole("combobox", { name: "Provider", exact: true }).selectOption("codex");
+  await expect(page.getByRole("button", { name: "Sign in with ChatGPT" })).toBeVisible();
+  await expect(page.locator('input[name="endpoint"][type="url"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Sign in with ChatGPT" }).click();
+  await expect(page.getByText("TEST-1234", { exact: true })).toBeVisible();
+  await page.locator(".codex-settings").screenshot({ path: testInfo.outputPath("codex-device-login.png") });
+  await page.getByRole("button", { name: "Cancel sign-in" }).click();
+  await expect(page.getByText("TEST-1234", { exact: true })).toHaveCount(0);
+  await page.unroute("**/api/settings/ai/codex/**");
   await page.getByRole("link", { name: "Storage", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Storage pools" }),

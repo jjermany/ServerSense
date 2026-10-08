@@ -18,6 +18,7 @@ import {
 import { api } from "../api";
 import { Card, PageHeader } from "../components/UI";
 import SecuritySettings from "../components/SecuritySettings";
+import CodexSettings from "../components/CodexSettings";
 import { useTimeZone } from "../timeZoneContext";
 type AIConfig = {
   provider: string;
@@ -162,6 +163,7 @@ function TestNotificationButton({
 export default function SettingsPage() {
   const { setTimeZone } = useTimeZone();
   const [config, setConfig] = useState<AIConfig>();
+  const [selectedProvider, setSelectedProvider] = useState("disabled");
   const [alerts, setAlerts] = useState<AlertConfig>();
   const [general, setGeneral] = useState<GeneralConfig>();
   const [integrations, setIntegrations] = useState<IntegrationsConfig>();
@@ -182,6 +184,7 @@ export default function SettingsPage() {
         api<IntegrationsConfig>("/api/integrations"),
       ]);
       setConfig(ai);
+      setSelectedProvider(ai.provider);
       setAlerts(alertConfig);
       setGeneral(generalConfig);
       setIntegrations(integrationsConfig);
@@ -597,10 +600,11 @@ export default function SettingsPage() {
                 <div className="field-grid">
                   <label>
                     Provider
-                    <select name="provider" defaultValue={config.provider}>
+                    <select name="provider" value={selectedProvider} onChange={(event) => setSelectedProvider(event.target.value)}>
                       <option value="disabled">Built-in deterministic mode</option>
                       <option value="ollama">Ollama-compatible</option>
                       <option value="openai_compatible">OpenAI-compatible API</option>
+                      <option value="codex">Codex (ChatGPT subscription)</option>
                     </select>
                   </label>
                   <label>
@@ -614,7 +618,7 @@ export default function SettingsPage() {
                     <datalist id="ai-model-list">{models.map((model) => <option key={model.id} value={model.id} />)}</datalist>
                   </label>
                 </div>
-                <div className="field-grid">
+                {selectedProvider === "codex" ? <><input type="hidden" name="endpoint" value="" /><CodexSettings /></> : <div className="field-grid">
                   <label>
                     Endpoint
                     <input name="endpoint" type="url" defaultValue={config.endpoint} placeholder="http://host.docker.internal:11434" />
@@ -633,6 +637,7 @@ export default function SettingsPage() {
                     )}
                   </div>
                 </div>
+                }
                 <ActionFeedback status={actions["ai-models"]} />
               </section>
 

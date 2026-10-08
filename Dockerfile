@@ -5,6 +5,12 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
+FROM node:24-alpine AS codex-build
+RUN npm install --prefix /codex --no-audit --no-fund @openai/codex@0.161.0 \
+    && mkdir /codex-bin \
+    && find /codex/node_modules/@openai -type f -path '*/bin/codex' -exec cp '{}' /codex-bin/codex \; \
+    && test -x /codex-bin/codex
+
 FROM python:3.12-alpine3.24 AS runtime
 ARG VERSION=1.0.0
 LABEL org.opencontainers.image.title="ServerSense" \
@@ -23,6 +29,8 @@ RUN apk add --no-cache --virtual .build-deps build-base linux-headers libffi-dev
     && python -m pip uninstall -y pip \
     && apk del .build-deps
 COPY --from=frontend-build /build/frontend/dist /app/static
+COPY --from=codex-build /codex-bin/codex /usr/local/bin/codex
+RUN codex --version
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh && mkdir -p /config/logs /config/models /config/backups /config/settings
 VOLUME ["/config"]

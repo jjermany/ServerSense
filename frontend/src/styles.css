@@ -1604,6 +1604,30 @@ button {
   min-height: 42px;
   white-space: nowrap;
 }
+.codex-settings {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.codex-settings p { margin: 0; }
+.codex-settings a { color: var(--cyan); }
+.codex-settings .settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.codex-device-login {
+  display: grid;
+  gap: 12px;
+}
+.codex-device-login strong {
+  font-size: 1.5rem;
+  letter-spacing: 0.12em;
+}
 .settings-toggle-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

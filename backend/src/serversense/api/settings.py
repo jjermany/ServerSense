@@ -1,16 +1,18 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from serversense.db import get_db
-from serversense.models import Alert, Setting
+from serversense.models import AIJob, Alert, Setting
 from serversense.schemas import AISettings, AlertSettings, GeneralSettingsUpdate
 from serversense.security import current_user
-from serversense.services import http_requests
+from serversense.services import codex, http_requests
 from serversense.services.ai_config import read_ai_config
 from serversense.services.notifications import DELIVERY_ERRORS, provider_from_config
 from serversense.services.secrets import decrypt_secret, encrypt_secret
@@ -79,6 +81,8 @@ def update_ai_settings(payload: AISettings, db: Session = Depends(get_db)) -> di
             raise HTTPException(422, str(exc)) from exc
     current = db.get(Setting, "ai")
     value = payload.model_dump(exclude={"api_key"})
+    if payload.provider == "codex":
+        value["endpoint"] = ""
     if payload.api_key:
         value["api_key_encrypted"] = encrypt_secret(payload.api_key)
     elif current and current.value.get("api_key_encrypted"):
@@ -103,11 +107,42 @@ def clear_ai_api_key(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/ai/test")
-def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
+async def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
     config = read_ai_config(db, include_secret=True)
     db.commit()
     if config.get("provider") == "disabled":
         return {"healthy": True, "detail": "SENSE is using built-in deterministic mode"}
+    if config.get("provider") == "codex":
+        if not config.get("model"):
+            raise HTTPException(422, "Select and save a Codex model before testing the connection.")
+        try:
+            answer = ""
+            async with asyncio.timeout(10):
+                async for item in codex.provider_turn(
+                    {
+                        "model": config["model"],
+                        "messages": [{"role": "user", "content": "Reply with OK."}],
+                    },
+                    config | {"max_output_tokens": 64, "timeout_seconds": 10},
+                ):
+                    if isinstance(item, str):
+                        answer += item
+            if not answer.strip():
+                raise codex.CodexError(
+                    "Codex returned no visible test response. Retry or select another model."
+                )
+        except (codex.CodexError, httpx.HTTPError, TimeoutError, ValueError) as exc:
+            detail = (
+                str(exc)
+                if isinstance(exc, codex.CodexError)
+                else "Codex test failed or timed out. Check sign-in and the selected model, then retry."
+            )
+            raise HTTPException(502, detail) from exc
+        return {"healthy": True, "detail": f"Connected to {config.get('model')} through Codex"}
+    return await asyncio.to_thread(_test_compatible_ai, config)
+
+
+def _test_compatible_ai(config: dict[str, Any]) -> dict[str, Any]:
     endpoint = str(config.get("endpoint", "")).rstrip("/")
     try:
         discovery = _discover_models(config)
@@ -142,13 +177,103 @@ def test_ai_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.get("/ai/models")
-def discover_ai_models(db: Session = Depends(get_db)) -> dict[str, Any]:
+async def discover_ai_models(db: Session = Depends(get_db)) -> dict[str, Any]:
     config = read_ai_config(db, include_secret=True)
     db.commit()
+    if config.get("provider") == "codex":
+        client = codex.CodexClient(timeout=5)
+        try:
+            await client.start()
+            result = await client.rpc("model/list", {"limit": 100, "includeHidden": False})
+            models = [
+                {"id": str(item.get("model") or item["id"])[:200], "supports_tools": True}
+                for item in result.get("data", [])[:100]
+                if isinstance(item, dict) and (item.get("model") or item.get("id"))
+            ]
+            return {
+                "models": models,
+                "provider": "codex",
+                "selected_exists": any(item["id"] == config.get("model") for item in models),
+            }
+        except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
+            raise HTTPException(
+                502,
+                "Could not load the Codex model catalog. Check the runtime and sign-in, then retry.",
+            ) from exc
+        finally:
+            await client.close()
     try:
-        return _discover_models(config)
+        return await asyncio.to_thread(_discover_models, config)
     except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(502, f"Could not discover models: {type(exc).__name__}") from exc
+
+
+@router.get("/ai/codex/account")
+async def codex_account_status(db: Session = Depends(get_db)) -> dict[str, Any]:
+    db.commit()
+    try:
+        async with asyncio.timeout(10):
+            return await codex.account.status()
+    except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
+        await codex.account.close()
+        raise HTTPException(
+            502, "Codex account is unavailable. Check the packaged runtime and retry."
+        ) from exc
+
+
+@router.post("/ai/codex/login")
+async def codex_device_login(db: Session = Depends(get_db)) -> dict[str, Any]:
+    _require_codex_idle(db)
+    try:
+        async with asyncio.timeout(10):
+            return await codex.account.start_login()
+    except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
+        await codex.account.close()
+        raise HTTPException(
+            502,
+            "Could not start Codex device login. Enable device-code login in ChatGPT security or workspace settings, then retry.",
+        ) from exc
+
+
+@router.delete("/ai/codex/login")
+async def cancel_codex_login(db: Session = Depends(get_db)) -> dict[str, bool]:
+    db.commit()
+    try:
+        async with asyncio.timeout(10):
+            await codex.account.cancel_login()
+    except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
+        await codex.account.close()
+        raise HTTPException(502, "Could not cancel Codex login. Retry.") from exc
+    return {"ok": True}
+
+
+@router.delete("/ai/codex/account")
+async def logout_codex_account(db: Session = Depends(get_db)) -> dict[str, bool]:
+    _require_codex_idle(db)
+    try:
+        async with asyncio.timeout(10):
+            await codex.account.logout()
+    except (codex.CodexError, TimeoutError, httpx.HTTPError) as exc:
+        await codex.account.close()
+        raise HTTPException(502, "Could not sign out of Codex. Retry.") from exc
+    return {"ok": True}
+
+
+def _require_codex_idle(db: Session) -> None:
+    active = db.scalar(
+        select(AIJob.id)
+        .where(
+            AIJob.provider == "codex",
+            AIJob.status.not_in(("completed", "failed", "cancelled", "timed_out", "interrupted")),
+        )
+        .limit(1)
+    )
+    db.commit()
+    if active is not None:
+        raise HTTPException(
+            409,
+            "Wait for queued or active Codex jobs to finish, or cancel them, before changing the ChatGPT account.",
+        )
 
 
 @router.get("/general")
