@@ -46,6 +46,48 @@ def config() -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize(
+    "category",
+    ["context_limit", "output_limit", "subscription_exhausted", "authentication", "empty_response"],
+)
+def test_dashboard_preserves_codex_category_with_safe_guidance(
+    summary_db: Session,
+    category: insights.codex.CodexFailureCategory,
+) -> None:
+    failure = insights.record_dashboard_summary_failure(
+        summary_db,
+        config(),
+        insights.codex.CodexError("secret-provider-response", category=category),
+    )
+    summary_db.commit()
+    status = insights.dashboard_summary_status(summary_db, config())
+    assert failure.data["reason"] == category
+    assert status["last_failure_category"] == category
+    assert status["failure_guidance"]
+    assert "secret-provider-response" not in str(failure.data) + str(status)
+
+
+def test_dashboard_titles_are_bounded_without_changing_upgrade_counts(
+    summary_db: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        insights,
+        "media_activity_summary",
+        lambda _db, _args: {
+            "instances": {"Movies": {"confirmed_quality_upgrades": 100}},
+            "confirmed_upgrade_titles": [{"title": f"Movie {i}"} for i in range(100)],
+            "upgrade_titles_truncated": False,
+        },
+    )
+    facts = insights._facts(summary_db)
+    assert facts is not None
+    media = facts["media_activity_7_days"]
+    assert len(media["confirmed_upgrade_titles"]) == 10
+    assert media["upgrade_titles_truncated"] is True
+    assert media["instances"]["Movies"]["confirmed_quality_upgrades"] == 100
+
+
 def test_manual_refresh_overrides_schedule_and_failure_cooldown(
     summary_db: Session,
     monkeypatch: MonkeyPatch,

@@ -96,6 +96,7 @@ export type DashboardSummaryStatus = {
   retry_at: string | null;
   last_failure_category: string | null;
   last_failure_at: string | null;
+  failure_guidance?: string | null;
   generated_at: string | null;
 };
 export type StoragePoint = {

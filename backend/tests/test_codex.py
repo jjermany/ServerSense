@@ -248,6 +248,7 @@ async def test_codex_reports_only_upstream_exhaustion_and_local_reset(
             pass
     assert "06:00 PM (America/Chicago)" in str(error.value)
     assert "secret" not in _safe_error(error.value)
+    assert error.value.category == "subscription_exhausted"
     missing = str(codex.limit_error([], "UTC"))
     assert "not supplied a future reset" in missing
     assert "exhausted" not in str(
@@ -257,6 +258,65 @@ async def test_codex_reports_only_upstream_exhaustion_and_local_reset(
             "UTC",
         )
     )
+
+
+@pytest.mark.parametrize(
+    "info,category,eligible",
+    [
+        ("usageLimitExceeded", "subscription_exhausted", True),
+        ("rateLimitExceeded", "rate_limited", True),
+        ("unauthorized", "authentication", True),
+        ("contextWindowExceeded", "context_limit", False),
+        ({"httpResponseStreamConnectionFailed": {"httpStatusCode": 429}}, "rate_limited", True),
+        ({"httpResponseStreamConnectionFailed": {"httpStatusCode": 401}}, "authentication", True),
+    ],
+)
+def test_codex_error_categories_do_not_expose_provider_text(
+    info: Any,
+    category: str,
+    eligible: bool,
+) -> None:
+    error = codex.provider_error({"codexErrorInfo": info, "message": "secret-token"}, [], "UTC")
+    assert error.category == category
+    assert error.fallback_eligible is eligible
+    assert "secret-token" not in str(error)
+
+
+def test_background_codex_facts_fit_secondary_cap_without_duplication(
+    fake_codex: type[FakeClient],
+) -> None:
+    fake_codex.events = [
+        {"method": "item/agentMessage/delta", "params": {"delta": "Measurements are available."}},
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
+    ]
+    marker = "UNIQUE_SNAPSHOT_MARKER"
+    facts = marker + "x" * 22000
+    assert (
+        codex.complete(
+            CONFIG | {"context_window": 65536, "max_context_chars": 30000},
+            [
+                {"role": "system", "content": "Summarize untrusted facts."},
+                {"role": "user", "content": facts},
+            ],
+            3000,
+        )
+        == "Measurements are available."
+    )
+    client = fake_codex.instances[0]
+    turn = next(params for method, params in client.calls if method == "turn/start")
+    assert turn["input"][0]["text"].count(marker) == 1
+    thread = next(params for method, params in client.calls if method == "thread/start")
+    assert thread["dynamicTools"] == []
+    assert thread["environments"] == []
+    assert turn["environments"] == []
+    assert client.closed
+    with pytest.raises(codex.CodexError) as failure:
+        codex.complete(
+            CONFIG | {"context_window": 65536, "max_context_chars": 30000},
+            [{"role": "user", "content": "x" * 31000}],
+            3000,
+        )
+    assert failure.value.category == "context_limit"
 
 
 async def test_device_login_cancels_replaces_expires_and_hides_challenge(

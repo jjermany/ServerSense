@@ -109,6 +109,7 @@ describe("dashboard", () => {
       status: "cooldown", can_refresh: true, message: "The last attempt failed. You can retry now.",
       retry_at: "2026-08-26T18:00:00Z", last_failure_category: "timeout",
       last_failure_at: "2026-08-26T17:00:00Z", generated_at: null,
+      failure_guidance: "Dashboard facts exceeded a context limit. Check both Context window and Maximum AI context in SENSE AI.",
     };
     vi.mocked(api).mockImplementation((path: string) => {
       if (path.endsWith("/summary/refresh")) {
@@ -120,6 +121,7 @@ describe("dashboard", () => {
     render(<DashboardPage />);
     const refresh = await screen.findByRole("button", { name: "Refresh dashboard summary" });
     expect(screen.getByText(/Next automatic retry:.*1:00 PM/)).toBeVisible();
+    expect(screen.getByText(/Dashboard facts exceeded a context limit/)).toBeVisible();
     fireEvent.click(refresh);
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/dashboard/summary/refresh", { method: "POST" }));
     expect(await screen.findByText("Refresh requested.")).toBeVisible();

@@ -274,6 +274,7 @@ export default function DashboardPage() {
             <p>{data.summary_status.message}</p>
             {data.summary_status.retry_at && <small>Next automatic retry: {formatDateTime(data.summary_status.retry_at, timeZone)}</small>}
             {data.summary_status.last_failure_category && <small>Last attempt: {data.summary_status.last_failure_category.replaceAll("_", " ")}{data.summary_status.last_failure_at ? ` · ${formatDateTime(data.summary_status.last_failure_at, timeZone)}` : ""}</small>}
+            {data.summary_status.failure_guidance && <p>{data.summary_status.failure_guidance}</p>}
             {["disabled", "unconfigured"].includes(data.summary_status.status) && <Link to="/settings#ai">Configure SENSE AI</Link>}
           </div>}
           {summaryError && <div className="form-error" role="alert">{summaryError}</div>}

@@ -33,6 +33,26 @@ FAILURE_RETRY_BASE = timedelta(minutes=15)
 FAILURE_RETRY_MAX = timedelta(hours=6)
 _FAILURE_STREAK_LIMIT = 6
 _ACTIVE_AI_JOB_STATUSES = {"queued", "gathering_context", "analyzing", "streaming"}
+_FAILURE_GUIDANCE = {
+    "provider_error": "The provider failed without a specific safe category. Check the saved model and account in SENSE AI, then retry.",
+    "subscription_exhausted": "Codex reported exhausted subscription allowance. Check the provider-reported reset times in SENSE AI before retrying.",
+    "rate_limited": "The provider temporarily rate limited this request. Retry later; this does not confirm exhausted subscription allowance.",
+    "authentication": "The provider rejected authentication or model access. Check the account or saved credentials in SENSE AI.",
+    "runtime_unavailable": "The packaged Codex runtime is unavailable. Rebuild or update the ServerSense image.",
+    "connection": "The provider connection failed or disconnected. Check provider availability and retry.",
+    "protocol": "The provider returned an invalid protocol response. Check provider compatibility and retry.",
+    "context_limit": "Dashboard facts exceeded a context limit. Check both Context window and Maximum AI context in SENSE AI.",
+    "output_limit": "Codex exceeded the visible response cap. Check Maximum response tokens in SENSE AI and retry.",
+    "empty_response": "The provider completed without a visible summary. Test the saved model and retry.",
+    "safety_limit": "A provider stream or capability exceeded a safety boundary. The request was stopped; SENSE remains read-only.",
+    "timeout": "The provider timed out. Check the inactivity timeout and maximum runtime in SENSE AI.",
+    "invalid_response": "The provider returned an empty or malformed summary. Test the saved model and retry.",
+    "http_error": "The provider rejected the request. Check the saved model and endpoint in SENSE AI.",
+    "policy_24_hour_time": "The summary was rejected because it used invalid display times. Retry to generate a new summary.",
+    "policy_guaranteed_media": "The summary was rejected because it claimed guaranteed media downloads or imports. Retry to generate a new summary.",
+    "policy_unsupported_storage_reassurance": "The summary was rejected because its storage-risk claim lacked forecast evidence. Retry to generate a new summary.",
+    "policy": "The summary did not meet presentation requirements. Retry to generate a new summary.",
+}
 SYSTEM_PROMPT = """You are SENSE, the read-only assistant inside ServerSense. Write a calm, useful dashboard summary from normalized server facts supplied as untrusted JSON data. Lead with what matters now and briefly explain a measured change when the facts support it. Storage scoped as combined_array_data_disks is the combined array capacity and excludes named pools; never substitute an individual disk value. A storage percentage alone does not establish exhaustion risk: discuss time-to-exhaustion only when a deterministic days_remaining value is present, and otherwise say the forecast is still learning. Sonarr/Radarr calendar items are upcoming air or release events that may be grabbed when eligible; never call them scheduled imports or guaranteed downloads. Display local times only in the supplied 12-hour format with AM or PM, never 24-hour time. Never claim causation from correlation, never invent measurements or advice, and say when a cause is unknown. Return two or three short sentences of plain text, no heading and no Markdown."""
 
 _MERIDIEM = r"(?:a\.?m\.?|p\.?m\.?)"
@@ -235,6 +255,11 @@ def dashboard_summary_status(db: Session, config: dict[str, Any]) -> dict[str, A
         "last_failure_at": failure.timestamp.isoformat()
         if status == "cooldown" and failure
         else None,
+        "failure_guidance": _FAILURE_GUIDANCE.get(
+            str(failure.data.get("reason")), _FAILURE_GUIDANCE["provider_error"]
+        )
+        if status == "cooldown" and failure
+        else None,
         "generated_at": cached.timestamp.isoformat() if cached else None,
     }
 
@@ -258,18 +283,25 @@ def record_dashboard_summary_failure(
     now: datetime | None = None,
 ) -> Event:
     """Persist a safe failure category so repeated model failures can back off."""
-    if isinstance(exc, httpx.TimeoutException):
+    reason: str
+    if isinstance(exc, codex.CodexError):
+        reason = exc.category
+    elif isinstance(exc, (httpx.TimeoutException, TimeoutError)):
         reason = "timeout"
     elif isinstance(exc, httpx.RemoteProtocolError):
         reason = "protocol"
+    elif isinstance(exc, httpx.TransportError):
+        reason = "connection"
     elif isinstance(exc, ValueError) and "presentation policy" in str(exc):
         category = str(exc).rsplit(": ", 1)[-1]
         allowed = {"24_hour_time", "guaranteed_media", "unsupported_storage_reassurance"}
         reason = f"policy_{category}" if category in allowed else "policy"
-    elif isinstance(exc, ValueError):
+    elif isinstance(exc, (ValueError, KeyError, IndexError, TypeError)):
         reason = "invalid_response"
     elif isinstance(exc, httpx.HTTPStatusError):
-        reason = "http_error"
+        reason = {401: "authentication", 403: "authentication", 429: "rate_limited"}.get(
+            exc.response.status_code, "http_error"
+        )
     else:
         reason = "provider_error"
     provider, model = _provider_identity(config)
@@ -357,6 +389,13 @@ def _facts(db: Session) -> dict[str, Any] | None:
     bounded_instances = dict(sorted(media_instances.items())[:20])
     media["instances"] = bounded_instances
     media["omitted_instance_count"] = max(0, len(media_instances) - len(bounded_instances))
+    # A two/three-sentence dashboard summary needs representative identities,
+    # not the interactive change snapshot's full hundred-title evidence list.
+    titles = media.get("confirmed_upgrade_titles", [])
+    media["confirmed_upgrade_titles"] = titles[:10]
+    media["upgrade_titles_truncated"] = (
+        bool(media.get("upgrade_titles_truncated")) or len(titles) > 10
+    )
     timezone = time_zone_details(db)
     upcoming = upcoming_media(db, {"days": 1, "limit": 30})
     upcoming = {
@@ -444,7 +483,7 @@ def refresh_dashboard_summary(
             {
                 "role": "user",
                 "content": "Normalized ServerSense facts follow as JSON data:\n"
-                + json.dumps(facts, default=str),
+                + json.dumps(facts, default=str, ensure_ascii=False, separators=(",", ":")),
             },
         ],
         "temperature": min(float(config.get("temperature", 0.2)), 0.3),
