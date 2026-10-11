@@ -28,14 +28,23 @@ from serversense.services.alerting import evaluate_alerts
 from serversense.services.collectors import build_collector, persist_snapshot
 from serversense.services.dashboard_insights import (
     DASHBOARD_FAILURE_EVENT,
+    REFRESH_STATE_KEY,
     record_dashboard_summary_failure,
     refresh_dashboard_summary,
+    set_dashboard_refresh_state,
 )
 from serversense.services.integrations import collect_media_integrations
 from serversense.services.notifications import dispatch_notifications
 from serversense.services.proactive import explain_alerts
 
 logger = logging.getLogger(__name__)
+_dashboard_summary_wake: asyncio.Event | None = None
+_dashboard_summary_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def wake_dashboard_summary() -> None:
+    if _dashboard_summary_wake is not None and _dashboard_summary_event_loop is not None:
+        _dashboard_summary_event_loop.call_soon_threadsafe(_dashboard_summary_wake.set)
 
 
 def collection_cycle(
@@ -219,26 +228,64 @@ async def monitoring_loop() -> None:
         cleanup_elapsed += tick_seconds
 
 
-def dashboard_summary_cycle() -> None:
+def dashboard_summary_cycle() -> bool:
     with SessionLocal() as db:
         config = read_ai_config(db, include_secret=True)
+        state = db.get(Setting, REFRESH_STATE_KEY)
+        force = state is not None and state.value.get("state") == "queued"
         try:
-            refresh_dashboard_summary(db, config)
+            refresh_dashboard_summary(db, config, force=force)
         except Exception as exc:
             db.rollback()
             try:
-                record_dashboard_summary_failure(db, config, exc)
+                failure = record_dashboard_summary_failure(db, config, exc)
+                set_dashboard_refresh_state(db, "failed")
                 db.commit()
+                logger.warning("Cached SENSE dashboard summary failed: %s", failure.data["reason"])
             except Exception:
                 db.rollback()
                 logger.warning("Could not persist dashboard summary failure state")
-            detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-            logger.warning("Cached SENSE dashboard summary failed: %s", detail)
+        state = db.get(Setting, REFRESH_STATE_KEY)
+        return (
+            state is not None
+            and state.value.get("state") == "queued"
+            and bool(config.get("dashboard_summaries"))
+            and config.get("provider") != "disabled"
+            and bool(config.get("model"))
+        )
 
 
 async def dashboard_summary_loop() -> None:
+    global _dashboard_summary_wake, _dashboard_summary_event_loop
+    wake = asyncio.Event()
+    _dashboard_summary_wake = wake
+    _dashboard_summary_event_loop = asyncio.get_running_loop()
     # Keep optional model work fully outside monitoring and dashboard request paths.
-    await asyncio.sleep(30)
-    while True:
-        await asyncio.to_thread(dashboard_summary_cycle)
-        await asyncio.sleep(300)
+    with SessionLocal() as db:
+        state = db.get(Setting, REFRESH_STATE_KEY)
+        if state and state.value.get("state") == "running":
+            config = read_ai_config(db)
+            record_dashboard_summary_failure(db, config, RuntimeError("interrupted"))
+            set_dashboard_refresh_state(db, "failed")
+            db.commit()
+        elif state and state.value.get("state") == "queued":
+            wake.set()
+    delay = 30
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(wake.wait(), timeout=delay)
+            except TimeoutError:
+                pass
+            wake.clear()
+            try:
+                queued = await asyncio.to_thread(dashboard_summary_cycle)
+                delay = 5 if queued else 300
+            except Exception as exc:
+                # A temporary database/configuration failure must not permanently
+                # stop optional summaries. Never include exception contents.
+                logger.warning("Dashboard summary worker check failed: %s", type(exc).__name__)
+                delay = 60
+    finally:
+        _dashboard_summary_wake = None
+        _dashboard_summary_event_loop = None

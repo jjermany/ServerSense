@@ -1351,6 +1351,26 @@ button {
 .chat-input button.stop svg {
   width: 15px;
 }
+.summary-refresh {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.summary-status {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0c1119;
+  padding: 12px;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.summary-status p { margin: 0; }
+.summary-status small { font-size: 10px; }
+.summary-status a { color: #aeb8ff; }
+.summary-status.cooldown { border-color: #69512b; }
 .settings-layout {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -1407,6 +1427,38 @@ button {
   background: #1b2336;
   border-radius: 7px;
   color: #aeb8ff;
+}
+.settings-layout aside a > span {
+  display: grid;
+  gap: 3px;
+}
+.settings-layout aside a small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.settings-stack > [hidden] {
+  display: none;
+}
+.settings-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-subnav a {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #b6c0d3;
+  font-size: 11px;
+  text-decoration: none;
+}
+.settings-subnav a:hover {
+  background: #1b2336;
+  color: #c6ceff;
+}
+.settings-form-section[id] {
+  scroll-margin-top: 170px;
 }
 .settings-card {
   padding: clamp(22px, 3vw, 34px);
@@ -1480,6 +1532,9 @@ button {
 .settings-card form {
   padding-top: 20px;
 }
+.settings-card form + .permission-box {
+  margin-top: 20px;
+}
 .settings-form {
   display: grid;
   gap: 26px;
@@ -1491,10 +1546,10 @@ button {
   border-bottom: 1px solid var(--line);
 }
 .settings-section-heading {
-  display: flex;
+  display: grid;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  gap: 6px;
 }
 .settings-section-heading > div {
   display: flex;
@@ -1518,12 +1573,12 @@ button {
   font-size: 13px;
 }
 .settings-section-heading p {
-  max-width: 430px;
+  max-width: 680px;
   margin: 3px 0 0;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.5;
-  text-align: right;
+  text-align: left;
 }
 .settings-card label,
 .auth-card label {
@@ -1550,6 +1605,17 @@ button {
   min-width: 0;
   min-height: 42px;
   outline: none;
+}
+.settings-card button {
+  min-height: 42px;
+}
+.settings-card input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 2px 0 0;
+  flex: 0 0 16px;
+  accent-color: var(--accent);
 }
 .settings-card input:focus,
 .settings-card select:focus,
@@ -1799,9 +1865,7 @@ button {
   gap: 8px;
 }
 .media-integrations {
-  border-top: 1px solid var(--line);
-  margin-top: 24px;
-  padding-top: 24px;
+  min-width: 0;
 }
 .settings-title.compact {
   margin-bottom: 16px;

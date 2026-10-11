@@ -1,9 +1,10 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { axe } from "jest-axe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
-import { LIVE_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
-import type { Dashboard, StoragePoint } from "../types";
+import { clearLiveQueryCache, LIVE_REFRESH_INTERVAL_MS } from "../hooks/useLiveQuery";
+import type { Dashboard, DashboardSummaryStatus, StoragePoint } from "../types";
 import DashboardPage from "./DashboardPage";
 
 vi.mock("../api", () => ({
@@ -96,9 +97,59 @@ const history: StoragePoint[] = [
 
 describe("dashboard", () => {
   beforeEach(() => {
+    clearLiveQueryCache();
+    vi.mocked(api).mockClear();
     vi.mocked(api).mockImplementation((path: string) =>
       Promise.resolve(path === "/api/dashboard" ? dashboard : history),
     );
+  });
+
+  it("queues a manual summary refresh and keeps deterministic insights while waiting", async () => {
+    let status: DashboardSummaryStatus = {
+      status: "cooldown", can_refresh: true, message: "The last attempt failed. You can retry now.",
+      retry_at: "2026-08-26T18:00:00Z", last_failure_category: "timeout",
+      last_failure_at: "2026-08-26T17:00:00Z", generated_at: null,
+    };
+    vi.mocked(api).mockImplementation((path: string) => {
+      if (path.endsWith("/summary/refresh")) {
+        status = { ...status, status: "queued", can_refresh: false, message: "Refresh requested.", retry_at: null };
+        return Promise.resolve(status);
+      }
+      return Promise.resolve(path === "/api/dashboard" ? { ...dashboard, summary_status: status } : history);
+    });
+    render(<DashboardPage />);
+    const refresh = await screen.findByRole("button", { name: "Refresh dashboard summary" });
+    expect(screen.getByText(/Next automatic retry:.*1:00 PM/)).toBeVisible();
+    fireEvent.click(refresh);
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/dashboard/summary/refresh", { method: "POST" }));
+    expect(await screen.findByText("Refresh requested.")).toBeVisible();
+    expect(refresh).toBeDisabled();
+    expect(screen.getByText("Storage trajectory")).toBeVisible();
+  });
+
+  it("explains opt-in and links directly to AI settings", async () => {
+    vi.mocked(api).mockImplementation((path: string) => Promise.resolve(
+      path === "/api/dashboard" ? { ...dashboard, summary_status: {
+        status: "disabled", message: "Dashboard summaries are off.", can_refresh: false,
+      } } : history,
+    ));
+    render(<MemoryRouter><DashboardPage /></MemoryRouter>);
+    expect(await screen.findByText("Dashboard summaries are off.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Configure SENSE AI" })).toHaveAttribute("href", "/settings#ai");
+    expect(screen.getByRole("button", { name: "Refresh dashboard summary" })).toBeDisabled();
+  });
+
+  it("allows retry when submitting a refresh fails", async () => {
+    vi.mocked(api).mockImplementation((path: string) => {
+      if (path.endsWith("/summary/refresh")) return Promise.reject(new Error("Refresh unavailable"));
+      return Promise.resolve(path === "/api/dashboard" ? { ...dashboard, summary_status: {
+        status: "pending", message: "No current summary is available.", can_refresh: true,
+      } } : history);
+    });
+    render(<DashboardPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh dashboard summary" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Refresh unavailable");
+    expect(screen.getByRole("button", { name: "Refresh dashboard summary" })).toBeEnabled();
   });
   afterEach(() => {
     cleanup();

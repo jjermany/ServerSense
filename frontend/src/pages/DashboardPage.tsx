@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -14,9 +16,10 @@ import {
   Bot,
   HardDrive,
   Server,
+  RefreshCw,
 } from "lucide-react";
-import { formatBytes, formatRate } from "../api";
-import type { Dashboard, StoragePoint } from "../types";
+import { api, formatBytes, formatRate } from "../api";
+import type { Dashboard, DashboardSummaryStatus, StoragePoint } from "../types";
 import { Card, Metric, PageHeader, Status } from "../components/UI";
 import {
   SLOW_REFRESH_INTERVAL_MS,
@@ -32,7 +35,22 @@ import { useTimeZone } from "../timeZoneContext";
 
 export default function DashboardPage() {
   const { timeZone: configuredTimeZone } = useTimeZone();
-  const { data, error: liveError } = useLiveQuery<Dashboard>("/api/dashboard");
+  const { data, error: liveError, refresh, setData } = useLiveQuery<Dashboard>("/api/dashboard");
+  const [requestingSummary, setRequestingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState("");
+  const refreshSummary = async () => {
+    setRequestingSummary(true);
+    setSummaryError("");
+    try {
+      const status = await api<DashboardSummaryStatus>("/api/dashboard/summary/refresh", { method: "POST" });
+      setData((current) => current ? { ...current, summary_status: status } : current);
+      refresh();
+    } catch (error) {
+      setSummaryError(error instanceof Error ? error.message : "Summary refresh could not be requested.");
+    } finally {
+      setRequestingSummary(false);
+    }
+  };
   const { data: history = [], error: historyError } = useLiveQuery<StoragePoint[]>(
     "/api/storage/history?range=90d",
     SLOW_REFRESH_INTERVAL_MS,
@@ -240,8 +258,25 @@ export default function DashboardPage() {
               <small>SENSE</small>
               <b>Insight</b>
             </div>
-            <i className="spark" />
+            {data.summary_status && <button
+              type="button"
+              className="secondary summary-refresh"
+              disabled={requestingSummary || !data.summary_status.can_refresh}
+              onClick={() => void refreshSummary()}
+              aria-label="Refresh dashboard summary"
+            >
+              <RefreshCw size={14} className={requestingSummary || data.summary_status.status === "running" ? "spin" : undefined} />
+              {requestingSummary || data.summary_status.status === "running" ? "Refreshing…" :
+                !data.summary_status.can_refresh && ["queued", "waiting"].includes(data.summary_status.status) ? "Queued" : "Refresh"}
+            </button>}
           </div>
+          {data.summary_status && <div className={`summary-status ${data.summary_status.status}`} role="status" aria-live="polite">
+            <p>{data.summary_status.message}</p>
+            {data.summary_status.retry_at && <small>Next automatic retry: {formatDateTime(data.summary_status.retry_at, timeZone)}</small>}
+            {data.summary_status.last_failure_category && <small>Last attempt: {data.summary_status.last_failure_category.replaceAll("_", " ")}{data.summary_status.last_failure_at ? ` · ${formatDateTime(data.summary_status.last_failure_at, timeZone)}` : ""}</small>}
+            {["disabled", "unconfigured"].includes(data.summary_status.status) && <Link to="/settings#ai">Configure SENSE AI</Link>}
+          </div>}
+          {summaryError && <div className="form-error" role="alert">{summaryError}</div>}
           {data.insights.map((insight, index) => (
             <article key={index}>
               <h3>{insight.title}</h3>

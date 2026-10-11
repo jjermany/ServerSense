@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
 from serversense.models import (
@@ -15,6 +15,7 @@ from serversense.models import (
     Event,
     MediaActivity,
     MetricSample,
+    Setting,
 )
 from serversense.services import codex, http_requests
 from serversense.services.model_fallback import complete_with_fallback
@@ -27,6 +28,7 @@ REFRESH_INTERVAL = timedelta(hours=6)
 MINIMUM_REFRESH_INTERVAL = timedelta(minutes=15)
 DISPLAY_MAX_AGE = timedelta(hours=12)
 DASHBOARD_FAILURE_EVENT = "sense_dashboard_summary_failure"
+REFRESH_STATE_KEY = "dashboard_summary_refresh"
 FAILURE_RETRY_BASE = timedelta(minutes=15)
 FAILURE_RETRY_MAX = timedelta(hours=6)
 _FAILURE_STREAK_LIMIT = 6
@@ -102,7 +104,7 @@ def _interactive_ai_busy(db: Session) -> bool:
     )
 
 
-def _failure_retry_pending(db: Session, config: dict[str, Any], now: datetime) -> bool:
+def _failure_retry_at(db: Session, config: dict[str, Any]) -> datetime | None:
     provider, model = _provider_identity(config)
     latest_success = db.scalar(
         select(Event)
@@ -120,10 +122,10 @@ def _failure_retry_pending(db: Session, config: dict[str, Any], now: datetime) -
         query = query.where(Event.timestamp > latest_success.timestamp)
     failures = list(db.scalars(query))
     if not failures:
-        return False
+        return None
     latest = failures[0]
     if (latest.data.get("provider"), latest.data.get("model")) != (provider, model):
-        return False
+        return None
     matching_failures = [
         failure
         for failure in failures
@@ -134,7 +136,119 @@ def _failure_retry_pending(db: Session, config: dict[str, Any], now: datetime) -
         FAILURE_RETRY_BASE.total_seconds() * (2**exponent),
         FAILURE_RETRY_MAX.total_seconds(),
     )
-    return now - _aware(latest.timestamp) < timedelta(seconds=delay_seconds)
+    return _aware(latest.timestamp) + timedelta(seconds=delay_seconds)
+
+
+def _failure_retry_pending(db: Session, config: dict[str, Any], now: datetime) -> bool:
+    retry_at = _failure_retry_at(db, config)
+    return retry_at is not None and now < retry_at
+
+
+def set_dashboard_refresh_state(db: Session, state: str) -> None:
+    row = db.get(Setting, REFRESH_STATE_KEY)
+    value = dict(row.value) if row else {}
+    value.update(state=state, updated_at=datetime.now(UTC).isoformat())
+    if row is None:
+        db.add(Setting(key=REFRESH_STATE_KEY, value=value))
+    else:
+        row.value = value
+
+
+def dashboard_summary_status(db: Session, config: dict[str, Any]) -> dict[str, Any]:
+    """Explain missing cached text without exposing provider errors or credentials."""
+    now = datetime.now(UTC)
+    enabled = bool(config.get("dashboard_summaries", False))
+    configured = config.get("provider", "disabled") != "disabled" and bool(config.get("model"))
+    request = db.get(Setting, REFRESH_STATE_KEY)
+    state = request.value.get("state") if request else None
+    retry_at = _failure_retry_at(db, config)
+    failure = db.scalar(
+        select(Event)
+        .where(Event.event_type == DASHBOARD_FAILURE_EVENT)
+        .order_by(desc(Event.timestamp))
+        .limit(1)
+    )
+    cached = latest_dashboard_summary(db, now)
+    if not enabled:
+        status, message = (
+            "disabled",
+            "Dashboard summaries are off. Enable them in Settings → SENSE AI.",
+        )
+    elif not configured:
+        status, message = (
+            "unconfigured",
+            "Choose and save an AI provider and model in Settings → SENSE AI.",
+        )
+    elif state == "running":
+        status, message = "running", "Generating a fresh summary in the background."
+    elif latest_storage_sample(db) is None:
+        status, message = (
+            "no_data",
+            "Waiting for the first storage measurement before generating a summary.",
+        )
+    elif _interactive_ai_busy(db):
+        status, message = (
+            "waiting",
+            "Summary generation is waiting for interactive SENSE requests to finish.",
+        )
+    elif state == "queued":
+        status, message = (
+            "queued",
+            "Refresh requested. A fresh summary will appear here when ready.",
+        )
+    elif retry_at and retry_at > now:
+        status, message = (
+            "cooldown",
+            "The last attempt failed. Automatic retries are paused; you can retry now.",
+        )
+    elif cached:
+        status, message = (
+            "ready",
+            "Summaries refresh automatically every six hours and after new alerts or media activity.",
+        )
+    else:
+        status, message = (
+            "pending",
+            "No current summary is available. Generate one now or wait for the next background check.",
+        )
+        previous = db.scalar(
+            select(Event)
+            .where(Event.event_type == "sense_dashboard_summary")
+            .order_by(desc(Event.timestamp))
+            .limit(1)
+        )
+        if previous and now - _aware(previous.timestamp) > DISPLAY_MAX_AGE:
+            message = "The previous summary is over 12 hours old and has expired. Refresh to generate a current summary."
+        elif previous:
+            message = "The previous summary does not match current storage measurements or presentation requirements. Refresh to generate a current summary."
+    return {
+        "status": status,
+        "message": message,
+        "can_refresh": enabled
+        and configured
+        and status not in {"running", "queued", "no_data"}
+        and state != "queued",
+        "retry_at": retry_at.isoformat() if status == "cooldown" and retry_at else None,
+        "last_failure_category": failure.data.get("reason")
+        if status == "cooldown" and failure
+        else None,
+        "last_failure_at": failure.timestamp.isoformat()
+        if status == "cooldown" and failure
+        else None,
+        "generated_at": cached.timestamp.isoformat() if cached else None,
+    }
+
+
+def request_dashboard_summary(db: Session, config: dict[str, Any]) -> dict[str, Any]:
+    # Serialize concurrent clicks into one durable request, including requests
+    # from separate browsers. No inference runs in this request transaction.
+    db.rollback()
+    db.execute(text("BEGIN IMMEDIATE"))
+    status = dashboard_summary_status(db, config)
+    if status["can_refresh"]:
+        set_dashboard_refresh_state(db, "queued")
+    db.commit()
+    return dashboard_summary_status(db, config)
 
 
 def record_dashboard_summary_failure(
@@ -293,7 +407,7 @@ def _facts(db: Session) -> dict[str, Any] | None:
 
 
 def refresh_dashboard_summary(
-    db: Session, config: dict[str, Any], now: datetime | None = None
+    db: Session, config: dict[str, Any], now: datetime | None = None, *, force: bool = False
 ) -> Event | None:
     now = now or datetime.now(UTC)
     provider = str(config.get("provider", "disabled"))
@@ -303,8 +417,8 @@ def refresh_dashboard_summary(
         or provider == "disabled"
         or not model
         or _interactive_ai_busy(db)
-        or _failure_retry_pending(db, config, now)
-        or not _refresh_due(db, now)
+        or (not force and _failure_retry_pending(db, config, now))
+        or (not force and not _refresh_due(db, now))
     ):
         return None
     if provider not in {"ollama", "openai_compatible", "codex"}:
@@ -312,6 +426,8 @@ def refresh_dashboard_summary(
     facts = _facts(db)
     if facts is None:
         return None
+    set_dashboard_refresh_state(db, "running")
+    db.commit()
     # Facts are detached plain values. End the read transaction before a potentially
     # long provider call so a monitoring write cannot enter SQLite's pending state
     # and block new dashboard readers behind this worker.
@@ -409,5 +525,6 @@ def refresh_dashboard_summary(
         },
     )
     db.add(event)
+    set_dashboard_refresh_state(db, "completed")
     db.commit()
     return event

@@ -21,8 +21,13 @@ from serversense.security import current_user
 from serversense.services.activity import active_viewers
 from serversense.services.ai_config import read_ai_config
 from serversense.services.collectors import build_collector
-from serversense.services.dashboard_insights import latest_dashboard_summary
+from serversense.services.dashboard_insights import (
+    dashboard_summary_status,
+    latest_dashboard_summary,
+    request_dashboard_summary,
+)
 from serversense.services.forecasting import calculate_all
+from serversense.services.jobs import wake_dashboard_summary
 from serversense.services.maintenance import create_backup, diagnostic_bundle
 from serversense.services.metrics import calculate_network_rates
 from serversense.services.snapshots import latest_inventory
@@ -97,6 +102,16 @@ def get_storage_forecast(db: Session) -> ForecastResponse:
     )
 
 
+@router.post("/dashboard/summary/refresh", status_code=202)
+def refresh_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
+    config = read_ai_config(db)
+    status = request_dashboard_summary(db, config)
+    if status["status"] in {"disabled", "unconfigured", "no_data"}:
+        raise HTTPException(409, status["message"])
+    wake_dashboard_summary()
+    return status
+
+
 @router.get("/dashboard", response_model=DashboardResponse)
 def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     storage = latest_storage_sample(db)
@@ -133,6 +148,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
     )
     insights: list[dict] = []
     ai_config = read_ai_config(db)
+    summary_status = dashboard_summary_status(db, ai_config)
     dashboard_summary = (
         latest_dashboard_summary(db)
         if ai_config.get("dashboard_summaries", False)
@@ -289,6 +305,7 @@ def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
             for x in alerts
         ],
         insights=insights,
+        summary_status=summary_status,
         demo_mode=bool(general_value.get("demo_mode", False)),
     )
 

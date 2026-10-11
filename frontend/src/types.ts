@@ -51,6 +51,7 @@ export type Pool = {
 export type Dashboard = {
   updated_at: string | null;
   timezone: string;
+  summary_status?: DashboardSummaryStatus;
   server: {
     name: string;
     array_status: string;
@@ -87,6 +88,15 @@ export type Dashboard = {
     generated_at?: string;
   }[];
   demo_mode: boolean;
+};
+export type DashboardSummaryStatus = {
+  status: "disabled" | "unconfigured" | "running" | "waiting" | "queued" | "no_data" | "cooldown" | "ready" | "pending";
+  message: string;
+  can_refresh: boolean;
+  retry_at: string | null;
+  last_failure_category: string | null;
+  last_failure_at: string | null;
+  generated_at: string | null;
 };
 export type StoragePoint = {
   timestamp: string;

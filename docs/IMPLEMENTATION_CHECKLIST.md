@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-10-01
+Last updated: 2026-10-11
 
 ## Foundation
 
@@ -17,6 +17,7 @@ Last updated: 2026-10-01
 - [x] live-mode first-launch default with a browser-verified, non-bypassable monitoring selection step
 - [x] functional Monitoring and Integrations settings navigation with mode status and webhook controls
 - [x] consistent full-width responsive Settings layout with grouped AI controls, active sticky section navigation, resilient loading/retry states, and inline summary timing guidance
+- [x] Purpose-focused Settings sections with General landing view, direct links/history, preserved drafts, separate notification/media configuration, AI quick links, uniform controls, and responsive navigation
 
 ## Monitoring and intelligence
 
@@ -71,6 +72,7 @@ Last updated: 2026-10-01
 - [x] bounded media summaries and title follow-ups filterable by configurable instance name, with explicit configured-timezone 12-hour display values for user-facing SENSE timestamps
 - [x] provider-confirmed Sonarr/Radarr quality upgrades with bounded one-to-one grab → `Upgrade` deletion → import correlation across polling cycles and report filters, safe nearby deletion/import fallback, false-positive guards, single-event normalization, evidence-required follow-ups, provider-size-based logical net change, and normalized upcoming calendars using Sonarr episode air times and Radarr's selected calendar release date
 - [x] additive opt-in cached AI dashboard summary with isolated scheduling and database transactions, SQLite WAL reader/writer concurrency, configured runtime/output bounds, suppressed Ollama reasoning traces, safe failure diagnostics, deterministic fallback, 12-hour local times, and validated storage/media claims
+- [x] Authenticated deduplicated durable dashboard-summary refresh that bypasses schedule/cooldown through the isolated worker, retains interactive priority and cached insights, and exposes safe availability/failure/retry status
 - [x] deterministic intent router with explicit ServerSense/SENSE AI provenance, configuration-aware sidebar status, and no-model factual telemetry responses
 - [x] persistent bounded FIFO AI job queue with immutable model snapshots, explicit cancel/retry, uninterrupted post-threshold streaming, and restart interruption recovery
 - [x] provider model discovery, minimal-generation health test, native-tool capability hints, and curated-context fallback

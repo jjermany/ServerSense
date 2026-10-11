@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 export function PageHeader({
   eyebrow,
@@ -22,11 +22,9 @@ export function PageHeader({
 export function Card({
   children,
   className = "",
-}: {
-  children?: ReactNode;
-  className?: string;
-}) {
-  return <section className={`card ${className}`}>{children}</section>;
+  ...props
+}: ComponentPropsWithoutRef<"section">) {
+  return <section {...props} className={`card ${className}`}>{children}</section>;
 }
 export function Metric({
   label,

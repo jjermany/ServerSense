@@ -58,6 +58,7 @@ const integrationsConfig = { available_providers: [], configured: [] };
 
 describe("AI settings", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "#ai");
     vi.mocked(api).mockClear();
     vi.mocked(api).mockImplementation((path: string) => {
       if (path.endsWith("/alerts")) return Promise.resolve(alertConfig);
@@ -68,6 +69,22 @@ describe("AI settings", () => {
     });
   });
   afterEach(cleanup);
+
+  it("shows one section at a time and preserves unsaved model input across navigation", async () => {
+    window.history.replaceState(null, "", "#monitoring");
+    render(<SettingsPage />);
+    expect(await screen.findByRole("heading", { name: "General & monitoring" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "SENSE AI" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /SENSE AI/ }));
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "unsaved-model" } });
+    fireEvent.click(screen.getByRole("link", { name: /Notifications/ }));
+    expect(screen.getByRole("heading", { name: "Notification delivery" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Add instance" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /Integrations/ }));
+    expect(screen.getByRole("heading", { name: "Media integrations" })).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: /SENSE AI/ }));
+    expect(screen.getByLabelText("Model")).toHaveValue("unsaved-model");
+  });
 
   it("excludes settings values from credential autofill and saves Codex reasoning", async () => {
     const { container } = render(<SettingsPage />);
@@ -109,7 +126,7 @@ describe("AI settings", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    expect(await screen.findByRole("heading", { name: "Account security" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "SENSE AI" })).toBeVisible();
   });
 
   it("explains that provider inactivity can stop a job before maximum runtime", async () => {
@@ -189,11 +206,11 @@ describe("AI settings", () => {
   it("links monitoring and integrations to working settings sections", async () => {
     render(<SettingsPage />);
 
-    expect(await screen.findByRole("link", { name: /Security/ })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /SENSE AI/ })).toHaveAttribute(
       "aria-current",
       "location",
     );
-    const monitoringLink = screen.getByRole("link", { name: /Monitoring/ });
+    const monitoringLink = screen.getByRole("link", { name: /General/ });
     expect(monitoringLink).toHaveAttribute(
       "href",
       "#monitoring",
@@ -205,7 +222,8 @@ describe("AI settings", () => {
       "#integrations",
     );
     expect(screen.getByText("Live monitoring")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Save integration/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: /Notifications/ }));
+    expect(screen.getByRole("button", { name: /Save notification providers/ })).toBeInTheDocument();
     expect(screen.getByText("Discord")).toBeInTheDocument();
     expect(screen.getByText("Pushover")).toBeInTheDocument();
     expect(screen.getByText("Email")).toBeInTheDocument();
@@ -259,14 +277,14 @@ describe("AI settings", () => {
     });
 
     render(<SettingsPage />);
-    const save = await screen.findByRole("button", { name: "Save settings" });
+    const save = await screen.findByRole("button", { name: "Save AI settings" });
     fireEvent.click(save);
 
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
     finishSave?.(aiConfig);
 
     expect(await screen.findByText("AI settings saved securely.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save AI settings" })).toBeEnabled();
   });
 
   it("clears a previously saved AI API key without changing other settings", async () => {
@@ -307,7 +325,8 @@ describe("AI settings", () => {
     });
 
     render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Test Webhook" }));
+    fireEvent.click(await screen.findByRole("link", { name: /Notifications/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Test Webhook" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Webhook delivery failed",

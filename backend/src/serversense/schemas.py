@@ -169,4 +169,5 @@ class DashboardResponse(BaseModel):
     containers: list[dict[str, Any]]
     alerts: list[dict[str, Any]]
     insights: list[dict[str, Any]]
+    summary_status: dict[str, Any]
     demo_mode: bool

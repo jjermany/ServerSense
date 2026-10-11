@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
   Download,
@@ -16,7 +16,7 @@ type Enrollment = {
   expires_in_seconds: number;
 };
 
-export default function SecuritySettings() {
+export default function SecuritySettings({ active = true }: { active?: boolean }) {
   const [status, setStatus] = useState<MFAStatus>();
   const [enrollment, setEnrollment] = useState<Enrollment>();
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
@@ -29,21 +29,28 @@ export default function SecuritySettings() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const loadStatus = () => {
-    void api<MFAStatus>("/api/auth/mfa")
+  const loadStatus = useCallback((signal?: AbortSignal) => {
+    void api<MFAStatus>("/api/auth/mfa", { signal })
       .then((result) => {
+        if (signal?.aborted) return;
         setError("");
         setStatus(result);
       })
       .catch((reason: unknown) => {
+        if (signal?.aborted) return;
         setError(
           reason instanceof Error
             ? reason.message
             : "Unable to load MFA status",
         );
       });
-  };
-  useEffect(loadStatus, []);
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    loadStatus(controller.signal);
+    return () => controller.abort();
+  }, [active, loadStatus]);
 
   const cancel = () => {
     setEnrollment(undefined);
@@ -145,7 +152,7 @@ export default function SecuritySettings() {
         </p>
       )}
       {!status && error && (
-        <button type="button" className="secondary" onClick={loadStatus}>
+        <button type="button" className="secondary" onClick={() => loadStatus()}>
           Retry security settings
         </button>
       )}

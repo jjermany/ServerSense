@@ -172,6 +172,21 @@ function TestNotificationButton({
     </div>
   );
 }
+const settingsSections = [
+  { id: "monitoring", label: "General", description: "Server & display", icon: <SlidersHorizontal /> },
+  { id: "security", label: "Security", description: "Account & MFA", icon: <ShieldCheck /> },
+  { id: "ai", label: "SENSE AI", description: "Models & automation", icon: <Bot /> },
+  { id: "alerts", label: "Alerts", description: "Thresholds & categories", icon: <Bell /> },
+  { id: "notifications", label: "Notifications", description: "Delivery providers", icon: <Bell /> },
+  { id: "integrations", label: "Integrations", description: "Sonarr & Radarr", icon: <Plug /> },
+  { id: "advanced", label: "Maintenance", description: "Backups & diagnostics", icon: <Database /> },
+];
+const sectionFromHash = () => {
+  const hash = window.location.hash.slice(1);
+  const id = hash.startsWith("ai-") ? "ai" : hash;
+  return settingsSections.some((section) => section.id === id) ? id : "monitoring";
+};
+
 export default function SettingsPage() {
   const { setTimeZone } = useTimeZone();
   const [config, setConfig] = useState<AIConfig>();
@@ -186,7 +201,7 @@ export default function SettingsPage() {
   const [models, setModels] = useState<Array<{ id: string; supports_tools?: boolean | null }>>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState("");
-  const [activeSection, setActiveSection] = useState("security");
+  const [activeSection, setActiveSection] = useState(sectionFromHash);
 
   const loadSettings = useCallback(async () => {
     setLoadState("loading");
@@ -218,48 +233,16 @@ export default function SettingsPage() {
   }, [loadSettings]);
 
   useEffect(() => {
-    if (loadState !== "ready") return;
-    const sectionIds = ["security", "ai", "alerts", "monitoring", "integrations", "advanced"];
-    let animationFrame: number | undefined;
-    const updateActiveSection = () => {
-      let current = sectionIds[0];
-      let hasMeasuredSection = false;
-      for (const id of sectionIds) {
-        const section = document.getElementById(id)?.parentElement;
-        const bounds = section?.getBoundingClientRect();
-        if (bounds && bounds.height > 0) {
-          hasMeasuredSection = true;
-          if (bounds.top <= 170) current = id;
-        }
-      }
-      if (!hasMeasuredSection) return;
-      if (
-        document.documentElement.scrollHeight > window.innerHeight &&
-        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2
-      ) {
-        current = sectionIds[sectionIds.length - 1];
-      }
-      setActiveSection(current);
-    };
-    const scheduleUpdate = () => {
-      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
-      animationFrame = window.requestAnimationFrame(updateActiveSection);
-    };
-    updateActiveSection();
-    window.addEventListener("scroll", scheduleUpdate, { passive: true });
-    window.addEventListener("hashchange", scheduleUpdate);
-    return () => {
-      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener("scroll", scheduleUpdate);
-      window.removeEventListener("hashchange", scheduleUpdate);
-    };
-  }, [loadState]);
+    const updateSection = () => setActiveSection(sectionFromHash());
+    window.addEventListener("hashchange", updateSection);
+    return () => window.removeEventListener("hashchange", updateSection);
+  }, []);
 
   if (loadState !== "ready" || !config || !alerts || !general || !integrations) {
     return (
       <div className="page settings-page">
         <PageHeader eyebrow="CONFIGURATION" title="Settings">
-          <p className="page-header-note">Server, security, alerts, AI, and integrations</p>
+          <p className="page-header-note">Choose a section. Save changes in each section before leaving Settings.</p>
         </PageHeader>
         <Card className={`settings-load-state ${loadState === "error" ? "is-error" : ""}`}>
           {loadState === "loading" ? (
@@ -487,7 +470,7 @@ export default function SettingsPage() {
         setAlerts(updated);
         return updated;
       },
-      "Integration settings saved securely.",
+      "Notification providers saved securely.",
     );
   };
   const testNotification = async (provider: string) => {
@@ -514,7 +497,7 @@ export default function SettingsPage() {
     const key = integrationId ? `media-save-${integrationId}` : "media-add";
     await runAction(
       key,
-      integrationId ? "Saving media managerâ€¦" : "Adding media managerâ€¦",
+      integrationId ? "Saving media manager…" : "Adding media manager…",
       async () => {
         const result = await api(
           integrationId
@@ -541,7 +524,7 @@ export default function SettingsPage() {
   const testMediaIntegration = async (integrationId: number) => {
     await runAction(
       `media-test-${integrationId}`,
-      "Testing media managerâ€¦",
+      "Testing media manager…",
       () =>
         api<{ detail: string }>(`/api/integrations/${integrationId}/test`, {
           method: "POST",
@@ -553,7 +536,7 @@ export default function SettingsPage() {
     if (!window.confirm(`Remove ${name} and its collected activity?`)) return;
     await runAction(
       `media-delete-${integrationId}`,
-      "Removing media managerâ€¦",
+      "Removing media manager…",
       async () => {
         await api(`/api/integrations/${integrationId}`, { method: "DELETE" });
         await refreshIntegrations();
@@ -569,18 +552,10 @@ export default function SettingsPage() {
       (result) => `Backup created: ${result.filename}`,
     );
   };
-  const settingsSections = [
-    { id: "security", label: "Security", icon: <ShieldCheck /> },
-    { id: "ai", label: "AI", icon: <Bot /> },
-    { id: "alerts", label: "Alerts", icon: <Bell /> },
-    { id: "monitoring", label: "Monitoring", icon: <SlidersHorizontal /> },
-    { id: "integrations", label: "Integrations", icon: <Plug /> },
-    { id: "advanced", label: "Advanced", icon: <Database /> },
-  ];
   return (
     <div className="page settings-page">
       <PageHeader eyebrow="CONFIGURATION" title="Settings">
-        <p className="page-header-note">Server, security, alerts, AI, and integrations</p>
+        <p className="page-header-note">Choose a section. Save changes in each section before leaving Settings.</p>
       </PageHeader>
       <div className="settings-layout">
         <aside aria-label="Settings sections">
@@ -588,19 +563,20 @@ export default function SettingsPage() {
           {settingsSections.map((section) => (
             <a
               href={`#${section.id}`}
+              aria-label={section.label}
               className={activeSection === section.id ? "active" : undefined}
               aria-current={activeSection === section.id ? "location" : undefined}
               onClick={() => setActiveSection(section.id)}
               key={section.id}
             >
               {section.icon}
-              {section.label}
+              <span><b>{section.label}</b><small>{section.description}</small></span>
             </a>
           ))}
         </aside>
         <div className="settings-stack">
-          <SecuritySettings />
-          <Card className="settings-card">
+          <div hidden={activeSection !== "security"} role="region" aria-label="Security settings"><SecuritySettings active={activeSection === "security"} /></div>
+          <Card className="settings-card" hidden={activeSection !== "ai"} aria-label="SENSE AI settings">
             <span id="ai" />
             <div className="settings-title">
               <span>
@@ -615,7 +591,10 @@ export default function SettingsPage() {
               </div>
             </div>
             <form {...nonCredentialInput} className="settings-form" onSubmit={submit}>
-              <section className="settings-form-section">
+              <nav className="settings-subnav" aria-label="SENSE AI controls">
+                <a href="#ai-connection">Connection</a><a href="#ai-fallback">Fallback</a><a href="#ai-behavior">Responses</a><a href="#ai-limits">Resource limits</a><a href="#ai-automation">Automation</a>
+              </nav>
+              <section id="ai-connection" className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>01</span><h3>Model connection</h3></div>
                   <p>Select the provider, model, and credentials SENSE should use.</p>
@@ -665,7 +644,7 @@ export default function SettingsPage() {
                 <ActionFeedback status={actions["ai-models"]} />
               </section>
 
-              <section className="settings-form-section">
+              <section id="ai-fallback" className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>02</span><h3>Fallback model</h3></div>
                   <p>Try this model once if the primary provider is unavailable, rate limited, or out of allowance. Both attempts share the maximum job runtime and response limits. Save before testing.</p>
@@ -692,7 +671,7 @@ export default function SettingsPage() {
               </section>
               {(selectedProvider === "codex" || fallbackProvider === "codex") && <CodexSettings />}
 
-              <section className="settings-form-section">
+              <section id="ai-behavior" className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>03</span><h3>Generation behavior</h3></div>
                   <p>Control response size, model behavior, and provider timeouts.</p>
@@ -709,7 +688,7 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="settings-form-section">
+              <section id="ai-limits" className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>04</span><h3>Jobs, context, and retention</h3></div>
                   <p>Set hard resource boundaries for model work.</p>
@@ -725,7 +704,7 @@ export default function SettingsPage() {
                 </div>
               </section>
 
-              <section className="settings-form-section">
+              <section id="ai-automation" className="settings-form-section">
                 <div className="settings-section-heading">
                   <div><span>05</span><h3>Automation and notifications</h3></div>
                   <p>These optional features run separately from deterministic monitoring.</p>
@@ -738,7 +717,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="summary-timing-note">
                   <RefreshCw size={16} />
-                  <p><b>Summary timing</b><span>Refreshes every six hours, or after new alert/media activity once the prior summary is at least 15 minutes old. Cached summaries are shown for up to 12 hours.</span></p>
+                  <p><b>Summary timing</b><span>Refreshes every six hours, or after new alert/media activity once the prior summary is at least 15 minutes old. Cached summaries are shown for up to 12 hours. Use Refresh on the dashboard to bypass the schedule or retry cooldown. Interactive SENSE requests take priority.</span></p>
                 </div>
               </section>
               <div className="permission-box">
@@ -782,12 +761,12 @@ export default function SettingsPage() {
                   )}
                   {actions["ai-save"]?.phase === "pending"
                     ? "Saving…"
-                    : "Save settings"}
+                    : "Save AI settings"}
                 </button>
               </div>
             </form>
           </Card>
-          <Card className="settings-card">
+          <Card className="settings-card" hidden={activeSection !== "alerts"} aria-label="Alert settings">
             <span id="alerts" />
             <div className="settings-title">
               <span>
@@ -910,14 +889,14 @@ export default function SettingsPage() {
               </div>
             </form>
           </Card>
-          <Card className="settings-card">
+          <Card className="settings-card" hidden={activeSection !== "monitoring"} aria-label="General settings">
             <span id="monitoring" />
             <div className="settings-title">
               <span>
                 <SlidersHorizontal />
               </span>
               <div>
-                <h2>Monitoring</h2>
+                <h2>General &amp; monitoring</h2>
                 <p>Review the collection mode selected during first-launch setup.</p>
               </div>
             </div>
@@ -984,15 +963,15 @@ export default function SettingsPage() {
               cannot be mixed in the same database.
             </p>
           </Card>
-          <Card className="settings-card">
-            <span id="integrations" />
+          <Card className="settings-card" hidden={activeSection !== "notifications"} aria-label="Notification settings">
+            <span id="notifications" />
             <div className="settings-title">
               <span>
                 <Plug />
               </span>
               <div>
-                <h2>Integrations</h2>
-                <p>Connect alert delivery and installed read-only providers.</p>
+                <h2>Notification delivery</h2>
+                <p>Choose where alerts and SENSE job results are delivered. Save provider details before testing.</p>
               </div>
             </div>
             <form {...nonCredentialInput} onSubmit={saveWebhook}>
@@ -1196,17 +1175,20 @@ export default function SettingsPage() {
                   )}
                   {actions["integrations-save"]?.phase === "pending"
                     ? "Saving…"
-                    : "Save integrations"}
+                    : "Save notification providers"}
                 </button>
               </div>
             </form>
+          </Card>
+          <Card className="settings-card" hidden={activeSection !== "integrations"} aria-label="Media integration settings">
+            <span id="integrations" />
             <div className="media-integrations">
-              <div className="settings-title compact">
+              <div className="settings-title">
                 <span>
                   <Bot />
                 </span>
                 <div>
-                  <h3>AI media context</h3>
+                  <h2>Media integrations</h2>
                   <p>
                     Add any number of named Sonarr or Radarr instances. SENSE uses
                     their normalized, read-only history only while AI is enabled.
@@ -1338,14 +1320,14 @@ export default function SettingsPage() {
               </form>
             </div>
           </Card>
-          <Card className="settings-card">
+          <Card className="settings-card" hidden={activeSection !== "advanced"} aria-label="Maintenance settings">
             <span id="advanced" />
             <div className="settings-title">
               <span>
                 <Database />
               </span>
               <div>
-                <h2>Advanced &amp; diagnostics</h2>
+                <h2>Maintenance &amp; diagnostics</h2>
                 <p>
                   Create a consistent SQLite backup or download a sanitized
                   diagnostic bundle.

@@ -76,6 +76,20 @@ test("fresh installation completes every setup stage and serves the application"
       page.getByRole("heading", { name: heading, exact: true }).first(),
     ).toBeVisible();
   }
+  await expect(page.getByRole("heading", { name: "General & monitoring" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("settings-general-desktop.png") });
+  await page.getByRole("link", { name: "Notifications", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Notification delivery" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Media integrations" })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("settings-notifications-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("link", { name: "Integrations", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Integrations", exact: true })).toHaveAttribute("aria-current", "location");
+  await expect(page.getByRole("heading", { name: "Media integrations" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("settings-integrations-mobile.png") });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 1365, height: 1000 });
+  await page.getByRole("link", { name: /SENSE AI/ }).click();
   await expect(
     page.getByLabel(/Explain new alerts with SENSE/),
   ).not.toBeChecked();
@@ -105,7 +119,7 @@ test("fresh installation completes every setup stage and serves the application"
   await page.locator('select[name="codex_reasoning_effort"]').selectOption("high");
   await expect(page.locator('input[name="fallback_model"]')).toHaveAttribute("autocomplete", "off");
   await expect(page.locator('input[name="fallback_model"]')).toHaveAttribute("data-1p-ignore", "true");
-  await page.getByRole("button", { name: "Save settings", exact: true }).click();
+  await page.getByRole("button", { name: "Save AI settings", exact: true }).click();
   await expect(page.getByText("AI settings saved securely.")).toBeVisible();
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("gpt-5.4");
@@ -203,6 +217,7 @@ test("fresh installation completes every setup stage and serves the application"
   await page.setViewportSize({ width: 1365, height: 1000 });
 
   const passwordLogin = async () => {
+    await expect(page.locator(".mfa-status")).toBeVisible();
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.getByLabel("Username", { exact: true }).fill("E2EADMIN");
     await page
