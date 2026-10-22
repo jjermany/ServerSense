@@ -274,3 +274,30 @@ class MediaSchedule(Base):
     release_type: Mapped[str] = mapped_column(String(40))
     monitored: Mapped[bool] = mapped_column(Boolean, default=True)
     has_file: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MediaInventorySnapshot(Base):
+    """Latest complete normalized inventory; unchanged files are stored only once."""
+
+    __tablename__ = "media_inventory_snapshots"
+    integration_id: Mapped[int] = mapped_column(
+        ForeignKey("integrations.id", ondelete="CASCADE"), primary_key=True
+    )
+    baseline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    files: Mapped[dict] = mapped_column(JSON)
+
+
+class MediaInventoryChange(Base):
+    __tablename__ = "media_inventory_changes"
+    __table_args__ = (
+        Index("ix_media_inventory_changes_source_time", "integration_id", "observed_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    integration_id: Mapped[int] = mapped_column(ForeignKey("integrations.id", ondelete="CASCADE"))
+    previous_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    change_type: Mapped[str] = mapped_column(String(24))
+    before: Mapped[dict | None] = mapped_column(JSON)
+    after: Mapped[dict | None] = mapped_column(JSON)
+    net_bytes: Mapped[int | None] = mapped_column(Integer)

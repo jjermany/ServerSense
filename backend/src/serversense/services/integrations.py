@@ -11,11 +11,13 @@ from sqlalchemy.orm import Session
 
 from serversense.models import Integration, MediaActivity, MediaSchedule
 from serversense.services import http_requests
+from serversense.services.media_inventory import fetch_inventory, persist_inventory
 from serversense.services.secrets import decrypt_secret
 from serversense.services.urls import validate_http_url
 
 logger = logging.getLogger(__name__)
 POLL_INTERVAL = timedelta(minutes=5)
+INVENTORY_INTERVAL = timedelta(hours=1)
 INITIAL_LOOKBACK = timedelta(days=30)
 KNOWN_EVENTS = {
     "grabbed": "grabbed",
@@ -300,6 +302,27 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
         if reached_cutoff or len(records) < 250:
             break
     schedules = _fetch_calendar(integration, now)
+    inventory = None
+    last_inventory = _date(config.get("inventory_attempted_at"))
+    if last_inventory is None or now - last_inventory >= INVENTORY_INTERVAL:
+        config["inventory_attempted_at"] = now.isoformat()
+        try:
+            inventory = fetch_inventory(integration)
+            config["inventory_status"] = "ready"
+            config["inventory_captured_at"] = now.isoformat()
+            config["inventory_file_count"] = len(inventory)
+        except (httpx.HTTPError, ValueError, TypeError, KeyError):
+            # Keep the previous complete baseline and let history/calendar polling proceed.
+            # Never persist raw provider exceptions or interpret failure as an empty library.
+            config["inventory_status"] = "collection_failed"
+            logger.warning("Media inventory collection failed for integration %d", integration.id)
+    # Configuration can change while the network phase is in progress.
+    db.refresh(integration)
+    if not integration.enabled or any(
+        integration.config.get(key) != config.get(key) for key in ("url", "api_key_encrypted")
+    ):
+        db.rollback()
+        return 0
     existing = {
         row.external_id: row
         for row in db.scalars(
@@ -333,6 +356,8 @@ def collect_integration(db: Session, integration: Integration, now: datetime | N
             current.is_upgrade = activity.is_upgrade
     db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == integration.id))
     db.add_all(schedules)
+    if inventory is not None:
+        persist_inventory(db, integration.id, inventory, now)
     config["last_collected_at"] = now.isoformat()
     integration.config = config
     db.commit()

@@ -1,6 +1,6 @@
 # ServerSense v1 living checklist
 
-Last updated: 2026-10-11
+Last updated: 2026-10-21
 
 ## Foundation
 
@@ -20,6 +20,8 @@ Last updated: 2026-10-11
 - [x] Purpose-focused Settings sections with General landing view, direct links/history, preserved drafts, separate notification/media configuration, AI quick links, uniform controls, and responsive navigation
 
 ## Monitoring and intelligence
+
+- [x] Hourly complete Sonarr/Radarr inventories and durable retained file-change ledger, with baseline/failure safety, multi-episode deduplication, bounded history correlation, observation-window-aware SENSE totals, and Settings freshness/status
 
 - [x] Linux system and capacity collector abstraction
 - [x] Unraid detection and `disks.ini` adapter

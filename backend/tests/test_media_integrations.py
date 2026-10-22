@@ -71,6 +71,8 @@ def test_collects_normalized_history_and_deduplicates(
         def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
             assert not db.in_transaction()
             assert item.id == integration.id
+            if path == "movie":
+                return []
             if path == "calendar":
                 return [
                     {
@@ -513,6 +515,8 @@ def test_radarr_calendar_prefers_provider_selected_release_date(
         def fake_request(item: Integration, path: str, params: dict | None = None) -> Any:
             if path == "history":
                 return {"records": []}
+            if path == "movie":
+                return []
             assert path == "calendar"
             return [
                 {

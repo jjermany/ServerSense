@@ -177,6 +177,7 @@ def _curated_context(
                 "get_storage_history",
                 "get_recent_alerts",
                 "get_media_activity_summary",
+                "get_media_inventory_changes",
                 "get_container_status",
                 "get_server_overview",
             )
@@ -185,9 +186,11 @@ def _curated_context(
             tool_arguments["get_storage_history"] = {"days": 1, "today": True}
             tool_arguments["get_recent_alerts"] = {"limit": 100, "today": True}
             tool_arguments["get_media_activity_summary"] = {"days": 1, "today": True}
+            tool_arguments["get_media_inventory_changes"] = {"days": 1, "today": True, "limit": 10}
         else:
             tool_arguments["get_storage_history"] = {"days": 7}
             tool_arguments["get_media_activity_summary"] = {"days": 7}
+            tool_arguments["get_media_inventory_changes"] = {"days": 7, "limit": 10}
     if any(term in text for term in ("storage", "space", "capacity", "full", "growth", "array")):
         if intent == "historical":
             names.append("get_storage_history")
@@ -252,6 +255,14 @@ def _curated_context(
                 titles.pop()
                 result["confirmed_upgrade_titles"] = titles
                 result["upgrade_titles_truncated"] = True
+                encoded = json.dumps(result, default=str)
+        if name == "get_media_inventory_changes" and len(encoded) > allowance:
+            result = dict(result)
+            items = list(result.get("items", []))
+            while items and len(encoded) > allowance:
+                items.pop()
+                result["items"] = items
+                result["items_truncated"] = True
                 encoded = json.dumps(result, default=str)
         if len(encoded) > allowance:
             context["telemetry"][name] = {

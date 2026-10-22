@@ -120,6 +120,7 @@ def test_broad_change_summary_preloads_historical_sources(monkeypatch) -> None:
     assert ("get_storage_history", {"days": 1, "today": True}) in calls
     assert ("get_recent_alerts", {"limit": 100, "today": True}) in calls
     assert ("get_media_activity_summary", {"days": 1, "today": True}) in calls
+    assert ("get_media_inventory_changes", {"days": 1, "today": True, "limit": 10}) in calls
     assert context["context_kind"] == "broad_change_summary"
     assert context["telemetry"]["get_storage_history"]["samples"] == [
         {"id": 1},

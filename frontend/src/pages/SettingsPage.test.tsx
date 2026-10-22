@@ -70,6 +70,28 @@ describe("AI settings", () => {
   });
   afterEach(cleanup);
 
+  it("shows inventory freshness and preserves the last complete snapshot on collection failure", async () => {
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/settings/general") return Promise.resolve(generalConfig);
+      if (path === "/api/settings/alerts") return Promise.resolve(alertConfig);
+      if (path === "/api/integrations") return Promise.resolve({
+        available_providers: [], configured: [{
+          id: 1, provider: "radarr", name: "Movies", enabled: true,
+          url: "http://radarr", api_key_configured: true,
+          inventory_status: "collection_failed", inventory_captured_at: "2026-10-21T18:00:00Z", inventory_file_count: 123,
+        }],
+      });
+      return Promise.resolve(aiConfig);
+    });
+    window.history.replaceState(null, "", "#integrations");
+    render(<SettingsPage />);
+    const status = await screen.findByText(/Media inventory: 123 files/);
+    expect(status).toHaveTextContent(/Last complete snapshot/);
+    expect(status).toHaveTextContent(/AM|PM/);
+    expect(status).toHaveTextContent(/previous snapshot is preserved/);
+    expect(status).toHaveTextContent(/Snapshots run hourly/);
+  });
+
   it("shows one section at a time and preserves unsaved model input across navigation", async () => {
     window.history.replaceState(null, "", "#monitoring");
     render(<SettingsPage />);

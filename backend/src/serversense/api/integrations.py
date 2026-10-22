@@ -8,6 +8,7 @@ from serversense.models import Integration, MediaActivity, MediaSchedule
 from serversense.schemas import MediaIntegrationRequest
 from serversense.security import current_user
 from serversense.services.integrations import DESCRIPTORS, normalize_url, test_integration
+from serversense.services.media_inventory import clear_inventory
 from serversense.services.secrets import encrypt_secret
 
 router = APIRouter(
@@ -25,6 +26,9 @@ def _response(item: Integration) -> dict[str, object]:
         "enabled": item.enabled,
         "url": str(item.config.get("url", "")),
         "api_key_configured": bool(item.config.get("api_key_encrypted")),
+        "inventory_status": item.config.get("inventory_status", "pending"),
+        "inventory_captured_at": item.config.get("inventory_captured_at"),
+        "inventory_file_count": item.config.get("inventory_file_count"),
     }
 
 
@@ -96,10 +100,16 @@ def update_integration(
         )
     name = payload.name.strip()
     _require_unique_name(db, name, item.id)
+    previous_url = item.config.get("url")
     try:
         item.config = _configuration(payload, item.config)
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    if previous_url != item.config.get("url"):
+        clear_inventory(db, item.id)
+        item.config = {
+            key: value for key, value in item.config.items() if not key.startswith("inventory_")
+        }
     item.provider = payload.provider
     if item.name != name:
         db.execute(
@@ -143,6 +153,7 @@ def delete_integration(integration_id: int, db: Session = Depends(get_db)) -> Re
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Integration not found")
     db.execute(delete(MediaActivity).where(MediaActivity.integration_id == item.id))
     db.execute(delete(MediaSchedule).where(MediaSchedule.integration_id == item.id))
+    clear_inventory(db, item.id)
     db.delete(item)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

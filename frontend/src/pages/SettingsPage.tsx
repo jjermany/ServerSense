@@ -22,6 +22,7 @@ import SecuritySettings from "../components/SecuritySettings";
 import CodexSettings from "../components/CodexSettings";
 import CodexModelPicker from "../components/CodexModelPicker";
 import { useTimeZone } from "../timeZoneContext";
+import { formatDateTime } from "../timeFormat";
 type AIConfig = {
   provider: string;
   model: string;
@@ -103,6 +104,9 @@ type IntegrationsConfig = {
     enabled: boolean;
     url: string;
     api_key_configured: boolean;
+    inventory_status?: string;
+    inventory_captured_at?: string | null;
+    inventory_file_count?: number | null;
   }>;
 };
 const alertProviderValues = (alerts: AlertConfig) => ({
@@ -188,7 +192,7 @@ const sectionFromHash = () => {
 };
 
 export default function SettingsPage() {
-  const { setTimeZone } = useTimeZone();
+  const { timeZone, setTimeZone } = useTimeZone();
   const [config, setConfig] = useState<AIConfig>();
   const [model, setModel] = useState("");
   const [fallbackModel, setFallbackModel] = useState("");
@@ -1238,6 +1242,13 @@ export default function SettingsPage() {
                     </label>
                   </div>
                   <ActionFeedback status={actions[`media-save-${item.id}`]} />
+                  <p className="muted">
+                    Media inventory: {item.inventory_captured_at
+                      ? `${item.inventory_file_count ?? 0} files · Last complete snapshot ${formatDateTime(item.inventory_captured_at, timeZone)}`
+                      : "Waiting for the first complete snapshot"}.
+                    {item.inventory_status === "collection_failed" && " Latest collection failed; the previous snapshot is preserved. Collection retries automatically."}
+                    {" Snapshots run hourly while AI context collection is enabled. The first snapshot establishes a baseline."}
+                  </p>
                   <ActionFeedback status={actions[`media-test-${item.id}`]} />
                   <ActionFeedback status={actions[`media-delete-${item.id}`]} />
                   <div className="form-actions media-actions">

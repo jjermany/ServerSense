@@ -61,6 +61,37 @@ def _alembic(backend: Path, config_dir: Path, target: str) -> None:
     )
 
 
+@pytest.mark.parametrize("existing", [False, True])
+def test_media_inventory_migration_preserves_sources_and_starts_without_fake_baselines(
+    tmp_path: Path, existing: bool
+) -> None:
+    backend = Path(__file__).resolve().parents[1]
+    database = tmp_path / "serversense.db"
+    if existing:
+        _alembic(backend, tmp_path, "f2b83d91a640")
+        with sqlite3.connect(database) as connection:
+            connection.execute(
+                "INSERT INTO integrations (provider, name, enabled, config, created_at, updated_at) "
+                "VALUES ('radarr', 'Existing library', 1, '{}', '2026-10-21', '2026-10-21')"
+            )
+    _alembic(backend, tmp_path, "head")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT count(*) FROM integrations").fetchone()[0] == int(
+            existing
+        )
+        assert (
+            connection.execute("SELECT count(*) FROM media_inventory_snapshots").fetchone()[0] == 0
+        )
+        assert connection.execute("SELECT count(*) FROM media_inventory_changes").fetchone()[0] == 0
+        columns = [
+            row[2]
+            for row in connection.execute(
+                "PRAGMA index_info('ix_media_inventory_changes_source_time')"
+            )
+        ]
+        assert columns == ["integration_id", "observed_at"]
+
+
 def test_mfa_migration_preserves_existing_account_and_defaults_off(tmp_path: Path) -> None:
     backend = Path(__file__).resolve().parents[1]
     _alembic(backend, tmp_path, "c7e4b1a9d2f0")

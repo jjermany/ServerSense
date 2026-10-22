@@ -3,15 +3,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from serversense.config import get_settings
 from serversense.models import (
     Alert,
     DiskSample,
     DockerSample,
     Integration,
     MediaActivity,
+    MediaInventoryChange,
+    MediaInventorySnapshot,
     MediaSchedule,
     MetricSample,
     Setting,
@@ -660,7 +663,250 @@ def quality_upgrades(db: Session, args: dict[str, Any]) -> dict[str, Any]:
     return media_activity_items(db, args | {"upgrades_only": True})
 
 
+def media_inventory_changes(db: Session, args: dict[str, Any]) -> dict[str, Any]:
+    """Bound titles independently of SQL totals; never reconcile unlike storage scopes."""
+    now = datetime.now(UTC)
+    days = min(max(int(args.get("days", 7)), 1), 365)
+    cutoff = (
+        local_time(db).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        if args.get("today")
+        else now - timedelta(days=days)
+    )
+    limit = min(max(int(args.get("limit", 50)), 1), 100)
+    sources = select(Integration).where(
+        Integration.enabled.is_(True), Integration.provider.in_(("sonarr", "radarr"))
+    )
+    if args.get("provider"):
+        sources = sources.where(Integration.provider == args["provider"])
+    if args.get("instance"):
+        sources = sources.where(Integration.name == args["instance"])
+    integrations = list(db.scalars(sources.order_by(Integration.id)))
+    source_ids = [source.id for source in integrations]
+    snapshots = {
+        row.integration_id: row
+        for row in db.execute(
+            select(
+                MediaInventorySnapshot.integration_id,
+                MediaInventorySnapshot.baseline_at,
+                MediaInventorySnapshot.captured_at,
+            ).where(MediaInventorySnapshot.integration_id.in_(source_ids))
+        )
+    }
+    conditions = (
+        MediaInventoryChange.integration_id.in_(source_ids),
+        MediaInventoryChange.observed_at >= cutoff,
+        MediaInventoryChange.observed_at <= now,
+    )
+    totals: dict[int, dict[str, Any]] = {}
+    for source_id, kind, count, known_count, net in db.execute(
+        select(
+            MediaInventoryChange.integration_id,
+            MediaInventoryChange.change_type,
+            func.count(),
+            func.count(MediaInventoryChange.net_bytes),
+            func.sum(MediaInventoryChange.net_bytes),
+        )
+        .where(*conditions, MediaInventoryChange.previous_at >= cutoff)
+        .group_by(MediaInventoryChange.integration_id, MediaInventoryChange.change_type)
+    ):
+        totals.setdefault(source_id, {})[kind] = {
+            "count": count,
+            "unknown_size_count": count - known_count,
+            "known_logical_net_bytes": net or 0,
+            "known_logical_net_display": _signed_bytes_display(net or 0),
+        }
+    boundary_counts: dict[int, int] = {
+        source_id: count
+        for source_id, count in db.execute(
+            select(MediaInventoryChange.integration_id, func.count())
+            .where(*conditions, MediaInventoryChange.previous_at < cutoff)
+            .group_by(MediaInventoryChange.integration_id)
+        )
+    }
+    rows = list(
+        db.scalars(
+            select(MediaInventoryChange)
+            .where(*conditions)
+            .order_by(MediaInventoryChange.observed_at.desc(), MediaInventoryChange.id.desc())
+            .limit(limit + 1)
+        )
+    )
+    names = {source.id: source.name for source in integrations}
+    # Correlate only these bounded identities, retaining precursor events before the window.
+    media_ids = {
+        media_id
+        for row in rows[:limit]
+        for item in (row.before, row.after)
+        if item
+        for media_id in item["media_ids"]
+    }
+    earliest = min((_aware_datetime(row.previous_at) for row in rows[:limit]), default=cutoff)
+    history = (
+        list(
+            db.scalars(
+                select(MediaActivity)
+                .where(
+                    MediaActivity.integration_id.in_(source_ids),
+                    MediaActivity.provider_media_id.in_(media_ids),
+                    MediaActivity.occurred_at >= earliest - UPGRADE_GRAB_LOOKBACK,
+                    MediaActivity.occurred_at <= now,
+                )
+                .order_by(MediaActivity.occurred_at.desc(), MediaActivity.id.desc())
+                .limit(5001)
+            )
+        )
+        if media_ids
+        else []
+    )
+    history_truncated = len(history) > 5000
+    pairs = _upgrade_pairs(history) if not history_truncated else {}
+    imports_by_id = {item.id: item for item in history}
+    history_by_media: dict[tuple[int, int | None], list[MediaActivity]] = {}
+    for activity in history:
+        history_by_media.setdefault(
+            (activity.integration_id, activity.provider_media_id), []
+        ).append(activity)
+    evidence_by_media: dict[tuple[int, int | None], list[tuple[MediaActivity, _UpgradeChain]]] = {}
+    for import_id, chain in pairs.items():
+        imported = imports_by_id[import_id]
+        evidence_by_media.setdefault(
+            (imported.integration_id, imported.provider_media_id), []
+        ).append((imported, chain))
+    items = []
+    for row in rows[:limit]:
+        evidence = []
+        deletion_evidence = []
+        if row.before and not history_truncated:
+            for media_id in row.before["media_ids"]:
+                if any(
+                    activity.event_type == "file_deleted"
+                    and _aware_datetime(row.previous_at)
+                    < _aware_datetime(activity.occurred_at)
+                    <= _aware_datetime(row.observed_at)
+                    and (activity.bytes is None or activity.bytes == row.before["bytes"])
+                    for activity in history_by_media.get((row.integration_id, media_id), [])
+                ):
+                    deletion_evidence.append(media_id)
+        if row.before and row.after and row.change_type == "replaced":
+            for media_id in row.after["media_ids"]:
+                matches = [
+                    chain
+                    for imported, chain in evidence_by_media.get((row.integration_id, media_id), [])
+                    if _aware_datetime(row.previous_at)
+                    < _aware_datetime(imported.occurred_at)
+                    <= _aware_datetime(row.observed_at)
+                    and (
+                        row.before["quality"] is None
+                        or chain.deleted.quality == row.before["quality"]
+                    )
+                    and (row.after["quality"] is None or imported.quality == row.after["quality"])
+                    and (chain.deleted.bytes is None or chain.deleted.bytes == row.before["bytes"])
+                    and (imported.bytes is None or imported.bytes == row.after["bytes"])
+                ]
+                if len(matches) == 1:
+                    evidence.append(media_id)
+        items.append(
+            {
+                "instance": names[row.integration_id],
+                "change_type": row.change_type,
+                "previous_at": _aware_datetime(row.previous_at).isoformat(),
+                "previous_at_local_display": format_local_datetime(db, row.previous_at),
+                "observed_at": _aware_datetime(row.observed_at).isoformat(),
+                "observed_at_local_display": format_local_datetime(db, row.observed_at),
+                "crosses_requested_window": _aware_datetime(row.previous_at) < cutoff,
+                "before": row.before,
+                "after": row.after,
+                "logical_net_bytes": row.net_bytes,
+                "logical_net_display": _signed_bytes_display(row.net_bytes)
+                if row.net_bytes is not None
+                else None,
+                "provider_reported_deletion": bool(deletion_evidence)
+                and len(deletion_evidence) == len(row.before["media_ids"])
+                if row.before
+                else False,
+                "confirmed_upgrade_history": bool(evidence)
+                and len(evidence) == len(row.after["media_ids"])
+                if row.after
+                else False,
+            }
+        )
+    return {
+        "window_start_local_display": format_local_datetime(db, cutoff),
+        "window_end_local_display": format_local_datetime(db, now),
+        "retention_days": get_settings().retention_days,
+        "requested_window_exceeds_retention": cutoff
+        < now - timedelta(days=get_settings().retention_days),
+        "instances": [
+            {
+                "instance": source.name,
+                "provider": source.provider,
+                "status": source.config.get("inventory_status", "pending"),
+                "baseline_at_local_display": format_local_datetime(
+                    db, snapshots[source.id].baseline_at
+                )
+                if source.id in snapshots
+                else None,
+                "captured_at_local_display": format_local_datetime(
+                    db, snapshots[source.id].captured_at
+                )
+                if source.id in snapshots
+                else None,
+                "file_count": source.config.get("inventory_file_count"),
+                "baseline_covers_requested_start": _aware_datetime(snapshots[source.id].baseline_at)
+                <= cutoff
+                if source.id in snapshots
+                else False,
+                "known_logical_net_bytes": sum(
+                    group["known_logical_net_bytes"] for group in totals.get(source.id, {}).values()
+                ),
+                "known_logical_net_display": _signed_bytes_display(
+                    sum(
+                        group["known_logical_net_bytes"]
+                        for group in totals.get(source.id, {}).values()
+                    )
+                ),
+                "unknown_size_count": sum(
+                    group["unknown_size_count"] for group in totals.get(source.id, {}).values()
+                ),
+                "changes": totals.get(source.id, {}),
+                "boundary_crossing_changes_excluded_from_totals": boundary_counts.get(source.id, 0),
+            }
+            for source in integrations
+        ],
+        "items": items,
+        "items_truncated": len(rows) > limit,
+        "history_evidence_truncated": history_truncated,
+        "evidence_note": (
+            "Snapshots show provider inventory differences between observation times, not exact event times. "
+            "The first complete inventory is a baseline, not an addition. Totals exclude intervals crossing "
+            "the requested start and changes with unknown sizes from byte sums. Removed means absent from "
+            "the provider inventory, not proven disk deletion. Replaced does not prove a quality upgrade; "
+            "confirmed_upgrade_history requires matching provider Upgrade deletion/import evidence. "
+            "Logical file-size changes are not measured array usage. Storage scope and hardlinks are "
+            "unknown; libraries may overlap, so do not sum instances or subtract these totals from array "
+            "growth to invent an unexplained residual. Changes between polls may be missed, and history "
+            "older than retention is unavailable. file_changed is a provider-reported size change, "
+            "which may be a metadata correction."
+        ),
+    }
+
+
 TOOLS: dict[str, tuple[str, dict[str, Any], ToolHandler]] = {
+    "get_media_inventory_changes": (
+        "Get Sonarr/Radarr snapshot additions, removals, replacements, old/new sizes and per-instance totals. Use for storage-change evidence; logical sizes are not array usage or proven deletion causes.",
+        {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 365},
+                "today": {"type": "boolean"},
+                "provider": {"type": "string", "enum": ["sonarr", "radarr"]},
+                "instance": {"type": "string", "maxLength": 160},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "additionalProperties": False,
+        },
+        media_inventory_changes,
+    ),
     "get_server_overview": (
         "Get current combined Unraid array capacity (data disks only, excluding named pools), array status, and resource summary.",
         {"type": "object", "properties": {}, "additionalProperties": False},

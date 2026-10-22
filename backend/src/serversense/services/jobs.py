@@ -16,6 +16,7 @@ from serversense.models import (
     Event,
     InAppNotification,
     MediaActivity,
+    MediaInventoryChange,
     MediaSchedule,
     MetricSample,
     Session,
@@ -110,6 +111,7 @@ def cleanup_cycle() -> None:
         db.execute(delete(DiskSample).where(DiskSample.timestamp < cutoff))
         db.execute(delete(StorageSample).where(StorageSample.timestamp < cutoff))
         db.execute(delete(MediaActivity).where(MediaActivity.occurred_at < cutoff))
+        db.execute(delete(MediaInventoryChange).where(MediaInventoryChange.observed_at < cutoff))
         db.execute(
             delete(MediaSchedule).where(MediaSchedule.scheduled_at < now - timedelta(days=2))
         )
