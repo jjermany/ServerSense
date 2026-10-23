@@ -121,6 +121,7 @@ Last updated: 2026-10-21
 
 - [x] Mobile and touch form text uses 16px to prevent focus zoom while preserving pinch-to-zoom.
 - [x] Dashboard summaries receive seven-day inventory changes, per-instance size totals and coverage/failure status with ten bounded examples; paired upgrade summaries expose known net sizes and missing-size counts separately from array usage.
+- [x] Dashboard summary guidance favors concise observations, explicit baseline/reporting-period coverage, and specific evidence limits; avoids overlapping replacement/upgrade recaps and blanket unknown-cause conclusions.
 
 Ordinary SENSE prompts and configuration inputs opt out of credential autofill using browser and password-manager hints; authentication and MFA inputs retain their normal autofill semantics. Quality-upgrade title follow-ups must fetch fresh paired evidence, inherit the most recent requested period, and prefer an explicit current period. Broad snapshots carry up to 100 confirmed movie/episode identities from the same history records as their counts, with truncation labeled.
 

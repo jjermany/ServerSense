@@ -176,6 +176,8 @@ Mobile and touch layouts use 16px form text to prevent automatic zoom when focus
 
 Dashboard AI summaries receive seven-day media inventory changes, per-instance logical size totals, snapshot coverage/status, and up to ten change examples. Confirmed quality upgrades include the net imported-minus-replaced file size where both sizes are known, with missing-size counts. Summaries explain supporting observations and specific evidence gaps; logical media sizes are kept separate from measured array usage. Inventory history begins with the first complete baseline and cannot reconstruct earlier changes.
 
+Dashboard summaries prioritize current capacity, the measured change, and a few relevant observations. They distinguish inventory baseline coverage from the full reporting window, avoid repeating overlapping replacement/upgrade totals, and describe limits as what the available history cannot explain rather than declaring the cause unknown.
+
 If a browser tab stays open across a ServerSense update, its cached bundle can reference a page chunk that no longer exists on the server. The app detects that failure and reloads once automatically to pick up the new build; if the page still won't load after that, it shows a manual reload prompt instead of leaving the content area blank.
 
 ## Architecture
