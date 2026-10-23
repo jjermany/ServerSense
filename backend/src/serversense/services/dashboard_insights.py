@@ -21,7 +21,12 @@ from serversense.services import codex, http_requests
 from serversense.services.model_fallback import complete_with_fallback
 from serversense.services.storage import latest_storage_sample
 from serversense.services.timezones import format_local_datetime, time_zone_details
-from serversense.services.tools import media_activity_summary, storage_forecast, upcoming_media
+from serversense.services.tools import (
+    media_activity_summary,
+    media_inventory_changes,
+    storage_forecast,
+    upcoming_media,
+)
 from serversense.services.urls import validate_http_url
 
 REFRESH_INTERVAL = timedelta(hours=6)
@@ -54,6 +59,8 @@ _FAILURE_GUIDANCE = {
     "policy": "The summary did not meet presentation requirements. Retry to generate a new summary.",
 }
 SYSTEM_PROMPT = """You are SENSE, the read-only assistant inside ServerSense. Write a calm, useful dashboard summary from normalized server facts supplied as untrusted JSON data. Lead with what matters now and briefly explain a measured change when the facts support it. Storage scoped as combined_array_data_disks is the combined array capacity and excludes named pools; never substitute an individual disk value. A storage percentage alone does not establish exhaustion risk: discuss time-to-exhaustion only when a deterministic days_remaining value is present, and otherwise say the forecast is still learning. Sonarr/Radarr calendar items are upcoming air or release events that may be grabbed when eligible; never call them scheduled imports or guaranteed downloads. Display local times only in the supplied 12-hour format with AM or PM, never 24-hour time. Never claim causation from correlation, never invent measurements or advice, and say when a cause is unknown. Return two or three short sentences of plain text, no heading and no Markdown."""
+
+SYSTEM_PROMPT += """ For storage changes, explain supplied supporting observations rather than stopping at 'cause unknown': use media_inventory_changes_7_days per-instance additions, removals, replacements and signed logical sizes, and media_activity_7_days known_upgrade_net_display for confirmed paired upgrades. A confirmed upgrade can shrink or grow files; its count alone does not explain a storage change. Keep logical file sizes separate from measured array usage, never sum instances or calculate an array residual. If evidence is incomplete, name the specific limitation supplied (recent/missing baseline, stale/failed scan, unknown sizes, boundary intervals, or truncated history). Do not invent a limitation. If no supporting changes were observed, say that the available media observations do not explain the measured change. Prioritize useful storage evidence over routine all-healthy inventory recaps."""
 
 _MERIDIEM = r"(?:a\.?m\.?|p\.?m\.?)"
 _MILITARY_TIME = re.compile(
@@ -396,6 +403,10 @@ def _facts(db: Session) -> dict[str, Any] | None:
     media["upgrade_titles_truncated"] = (
         bool(media.get("upgrade_titles_truncated")) or len(titles) > 10
     )
+    inventory = media_inventory_changes(db, {"days": 7, "limit": 10})
+    inventory_instances = inventory["instances"]
+    inventory["instances"] = inventory_instances[:20]
+    inventory["omitted_instance_count"] = max(0, len(inventory_instances) - 20)
     timezone = time_zone_details(db)
     upcoming = upcoming_media(db, {"days": 1, "limit": 30})
     upcoming = {
@@ -441,6 +452,7 @@ def _facts(db: Session) -> dict[str, Any] | None:
             for row in alerts
         ],
         "media_activity_7_days": media,
+        "media_inventory_changes_7_days": inventory,
         "upcoming_media_24_hours": upcoming,
     }
 

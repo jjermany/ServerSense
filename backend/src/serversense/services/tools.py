@@ -412,6 +412,8 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
                 "events": {},
                 "known_import_bytes": 0,
                 "confirmed_quality_upgrades": 0,
+                "known_upgrade_net_bytes": 0,
+                "upgrade_unknown_size_count": 0,
                 "explicit_upgrade_deletions": 0,
                 "upgrade_deletions_without_matching_import": 0,
             },
@@ -422,10 +424,17 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
             group["known_import_bytes"] += row.bytes
         if row.event_type == "imported" and row.id in upgrade_pairs:
             group["confirmed_quality_upgrades"] += 1
+            deleted = upgrade_pairs[row.id].deleted
+            if row.bytes is not None and deleted.bytes is not None:
+                group["known_upgrade_net_bytes"] += row.bytes - deleted.bytes
+            else:
+                group["upgrade_unknown_size_count"] += 1
         elif row.event_type == "file_deleted" and row.is_upgrade:
             group["explicit_upgrade_deletions"] += 1
             if row.id not in paired_deletions:
                 group["upgrade_deletions_without_matching_import"] += 1
+    for group in instances.values():
+        group["known_upgrade_net_display"] = _signed_bytes_display(group["known_upgrade_net_bytes"])
     confirmed = [row for row in rows if row.event_type == "imported" and row.id in upgrade_pairs]
     upgrade_titles = [
         {
@@ -458,6 +467,10 @@ def media_activity_summary(db: Session, args: dict[str, Any]) -> dict[str, Any]:
         "evidence_note": (
             "known_import_bytes totals gross media import events; hardlinks, replacements, "
             "deletions, and incomplete size fields mean those totals do not prove net growth. "
+            "known_upgrade_net_bytes sums imported minus deleted sizes for confirmed pairs with "
+            "both sizes known; upgrade_unknown_size_count counts pairs excluded from this sum. "
+            "These are per-instance logical size changes, not measured array usage; never sum "
+            "overlapping instances or subtract them from array usage to invent a residual. "
             "measured_storage_change_bytes is a separate net combined-array measurement. "
             "The values may correlate, but telemetry does not prove media activity caused the "
             "measured storage change. "

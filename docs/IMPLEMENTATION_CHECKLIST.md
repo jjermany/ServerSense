@@ -119,6 +119,9 @@ Last updated: 2026-10-21
 
 ### SENSE investigation and input autofill
 
+- [x] Mobile and touch form text uses 16px to prevent focus zoom while preserving pinch-to-zoom.
+- [x] Dashboard summaries receive seven-day inventory changes, per-instance size totals and coverage/failure status with ten bounded examples; paired upgrade summaries expose known net sizes and missing-size counts separately from array usage.
+
 Ordinary SENSE prompts and configuration inputs opt out of credential autofill using browser and password-manager hints; authentication and MFA inputs retain their normal autofill semantics. Quality-upgrade title follow-ups must fetch fresh paired evidence, inherit the most recent requested period, and prefer an explicit current period. Broad snapshots carry up to 100 confirmed movie/episode identities from the same history records as their counts, with truncation labeled.
 
 Interactive Codex reasoning is configurable as low, medium (default), or high for primary and fallback providers. Snapshot the effort with each durable job; existing queued jobs without the option retain low effort. Background Codex explanations remain low effort. New configurations allow six tool calls by default; saved limits remain unchanged. SENSE may investigate missing evidence with relevant allowlisted read-only tools within its configured shared tool-call, context, and runtime budgets; it has no command or server-mutation access.

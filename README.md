@@ -172,6 +172,10 @@ You can replace recovery codes or disable MFA under **Settings → Security** us
 
 The web client bounds API requests and automatically retries its startup authentication check, so a temporary database lock or backend stall cannot leave the app permanently stuck on the connecting screen. Monitoring pages retain their most recent data across sidebar navigation and refresh it in the background instead of returning to an empty loading state.
 
+Mobile and touch layouts use 16px form text to prevent automatic zoom when focusing a field, while keeping pinch-to-zoom available.
+
+Dashboard AI summaries receive seven-day media inventory changes, per-instance logical size totals, snapshot coverage/status, and up to ten change examples. Confirmed quality upgrades include the net imported-minus-replaced file size where both sizes are known, with missing-size counts. Summaries explain supporting observations and specific evidence gaps; logical media sizes are kept separate from measured array usage. Inventory history begins with the first complete baseline and cannot reconstruct earlier changes.
+
 If a browser tab stays open across a ServerSense update, its cached bundle can reference a page chunk that no longer exists on the server. The app detects that failure and reloads once automatically to pick up the new build; if the page still won't load after that, it shows a manual reload prompt instead of leaving the content area blank.
 
 ## Architecture

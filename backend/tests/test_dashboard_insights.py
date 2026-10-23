@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -51,6 +52,9 @@ def test_dashboard_summary_is_opt_in_bounded_and_cached(monkeypatch: MonkeyPatch
         assert "combined_array_data_disks" in payload["messages"][0]["content"]
         assert "12-hour format with AM or PM" in payload["messages"][0]["content"]
         assert "never call them scheduled imports" in payload["messages"][0]["content"]
+        facts = json.loads(payload["messages"][1]["content"].split("\n", 1)[1])
+        assert "media_inventory_changes_7_days" in facts
+        assert "evidence_note" in facts["media_inventory_changes_7_days"]
         return httpx.Response(
             200,
             request=httpx.Request("POST", url),

@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session
 from serversense.db import Base, SessionLocal
 from serversense.models import (
     Integration,
+    MediaActivity,
     MediaInventoryChange,
     MediaInventorySnapshot,
+    StorageSample,
 )
 from serversense.services import integrations, media_inventory
 from serversense.services.ai import _required_tool
@@ -65,6 +67,80 @@ def normalized(file_id: int, media_id: int, size: int | None = 100) -> dict[str,
         bytes=size,
         quality="HD",
     ).model_dump()
+
+
+def test_dashboard_receives_inventory_totals_coverage_and_bounded_examples(db: Session) -> None:
+    from serversense.services.dashboard_insights import _facts
+
+    item = source(db)
+    now = datetime.now(UTC)
+    db.add(
+        StorageSample(
+            timestamp=now,
+            total_bytes=10_000,
+            used_bytes=4_000,
+            free_bytes=6_000,
+            source="unraid_array",
+        )
+    )
+    persist_inventory(
+        db,
+        item.id,
+        {str(i): normalized(i, i, 100) for i in range(1, 13)},
+        now - timedelta(days=2),
+    )
+    db.commit()
+    persist_inventory(db, item.id, {}, now - timedelta(hours=1))
+    db.commit()
+    facts = _facts(db)
+    assert facts is not None
+    evidence = facts["media_inventory_changes_7_days"]
+    instance = evidence["instances"][0]
+    assert instance["baseline_covers_requested_start"] is False
+    assert instance["changes"]["removed"]["count"] == 12
+    assert instance["known_logical_net_bytes"] == -1200
+    assert len(evidence["items"]) == 10
+    assert evidence["items_truncated"] is True
+    assert evidence["omitted_instance_count"] == 0
+    # A failed scan preserves observations but must be visible to the model.
+    item.config = item.config | {"inventory_status": "failed"}
+    db.commit()
+    facts = _facts(db)
+    assert facts is not None
+    assert facts["media_inventory_changes_7_days"]["instances"][0]["status"] == "failed"
+
+
+@pytest.mark.parametrize("import_size, expected, unknown", [(40, -60, 0), (None, 0, 1)])
+def test_upgrade_summary_distinguishes_shrinkage_and_missing_sizes(
+    db: Session,
+    import_size: int | None,
+    expected: int,
+    unknown: int,
+) -> None:
+    item = source(db)
+    now = datetime.now(UTC) - timedelta(hours=1)
+    for index, (event_type, size) in enumerate([("file_deleted", 100), ("imported", import_size)]):
+        db.add(
+            MediaActivity(
+                integration_id=item.id,
+                external_id=str(index),
+                occurred_at=now + timedelta(minutes=index),
+                provider=item.provider,
+                instance_name=item.name,
+                event_type=event_type,
+                media_type="movie",
+                title="Movie 1",
+                provider_media_id=1,
+                bytes=size,
+                is_upgrade=event_type == "file_deleted",
+            )
+        )
+    db.commit()
+    summary = execute_tool(db, "get_media_activity_summary", {"days": 7})
+    group = summary["instances"][item.name]
+    assert group["confirmed_quality_upgrades"] == 1
+    assert group["known_upgrade_net_bytes"] == expected
+    assert group["upgrade_unknown_size_count"] == unknown
 
 
 def test_baseline_diff_history_correlation_and_durable_reload(
@@ -128,6 +204,10 @@ def test_baseline_diff_history_correlation_and_durable_reload(
     replacement = next(row for row in result["items"] if row["change_type"] == "replaced")
     assert replacement["confirmed_upgrade_history"] is True
     assert replacement["logical_net_bytes"] == 150
+    summary = execute_tool(db, "get_media_activity_summary", {"days": 1})
+    group = summary["instances"][item.name]
+    assert group["known_upgrade_net_bytes"] == 150
+    assert group["upgrade_unknown_size_count"] == 0
     assert (
         "AM" in replacement["observed_at_local_display"]
         or "PM" in replacement["observed_at_local_display"]
