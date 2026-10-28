@@ -16,6 +16,7 @@ from serversense.schemas import (
     ChatResponse,
     ConversationRename,
     JobNotificationPreference,
+    JobViewerPresence,
 )
 from serversense.security import current_user
 from serversense.services.ai_config import read_ai_config
@@ -25,6 +26,7 @@ from serversense.services.sense_jobs import (
     create_job,
     public_job,
     queue_position,
+    set_job_viewer,
 )
 from serversense.services.sense_router import Intent, RoutedRequest, route_request
 
@@ -452,6 +454,22 @@ def job_status(
     if not job or job.user_id != user.id:
         raise HTTPException(404, "SENSE job not found")
     return public_job(job, queue_position(db, job))
+
+
+@router.post("/jobs/{job_id}/viewer")
+async def update_job_viewer(
+    job_id: str,
+    payload: JobViewerPresence,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> dict[str, bool]:
+    job = db.get(AIJob, job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "SENSE job not found")
+    set_job_viewer(
+        job.id, str(payload.viewer_id), payload.visible and job.status not in TERMINAL_STATUSES
+    )
+    return {"visible": payload.visible and job.status not in TERMINAL_STATUSES}
 
 
 @router.patch("/jobs/{job_id}/notification")

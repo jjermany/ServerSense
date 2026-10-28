@@ -205,3 +205,5 @@ Ordinary SENSE prompts and configuration inputs opt out of credential autofill u
 Interactive Codex reasoning is configurable as low, medium (default), or high for primary and fallback providers. Snapshot the effort with each durable job; existing queued jobs without the option retain low effort. Background Codex explanations remain low effort. New configurations allow six tool calls by default; saved limits remain unchanged. SENSE may investigate missing evidence with relevant allowlisted read-only tools within its configured shared tool-call, context, and runtime budgets; it has no command or server-mutation access.
 
 - SENSE completion notifications require the configured background threshold (30 seconds by default). Visible answers automatically dismiss their matching unread notifications; browser popups are suppressed while SENSE is visible.
+
+- SENSE suppresses in-app and external completion notifications while the specific job has an authenticated visible-viewer lease. Browser presence renews every five seconds, expires after fifteen seconds, and clears on hide/navigation without changing notification preferences.

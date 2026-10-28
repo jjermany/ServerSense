@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -33,6 +34,30 @@ _active: dict[str, asyncio.Task[None]] = {}
 _shutting_down = False
 logger = logging.getLogger(__name__)
 NOTIFICATION_SUMMARY_LIMIT = 200
+VIEWER_LEASE_SECONDS = 15.0
+_viewers: dict[tuple[str, str], float] = {}
+
+
+def _expire_viewers() -> None:
+    now = time.monotonic()
+    for key, expires in list(_viewers.items()):
+        if expires <= now:
+            _viewers.pop(key, None)
+
+
+def set_job_viewer(job_id: str, viewer_id: str, visible: bool) -> None:
+    """Track bounded ephemeral browser presence; never change notification preferences."""
+    _expire_viewers()
+    key = (job_id, viewer_id)
+    if not visible:
+        _viewers.pop(key, None)
+    elif key in _viewers or len(_viewers) < 1024:
+        _viewers[key] = time.monotonic() + VIEWER_LEASE_SECONDS
+
+
+def _job_is_viewed(job_id: str) -> bool:
+    _expire_viewers()
+    return any(key[0] == job_id for key in _viewers)
 
 
 def public_job(job: AIJob, queue_position: int | None = None) -> dict[str, Any]:
@@ -370,6 +395,7 @@ def _add_notification(
         not job.notify_on_completion
         or job.completion_notification_sent
         or job.backgrounded_at is None
+        or _job_is_viewed(job.id)
     ):
         return None
     summary = _notification_summary(preview)

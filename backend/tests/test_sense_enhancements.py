@@ -22,6 +22,7 @@ from serversense.services.ai import ChatEvent
 from serversense.services.sense_jobs import (
     NOTIFICATION_SUMMARY_LIMIT,
     _curated_context,
+    _job_is_viewed,
     _notification_summary,
     _run_job,
     _safe_error,
@@ -30,12 +31,14 @@ from serversense.services.sense_jobs import (
     create_job,
     queue_position,
     reconcile_interrupted_jobs,
+    set_job_viewer,
 )
 from serversense.services.sense_router import RoutedRequest, classify_intent
 
 
 @pytest.fixture(autouse=True)
 def isolate_external_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("serversense.services.sense_jobs._viewers", {})
     monkeypatch.setattr(
         "serversense.services.sense_jobs.dispatch_notifications",
         lambda db, alerts: [],
@@ -477,7 +480,7 @@ async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkey
         )
         db.add(user)
         db.flush()
-        for notify in (True, False):
+        for notify in (True, False, True, True, True):
             conversation = AIConversation(title=f"Notify {notify}")
             db.add(conversation)
             db.flush()
@@ -509,6 +512,12 @@ async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkey
             )
             job_ids.append(job.id)
 
+    from serversense.services import sense_jobs
+
+    set_job_viewer(job_ids[2], "visible-browser", True)
+    set_job_viewer(job_ids[3], "hidden-browser", True)
+    set_job_viewer(job_ids[3], "hidden-browser", False)
+    sense_jobs._viewers[(job_ids[4], "disconnected-browser")] = 0
     for job_id in job_ids:
         await _run_job(job_id)
 
@@ -516,13 +525,13 @@ async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkey
         notices = list(
             db.scalars(select(InAppNotification).where(InAppNotification.job_id.in_(job_ids)))
         )
-        assert [notice.job_id for notice in notices] == [job_ids[0]]
+        assert [notice.job_id for notice in notices] == [job_ids[0], job_ids[3], job_ids[4]]
         notified = db.get(AIJob, job_ids[0])
         assert notified is not None
         assert notified.completion_notification_sent is True
         assert notified.notification_id == notices[0].id
         assert len(notices[0].preview) <= NOTIFICATION_SUMMARY_LIMIT
-        assert len(delivered) == 1
+        assert len(delivered) == 3
         assert delivered[0].alert_type == "sense_job"
         assert delivered[0].message == notices[0].preview
         assert len(delivered[0].message) <= NOTIFICATION_SUMMARY_LIMIT
@@ -803,3 +812,81 @@ def test_broad_snapshot_compacts_upgrade_titles_without_losing_counts(monkeypatc
     assert summary["instances"]["Movies"]["confirmed_quality_upgrades"] == 100
     assert summary["upgrade_titles_truncated"] is True
     assert len(summary["confirmed_upgrade_titles"]) < 100
+
+
+def test_viewer_presence_expires_and_tracks_tabs_independently(monkeypatch) -> None:
+    from serversense.services import sense_jobs
+
+    set_job_viewer("viewed-job", "tab-one", True)
+    set_job_viewer("viewed-job", "tab-two", True)
+    set_job_viewer("viewed-job", "tab-one", False)
+    assert _job_is_viewed("viewed-job")
+    assert not _job_is_viewed("another-job")
+    sense_jobs._viewers[("viewed-job", "tab-two")] = 0
+    assert not _job_is_viewed("viewed-job")
+    assert not sense_jobs._viewers
+    monkeypatch.setattr(
+        sense_jobs, "_viewers", {(str(i), "tab"): float("inf") for i in range(1024)}
+    )
+    set_job_viewer("overflow", "tab", True)
+    assert len(sense_jobs._viewers) == 1024
+    assert not _job_is_viewed("overflow")
+
+
+def test_job_viewer_requires_ownership_and_valid_presence(authenticated_client: TestClient) -> None:
+    with SessionLocal() as db:
+        owner = db.scalar(select(User).where(User.username == "administrator"))
+        assert owner is not None
+        other = User(
+            username=f"viewer-other-{datetime.now(UTC).timestamp()}", password_hash="unused"
+        )
+        conversation = AIConversation(title="Viewer permissions")
+        db.add_all([other, conversation])
+        db.flush()
+        message = AIMessage(
+            conversation_id=conversation.id,
+            timestamp=datetime.now(UTC),
+            role="user",
+            content="Explain storage",
+            source="user",
+            references={},
+        )
+        db.add(message)
+        db.flush()
+        jobs = [
+            create_job(
+                db,
+                user_id,
+                conversation,
+                message,
+                "analysis",
+                {"provider": "ollama", "model": "test-model"},
+                [],
+            )
+            for user_id in (owner.id, other.id)
+        ]
+        job_ids = [job.id for job in jobs]
+    payload = {"viewer_id": "00000000000040008000000000000001", "visible": True}
+    endpoint = f"/api/ai/jobs/{job_ids[0]}/viewer"
+    assert authenticated_client.post(endpoint, json=payload).status_code == 200
+    assert _job_is_viewed(job_ids[0])
+    assert (
+        authenticated_client.post(f"/api/ai/jobs/{job_ids[1]}/viewer", json=payload).status_code
+        == 404
+    )
+    assert not _job_is_viewed(job_ids[1])
+    assert (
+        authenticated_client.post(
+            endpoint, json={"viewer_id": "invalid", "visible": True}
+        ).status_code
+        == 422
+    )
+    assert authenticated_client.post(endpoint, json=payload | {"visible": False}).status_code == 200
+    assert not _job_is_viewed(job_ids[0])
+    with SessionLocal() as db:
+        job = db.get(AIJob, job_ids[0])
+        assert job is not None
+        job.status = "completed"
+        db.commit()
+    assert authenticated_client.post(endpoint, json=payload).json() == {"visible": False}
+    assert not _job_is_viewed(job_ids[0])

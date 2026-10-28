@@ -147,6 +147,11 @@ class ConversationRename(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class JobViewerPresence(BaseModel):
+    viewer_id: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-f]{32}$")
+    visible: bool
+
+
 class JobNotificationPreference(BaseModel):
     notify_on_completion: bool
 

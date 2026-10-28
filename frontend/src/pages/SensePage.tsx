@@ -98,6 +98,7 @@ export default function SensePage() {
   const [showHistory, setShowHistory] = useState(false);
   const [longRunningJob, setLongRunningJob] = useState<string>();
   const [activeStreamJob, setActiveStreamJob] = useState<string>();
+  const [streamConversation, setStreamConversation] = useState<number>();
   const [foregroundNotify, setForegroundNotify] = useState(true);
   const [quickTelemetryError, setQuickTelemetryError] = useState("");
   const [retryingJobs, setRetryingJobs] = useState<Set<string>>(() => new Set());
@@ -153,6 +154,30 @@ export default function SensePage() {
     document.addEventListener("visibilitychange", acknowledgeVisibleAnswers);
     return () => document.removeEventListener("visibilitychange", acknowledgeVisibleAnswers);
   }, [conversation, messages, notices]);
+
+  const viewedJob = (streamConversation === conversation ? activeStreamJob : undefined) ?? jobs.find(
+    (job) => job.conversation_id === conversation && !terminal.has(job.status),
+  )?.id;
+  useEffect(() => {
+    if (!viewedJob) return;
+    const viewerId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+      (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const report = (visible: boolean) => {
+      void api(`/api/ai/jobs/${viewedJob}/viewer`, {
+        method: "POST",
+        body: JSON.stringify({ viewer_id: viewerId, visible }),
+      }).catch(() => undefined);
+    };
+    const update = () => report(document.visibilityState === "visible");
+    update();
+    const timer = window.setInterval(update, 5000);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", update);
+      report(false);
+    };
+  }, [viewedJob]);
 
   useEffect(() => void loadConversations(), [loadConversations]);
   useEffect(() => {
@@ -272,6 +297,7 @@ export default function SensePage() {
           if (data.request_id) {
             requestIdRef.current = data.request_id;
             setActiveStreamJob(data.request_id);
+            setStreamConversation(data.conversation_id);
           }
           if (data.conversation_id) setConversation(data.conversation_id);
           if (event === "activity") setActivity(data.message);

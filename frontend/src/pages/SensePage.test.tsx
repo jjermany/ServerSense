@@ -78,6 +78,7 @@ describe("SENSE requests", () => {
   });
 
   it("keeps streaming after the long-running threshold and allows notification control", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     const encoder = new TextEncoder();
     let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
     let requestSignal: AbortSignal | null | undefined;
@@ -110,7 +111,7 @@ describe("SENSE requests", () => {
           backgrounded = true;
           controller.enqueue(
             encoder.encode(
-              'event: backgrounded\ndata: {"message":"SENSE AI is still working.","job_id":"job-456","notify_on_completion":true}\n\n',
+              'event: backgrounded\ndata: {"message":"SENSE AI is still working.","job_id":"job-456","request_id":"job-456","conversation_id":4,"notify_on_completion":true}\n\n',
             ),
           );
         },
@@ -132,6 +133,16 @@ describe("SENSE requests", () => {
     );
 
     expect((await screen.findAllByText("SENSE AI is still working.")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/ai/jobs/job-456/viewer", {
+      method: "POST", body: expect.stringContaining('"visible":true'),
+    }));
+    visibility.mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/ai/jobs/job-456/viewer", {
+      method: "POST", body: expect.stringContaining('"visible":false'),
+    }));
+    visibility.mockReturnValue("visible");
+    fireEvent(document, new Event("visibilitychange"));
     expect(requestSignal?.aborted).toBe(false);
     const notifyControls = screen.getAllByRole("checkbox", { name: "Notify me when complete" });
     expect(notifyControls).toHaveLength(1);
