@@ -57,6 +57,7 @@ type Job = {
 };
 type Notice = {
   id: number;
+  message_id?: number | null;
   title: string;
   preview: string;
   conversation_id?: number;
@@ -129,6 +130,29 @@ export default function SensePage() {
     setNotices(notificationRows?.items ?? []);
     setUnread(notificationRows?.unread ?? 0);
   }, []);
+
+  useEffect(() => {
+    const acknowledgeVisibleAnswers = () => {
+      if (document.visibilityState !== "visible") return;
+      const visibleIds = new Set(messages.map((message) => message.id));
+      const seen = notices.filter((notice) =>
+        !notice.read_at && notice.conversation_id === conversation &&
+        notice.message_id != null && visibleIds.has(notice.message_id),
+      );
+      if (!seen.length) return;
+      void Promise.all(seen.map((notice) =>
+        api(`/api/ai/notifications/${notice.id}`, { method: "DELETE" }),
+      )).then(() => {
+        const ids = new Set(seen.map((notice) => notice.id));
+        setNotices((current) => current.filter((notice) => !ids.has(notice.id)));
+        setUnread((current) => Math.max(0, current - seen.length));
+        window.dispatchEvent(new Event("serversense:notifications-updated"));
+      }).catch(() => undefined);
+    };
+    acknowledgeVisibleAnswers();
+    document.addEventListener("visibilitychange", acknowledgeVisibleAnswers);
+    return () => document.removeEventListener("visibilitychange", acknowledgeVisibleAnswers);
+  }, [conversation, messages, notices]);
 
   useEffect(() => void loadConversations(), [loadConversations]);
   useEffect(() => {
@@ -237,6 +261,7 @@ export default function SensePage() {
             source?: "serversense" | "sense_ai";
             request_id?: string;
             job_id?: string;
+            message_id?: number;
             status?: string;
             queue_position?: number;
             notify_on_completion?: boolean;
@@ -286,6 +311,7 @@ export default function SensePage() {
             setMessages((current) => [
               ...current,
               {
+                id: data.message_id,
                 role: "assistant",
                 content: data.message,
                 tools: data.tools_used,
@@ -306,6 +332,7 @@ export default function SensePage() {
             setMessages((current) => [
               ...current,
               {
+                id: data.message_id,
                 role: "assistant",
                 content: data.message || data.error || `SENSE job was ${data.status}.`,
                 model: data.model,

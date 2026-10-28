@@ -13,6 +13,7 @@ describe("SENSE requests", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("keeps the assistant prompt out of credential autofill", async () => {
@@ -330,6 +331,34 @@ describe("SENSE requests", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("automatically dismisses only notifications whose answer is visible", async () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    vi.mocked(api).mockImplementation((path) => {
+      if (path === "/api/ai/conversations") return Promise.resolve([
+        { id: 7, title: "Storage forecast", updated_at: "2026-08-26T00:00:00Z" },
+      ]);
+      if (path === "/api/ai/conversations/7") return Promise.resolve({
+        id: 7, messages: [{ id: 42, role: "assistant", content: "Storage is healthy" }],
+      });
+      if (path === "/api/ai/notifications") return Promise.resolve({ unread: 3, items: [
+        { id: 12, conversation_id: 7, message_id: 42, title: "Visible answer", read_at: null },
+        { id: 13, conversation_id: 8, message_id: 43, title: "Other conversation", read_at: null },
+        { id: 14, conversation_id: 7, message_id: 44, title: "Unloaded answer", read_at: null },
+      ] });
+      return Promise.resolve([]);
+    });
+    render(<SensePage />);
+    fireEvent.click(await screen.findByRole("button", { name: /CONVERSATIONS/i }));
+    fireEvent.click(await screen.findByText("Storage forecast"));
+    await screen.findByText("Storage is healthy");
+    expect(api).not.toHaveBeenCalledWith("/api/ai/notifications/12", { method: "DELETE" });
+    visibility.mockReturnValue("visible");
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/ai/notifications/12", { method: "DELETE" }));
+    expect(api).not.toHaveBeenCalledWith("/api/ai/notifications/13", expect.anything());
+    expect(api).not.toHaveBeenCalledWith("/api/ai/notifications/14", expect.anything());
   });
 
   it("dismisses individual notifications", async () => {

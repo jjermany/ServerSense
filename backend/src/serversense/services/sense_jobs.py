@@ -366,7 +366,11 @@ def _add_notification(
     message_id: int | None,
     now: datetime,
 ) -> Alert | None:
-    if not job.notify_on_completion or job.completion_notification_sent:
+    if (
+        not job.notify_on_completion
+        or job.completion_notification_sent
+        or job.backgrounded_at is None
+    ):
         return None
     summary = _notification_summary(preview)
     notification = InAppNotification(

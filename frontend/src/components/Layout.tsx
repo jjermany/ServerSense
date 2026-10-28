@@ -1,6 +1,6 @@
 import { Bell, Bot, Container, Gauge, HardDrive, LogOut, Menu, Settings, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api } from '../api'
 import { Brand } from '../App'
 import { clearLiveQueryCache } from '../hooks/useLiveQuery'
@@ -15,6 +15,9 @@ const providerLabel = (provider: string) =>
   provider === 'ollama' ? 'Ollama' : provider === 'openai_compatible' ? 'OpenAI-compatible' : 'AI'
 
 export default function Layout({ onLogout }: { onLogout: () => void }) {
+  const location = useLocation()
+  const viewingSense = useRef(false)
+  useEffect(() => { viewingSense.current = location.pathname === "/sense" }, [location.pathname])
   const [open, setOpen] = useState(false)
   const [monitoringConnected, setMonitoringConnected] = useState<boolean | null>(null)
   const [senseUnread, setSenseUnread] = useState(0)
@@ -59,7 +62,7 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
           if (!active) return
           setSenseUnread(result?.unread ?? 0)
           const newest = result?.items?.[0]
-          if (lastNoticeId.current != null && newest?.id > lastNoticeId.current && browserNotices.current && 'Notification' in window && Notification.permission === 'granted') {
+          if (lastNoticeId.current != null && newest?.id > lastNoticeId.current && browserNotices.current && !(viewingSense.current && document.visibilityState === 'visible') && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(newest.title, { body: newest.preview })
           }
           if (newest) lastNoticeId.current = newest.id
@@ -67,10 +70,12 @@ export default function Layout({ onLogout }: { onLogout: () => void }) {
         .catch(() => undefined)
     }
     refresh()
+    window.addEventListener('serversense:notifications-updated', refresh)
     const timer = window.setInterval(refresh, 5000)
     return () => {
       active = false
       window.clearInterval(timer)
+      window.removeEventListener('serversense:notifications-updated', refresh)
       window.removeEventListener('serversense:ai-settings-updated', refreshSenseConfig)
     }
   }, [])

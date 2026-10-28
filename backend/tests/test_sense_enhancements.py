@@ -430,6 +430,7 @@ async def test_fast_completed_job_persists_ai_provenance_without_notification(mo
                 "endpoint": "http://model.invalid",
                 "tool_calling": "auto",
                 "background_threshold_seconds": 30,
+                "notify_long_running_jobs": True,
             },
             [],
         )
