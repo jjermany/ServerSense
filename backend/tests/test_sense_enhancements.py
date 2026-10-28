@@ -837,7 +837,13 @@ def test_viewer_presence_expires_and_tracks_tabs_independently(monkeypatch) -> N
     assert not _job_is_viewed("overflow")
 
 
-def test_job_viewer_requires_ownership_and_valid_presence(authenticated_client: TestClient) -> None:
+def test_job_viewer_requires_ownership_and_valid_presence(
+    authenticated_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "serversense.services.sense_jobs.read_ai_config",
+        lambda db: {"max_concurrent_jobs": 0},
+    )
     with SessionLocal() as db:
         owner = db.scalar(select(User).where(User.username == "administrator"))
         assert owner is not None
