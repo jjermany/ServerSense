@@ -523,7 +523,11 @@ async def test_backgrounded_job_notifies_once_and_respects_job_preference(monkey
 
     with SessionLocal() as db:
         notices = list(
-            db.scalars(select(InAppNotification).where(InAppNotification.job_id.in_(job_ids)))
+            db.scalars(
+                select(InAppNotification)
+                .where(InAppNotification.job_id.in_(job_ids))
+                .order_by(InAppNotification.id)
+            )
         )
         assert [notice.job_id for notice in notices] == [job_ids[0], job_ids[3], job_ids[4]]
         notified = db.get(AIJob, job_ids[0])
